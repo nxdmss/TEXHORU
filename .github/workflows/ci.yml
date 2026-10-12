@@ -1,0 +1,27 @@
+name: TEXHORU CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm --prefix server install
+      - run: cp server/.env.example server/.env.local
+      - run: npm --prefix server run prisma:local:generate
+        env:
+          DATABASE_URL: file:./dev-local.db
+      - run: npm --prefix server run prisma:local:push
+        env:
+          DATABASE_URL: file:./dev-local.db
+      - run: npm run build:all

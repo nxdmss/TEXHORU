@@ -16,7 +16,7 @@ import { ProductsModule } from './products/products.module'
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.TEXHORU_ENV_FILE ?? '.env' }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.TEXHORU_ENV_FILE ?? ['.env.local', '.env'] }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     AuditModule,

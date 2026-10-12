@@ -5,8 +5,16 @@ server/dist/
 .texhoru/
 server/prisma/dev-local.db
 server/prisma/dev-local.db-journal
+server/prisma/dev-local.db-wal
+server/prisma/dev-local.db-shm
 server/uploads/
 server/.env
 server/.env.local
 *.log
 .DS_Store
+.vscode/
+.idea/
+TEXHORU.exe
+TEXHORU STOP.exe
+icons/*.ico
+*.zip
