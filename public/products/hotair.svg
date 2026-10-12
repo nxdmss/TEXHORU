@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 340">
+<rect width="340" height="340" fill="#e8e8e3"/>
+<g fill="none" stroke="#111" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><rect x="74" y="82" width="184" height="134" rx="8"/><rect x="96" y="106" width="70" height="34" rx="3"/><circle cx="209" cy="123" r="17"/><path d="M112 216 C126 239 165 241 179 218"/><path d="M208 216 C220 232 240 229 252 214"/></g>
+<text x="28" y="292" font-family="monospace" font-size="15" font-weight="700" fill="#111">HOT AIR</text>
+<text x="28" y="314" font-family="monospace" font-size="12" fill="#555">861DW  /  420°C</text>
+</svg>

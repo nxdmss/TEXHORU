@@ -1,0 +1,32 @@
+{
+  "name": "texhoru",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev:api": "npm --prefix server run start:dev",
+    "install:api": "npm --prefix server install",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose down",
+    "build": "tsc -b && vite build",
+    "build:api": "npm --prefix server run build",
+    "preview": "vite preview",
+    "dev:local:api": "npm --prefix server run start:dev",
+    "db:local:generate": "npm --prefix server run prisma:local:generate",
+    "db:local:push": "npm --prefix server run prisma:local:push"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "vite": "^7.1.9",
+    "typescript": "~5.9.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "@fontsource/ibm-plex-mono": "^5.2.6",
+    "@fontsource/ibm-plex-sans": "^5.2.6"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9"
+  }
+}

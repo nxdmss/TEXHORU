@@ -1,0 +1,12 @@
+node_modules/
+server/node_modules/
+dist/
+server/dist/
+.texhoru/
+server/prisma/dev-local.db
+server/prisma/dev-local.db-journal
+server/uploads/
+server/.env
+server/.env.local
+*.log
+.DS_Store

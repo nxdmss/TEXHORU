@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  MANAGER
+  DIRECTOR
+  ADMIN
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum StockState {
+  IN_STOCK
+  LOW
+  PREORDER
+  OUT_OF_STOCK
+}
+
+enum OrderStatus {
+  NEW
+  AWAITING_PAYMENT
+  PAID
+  ASSEMBLING
+  READY
+  DELIVERING
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  NOT_STARTED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  ONLINE
+  ON_RECEIPT
+}
+
+enum DeliveryMethod {
+  PICKUP
+  COURIER
+}
+
+enum SyncDirection {
+  FROM_1C
+  TO_1C
+}
+
+enum SyncStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  phone        String?  @unique
+  name         String
+  passwordHash String
+  role         UserRole @default(CUSTOMER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  orders       Order[]
+  auditLogs    AuditLog[]
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  oneCId    String?   @unique
+  slug      String    @unique
+  name      String
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
+model Product {
+  id           Int           @id @default(autoincrement())
+  oneCId       String?       @unique
+  sku          String        @unique
+  slug         String        @unique
+  name         String
+  brand        String
+  description  String        @default("")
+  shortSpec    String        @default("")
+  image        String        @default("")
+  price        Int
+  oldPrice     Int?
+  stockQty     Int           @default(0)
+  reservedQty  Int           @default(0)
+  stockState   StockState    @default(IN_STOCK)
+  status       ProductStatus @default(ACTIVE)
+  badge        String?
+  warranty     String        @default("")
+  deliveryNote String        @default("")
+  specs        Json          @default("[]")
+  categoryId   String
+  category     Category      @relation(fields: [categoryId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  orderItems   OrderItem[]
+
+  @@index([categoryId, status])
+  @@index([brand])
+  @@index([updatedAt])
+}
+
+model Order {
+  id                    String         @id @default(cuid())
+  number                Int            @unique @default(autoincrement())
+  trackingToken         String         @unique @default(uuid())
+  idempotencyKey        String         @unique
+  userId                String?
+  user                   User?          @relation(fields: [userId], references: [id])
+  customerName          String
+  customerPhone         String
+  customerEmail         String?
+  deliveryMethod        DeliveryMethod @default(PICKUP)
+  deliveryAddress       String
+  paymentMethod         PaymentMethod  @default(ON_RECEIPT)
+  comment               String?
+  status                OrderStatus    @default(NEW)
+  paymentStatus         PaymentStatus  @default(NOT_STARTED)
+  total                  Int
+  oneCId                 String?        @unique
+  oneCSyncedAt           DateTime?
+  reservationReleasedAt DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  items                  OrderItem[]
+  payments               Payment[]
+
+  @@index([status, createdAt])
+  @@index([oneCSyncedAt])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId Int
+  sku       String
+  name      String
+  price     Int
+  quantity  Int
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  orderId    String
+  provider   String
+  externalId String?       @unique
+  amount     Int
+  status     PaymentStatus @default(PENDING)
+  payload    Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  order      Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model PromoBanner {
+  id        String   @id @default(cuid())
+  kicker    String
+  title     String
+  body      String
+  ctaLabel  String
+  category  String
+  image     String
+  tone      String   @default("light")
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([isRead, createdAt])
+}
+
+model SyncLog {
+  id        String        @id @default(cuid())
+  direction SyncDirection
+  entity    String
+  entityId  String?
+  status    SyncStatus
+  message   String?
+  payload   Json?
+  createdAt DateTime      @default(now())
+
+  @@index([direction, status, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
