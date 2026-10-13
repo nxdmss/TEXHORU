@@ -1,11 +1,11 @@
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, API_URL, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
+import { api, API_URL, type ApiCategory, type ApiProduct, type PriceMonitorItem, type PromoBanner, type TrackedOrder } from './api'
 import { activeOrders, categories, orderHistory, products as fallbackProducts } from './data'
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
 const money = new Intl.NumberFormat('ru-RU')
 type AccountTab = 'active' | 'history' | 'profile'
-type AdminTab = 'overview' | 'products' | 'content' | 'orders' | 'notifications' | 'sync' | 'audit'
+type AdminTab = 'overview' | 'products' | 'content' | 'prices' | 'orders' | 'notifications' | 'sync' | 'audit'
 type CreatedOrder = { number: number; trackingToken: string; paymentMethod: 'ONLINE' | 'ON_RECEIPT' }
 
 const defaultPromos: PromoBanner[] = [
@@ -362,7 +362,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [promoDraft, setPromoDraft] = useState<PromoDraft>(() => blankPromoDraft())
   const [promoUploading, setPromoUploading] = useState(false)
   const [promoSaving, setPromoSaving] = useState(false)
-  const [promoImageInfo, setPromoImageInfo] = useState('Рекомендуется 1920×720 px · 8:3 · JPG/WEBP · до 2 МБ')
+  const [promoImageInfo, setPromoImageInfo] = useState('Рекомендуется 1600×720 px · широкий баннер · JPG/WEBP · до 2 МБ')
   const promoCropDrag = useRef<{ pointerId: number; clientX: number; clientY: number; imageX: number; imageY: number; width: number; height: number } | null>(null)
   const [categoryCreating, setCategoryCreating] = useState(false)
   const [categoryDraft, setCategoryDraft] = useState({ name: '', slug: '' })
@@ -373,12 +373,22 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [editingProductId, setEditingProductId] = useState<number | null>(null)
   const [productDraft, setProductDraft] = useState<AdminProductDraft>(() => blankProductDraft())
   const [savingProduct, setSavingProduct] = useState(false)
+  const [priceItems, setPriceItems] = useState<PriceMonitorItem[]>([])
+  const [priceUrl, setPriceUrl] = useState('https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-e-sim-bez-rustore-24007/')
+  const [priceProductId, setPriceProductId] = useState('')
+  const [priceChecking, setPriceChecking] = useState(false)
+  const [priceCatalogUrl, setPriceCatalogUrl] = useState('https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/')
+  const [priceImportLimit, setPriceImportLimit] = useState('12')
+  const [priceImporting, setPriceImporting] = useState(false)
+  const [priceImportMessage, setPriceImportMessage] = useState('')
+  const [priceApplyingId, setPriceApplyingId] = useState<string | null>(null)
+  const [priceClearing, setPriceClearing] = useState(false)
 
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const [p, o, n, l, c, promosData, auditData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs()])
-      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData)
+      const [p, o, n, l, c, promosData, auditData, priceData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs(), api.adminPriceMonitor()])
+      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData); setPriceItems(priceData)
       setProductDraft((value) => value.categoryId ? value : { ...value, categoryId: c[0]?.id ?? '' })
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось загрузить админку') } finally { setLoading(false) }
   }
@@ -583,11 +593,74 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     try { await api.adminDeleteProduct(item.id); await load() } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось удалить товар') }
   }
 
+  const checkCompetitorPrice = async (event: FormEvent) => {
+    event.preventDefault()
+    setPriceChecking(true)
+    setError('')
+    try {
+      await api.adminCheckCompetitorPrice({
+        url: priceUrl.trim(),
+        productId: priceProductId ? Number(priceProductId) : undefined,
+      })
+      setPriceItems(await api.adminPriceMonitor())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось проверить цену')
+      setPriceItems(await api.adminPriceMonitor().catch(() => priceItems))
+    } finally {
+      setPriceChecking(false)
+    }
+  }
+
+  const importFiveRuCatalog = async (event: FormEvent) => {
+    event.preventDefault()
+    setPriceImporting(true)
+    setPriceImportMessage('')
+    setError('')
+    try {
+      const result = await api.adminImportFiveRuCatalog({ url: priceCatalogUrl.trim(), limit: Number(priceImportLimit || 12) })
+      setPriceImportMessage(`Импортировано: ${result.imported}. Новых: ${result.created}, обновлено: ${result.updated}. Разделов: ${result.categories.length}. Ошибок карточек: ${result.errors}.`)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось импортировать раздел 05.ru')
+    } finally {
+      setPriceImporting(false)
+    }
+  }
+
+  const applyRecommendedPrice = async (id: string) => {
+    setPriceApplyingId(id)
+    setError('')
+    try {
+      await api.adminApplyRecommendedPrice(id)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось применить цену')
+    } finally {
+      setPriceApplyingId(null)
+    }
+  }
+
+  const clearFiveRuTestImport = async () => {
+    if (!confirm('Удалить все тестовые товары с SKU 05RU-* и пустые тестовые разделы 05.ru? Реальные товары и 1С не затрагиваются.')) return
+    setPriceClearing(true)
+    setError('')
+    setPriceImportMessage('')
+    try {
+      const result = await api.adminClearFiveRuTestImport()
+      setPriceImportMessage(`Тестовый импорт очищен. Удалено товаров: ${result.deleted}, архивировано из-за заказов: ${result.archived}, удалено разделов: ${result.categoriesDeleted}.`)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось очистить тестовый импорт')
+    } finally {
+      setPriceClearing(false)
+    }
+  }
+
   if (checkingSession) return <section className="admin-shell"><div className="admin-loading">Проверяем сессию…</div></section>
   if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU CONTROL</p><h1>Вход в админку</h1><label><span>Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Учётка создаётся seed-скриптом backend. Перед production меняем все секреты.</small></form></section>
 
   const unread = notifications.filter((item) => !item.isRead).length
-  const tabNames: Record<AdminTab, string> = { overview: 'Обзор', products: 'Товары', content: 'Витрина', orders: 'Заказы', notifications: 'Уведомления', sync: '1С', audit: 'Аудит' }
+  const tabNames: Record<AdminTab, string> = { overview: 'Обзор', products: 'Товары', content: 'Витрина', prices: 'Мониторинг цен', orders: 'Заказы', notifications: 'Уведомления', sync: '1С', audit: 'Аудит' }
   return <section className="admin-shell">
     <div className="admin-top"><div><p className="eyebrow">TEXHORU CONTROL</p><h1>Управление магазином</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'API: ошибка' : 'API: подключён'}</span><button onClick={() => load()}>Обновить</button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти</button></div></div>
     <div className="admin-tabs">{(Object.keys(tabNames) as AdminTab[]).map((item) => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{tabNames[item]}</button>)}</div>
@@ -633,7 +706,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         <div><p className="eyebrow">Главная страница</p><h2>Акционный слайдер</h2><span>{promos.filter((item) => item.isActive).length} активных · {promos.length} всего</span></div>
         <button className="promo-manager__add" onClick={openCreatePromo}>+ Добавить слайд</button>
       </div>
-      <div className="promo-manager__guide"><strong>Стандарт фото: 1920×720 px</strong><span>Соотношение 8:3. Лучше JPG или WEBP до 2 МБ. Важный объект держи ближе к центру, чтобы мобильная версия могла аккуратно подрезать края.</span></div>
+      <div className="promo-manager__guide"><strong>Стандарт фото: 1600×720 px</strong><span>Широкий баннер в JPG или WEBP до 2 МБ. Держи главный объект ближе к центру — витрина мягко подрежет края на разных экранах.</span></div>
       {promos.length ? <div className="promo-admin-grid promo-admin-grid--visual">{promos.map((item, index) => { const frame = parsePromoFrame(item.image); return <article className={item.isActive ? 'promo-admin-card' : 'promo-admin-card is-hidden'} key={item.id}>
         <button className="promo-admin-card__preview" onClick={() => openEditPromo(item)} aria-label={`Редактировать ${item.title || `слайд ${index + 1}`}`}><img src={frame.src} style={promoFrameStyle(frame)} alt="" /><span>{item.isActive ? `Слайд ${index + 1}` : 'Скрыт'}</span></button>
         <div className="promo-admin-card__meta"><div><strong>{item.title || `Акция ${index + 1}`}</strong><small>{item.category} · порядок {item.sortOrder}</small></div><button onClick={() => openEditPromo(item)}>Изменить</button></div>
@@ -673,7 +746,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
                 <div className="promo-editor__crop-slider"><button type="button" onClick={() => setPromoDraft((current) => ({ ...current, imageZoom: clampPromo(current.imageZoom - .08, 1, 2.5) }))}>−</button><input type="range" min="1" max="2.5" step="0.01" value={promoDraft.imageZoom} onChange={(event) => setPromoDraft({ ...promoDraft, imageZoom: Number(event.target.value) })} /><button type="button" onClick={() => setPromoDraft((current) => ({ ...current, imageZoom: clampPromo(current.imageZoom + .08, 1, 2.5) }))}>+</button><button type="button" className="promo-editor__crop-reset" onClick={() => setPromoDraft((current) => ({ ...current, imageX: 50, imageY: 50, imageZoom: 1 }))}>Сбросить</button></div>
                 <small>Перетащи изображение мышкой или пальцем. Положение и масштаб сохранятся именно так, как ты выставил.</small>
               </div>}
-              <div className="promo-editor__image-info"><strong>1920×720 · 8:3</strong><span>{promoImageInfo}</span></div>
+              <div className="promo-editor__image-info"><strong>1600×720 · широкий баннер</strong><span>{promoImageInfo}</span></div>
             </div>
             <div className="promo-editor__fields">
               <label><span>Название в админке</span><input value={promoDraft.title} onChange={(e) => setPromoDraft({ ...promoDraft, title: e.target.value })} placeholder="Например: Осенняя акция" /></label>
@@ -686,6 +759,37 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           <div className="promo-editor__footer"><button type="button" onClick={() => setPromoEditorOpen(false)}>Отмена</button><button className="promo-editor__save" disabled={promoSaving || promoUploading}>{promoSaving ? 'Сохраняем…' : 'Сохранить слайд'}</button></div>
         </form>
       </div>}
+    </div>}
+    {tab === 'prices' && <div className="price-monitor">
+      <form className="price-monitor__check" onSubmit={checkCompetitorPrice}>
+        <div className="price-monitor__head"><div><p className="eyebrow">Первый источник</p><h2>05.ru</h2></div><span>Ручная проверка · безопасный режим</span></div>
+        <label><span>Ссылка на товар 05.ru</span><input required type="url" value={priceUrl} onChange={(e) => setPriceUrl(e.target.value)} /></label>
+        <label><span>Сопоставить с товаром TEXHORU</span><select value={priceProductId} onChange={(e) => setPriceProductId(e.target.value)}><option value="">Пока не сопоставлять</option>{products.filter((item) => item.status !== 'ARCHIVED').map((item) => <option key={item.id} value={item.id}>{item.name} · {item.sku}</option>)}</select></label>
+        <button type="submit" disabled={priceChecking}>{priceChecking ? 'Проверяем 05.ru…' : 'Проверить цену'}</button>
+        <small>После сопоставления TEXHORU считает рекомендацию: цена 05.ru минус 500 ₽. Применение пока меняет только локальную цену TEXHORU. При следующем импорте из 1С она может быть перезаписана.</small>
+      </form>
+
+      <form className="price-monitor__import" onSubmit={importFiveRuCatalog}>
+        <div className="price-monitor__head"><div><p className="eyebrow">Тестовое наполнение</p><h2>Скопировать раздел 05.ru</h2></div><span>Товары + разделы · до 24 карточек за запуск</span></div>
+        <label><span>Ссылка на раздел 05.ru</span><input required type="url" value={priceCatalogUrl} onChange={(e) => setPriceCatalogUrl(e.target.value)} /></label>
+        <label><span>Сколько товаров взять</span><select value={priceImportLimit} onChange={(e) => setPriceImportLimit(e.target.value)}><option value="6">6 товаров</option><option value="12">12 товаров</option><option value="24">24 товара</option></select></label>
+        <button type="submit" disabled={priceImporting}>{priceImporting ? 'Импортируем…' : 'Импортировать для теста'}</button>
+        <button className="price-monitor__danger" type="button" disabled={priceClearing || priceImporting} onClick={clearFiveRuTestImport}>{priceClearing ? 'Очищаем…' : 'Удалить тестовый импорт'}</button>
+        <small>Создаются отдельные группы «ТЕСТ 05.ru · …» и товары с SKU 05RU-*. Берём фактические данные: название, бренд, цену, наличие и раздел. Чужие описания и фотографии специально не копируются.</small>
+        {priceImportMessage && <p className="price-monitor__notice">{priceImportMessage}</p>}
+      </form>
+
+      <section className="price-monitor__results">
+        <div className="price-monitor__results-head"><div><p className="eyebrow">История</p><h2>Проверенные товары</h2></div><strong>{priceItems.length}</strong></div>
+        {priceItems.length === 0 ? <div className="price-monitor__empty">Пока пусто. Нажми «Проверить цену» выше.</div> : priceItems.map((item) => <article className={item.lastError ? 'price-monitor__item is-error' : 'price-monitor__item'} key={item.id}>
+          <div className="price-monitor__item-main"><span>{item.source?.name || '05.ru'} · {item.lastCheckedAt ? new Date(item.lastCheckedAt).toLocaleString('ru-RU') : 'не проверялся'}</span><strong>{item.externalName || 'Карточка 05.ru'}</strong><a href={item.externalUrl} target="_blank" rel="noreferrer">Открыть товар ↗</a></div>
+          <div><span>Цена конкурента</span><strong>{item.latestPrice ? `${money.format(item.latestPrice)} ₽` : '—'}</strong>{item.oldPrice ? <small>старая {money.format(item.oldPrice)} ₽</small> : null}</div>
+          <div><span>Рекомендация</span><strong>{item.recommendedPrice ? `${money.format(item.recommendedPrice)} ₽` : '—'}</strong><small>05.ru − 500 ₽</small></div>
+          <div><span>Наличие</span><strong>{item.inStock === true ? 'В наличии' : item.inStock === false ? 'Нет в наличии' : '—'}</strong></div>
+          <div className="price-monitor__ours"><span>Наш товар</span><strong>{item.product?.name || 'Не сопоставлен'}</strong>{item.product ? <small>наша цена {money.format(item.product.price)} ₽</small> : null}{item.product && item.recommendedPrice && item.inStock !== false && item.product.price !== item.recommendedPrice ? <button type="button" disabled={priceApplyingId === item.id} onClick={() => void applyRecommendedPrice(item.id)}>{priceApplyingId === item.id ? 'Применяем…' : 'Применить рекомендацию'}</button> : null}</div>
+          {item.lastError && <p>{item.lastError}</p>}
+        </article>)}
+      </section>
     </div>}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
@@ -708,7 +812,9 @@ function App() {
   const [path, setPath] = useState(() => window.location.pathname)
   const [menuOpen, setMenuOpen] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
-  const sliderTouchStart = useRef<number | null>(null)
+  const [sliderDragOffset, setSliderDragOffset] = useState(0)
+  const [sliderIsDragging, setSliderIsDragging] = useState(false)
+  const sliderDrag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos(defaultPromos); setPromosLoaded(false) })
 
@@ -751,33 +857,63 @@ function App() {
     }
   }
   const moveSlide = (delta: number) => setSlideIndex((current) => (current + delta + sliderItems.length) % sliderItems.length)
+  const startSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sliderItems.length < 2) return
+    const width = event.currentTarget.getBoundingClientRect().width
+    sliderDrag.current = { pointerId: event.pointerId, startX: event.clientX, currentX: event.clientX, width }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setSliderDragOffset(0)
+    setSliderIsDragging(true)
+  }
+  const moveSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = sliderDrag.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    drag.currentX = event.clientX
+    setSliderDragOffset(event.clientX - drag.startX)
+  }
+  const endSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = sliderDrag.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const delta = drag.currentX - drag.startX
+    const threshold = Math.max(56, drag.width * 0.1)
+    sliderDrag.current = null
+    setSliderDragOffset(0)
+    setSliderIsDragging(false)
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch {}
+    if (Math.abs(delta) < threshold) return
+    moveSlide(delta < 0 ? 1 : -1)
+  }
 
   const renderHome = () => <>
     {sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
-      <div
-        className="storefront-carousel__viewport"
-        onTouchStart={(event) => { sliderTouchStart.current = event.touches[0]?.clientX ?? null }}
-        onTouchEnd={(event) => {
-          const start = sliderTouchStart.current
-          const end = event.changedTouches[0]?.clientX
-          sliderTouchStart.current = null
-          if (start == null || end == null || Math.abs(start - end) < 45) return
-          moveSlide(start > end ? 1 : -1)
-        }}
-      >
-        <div className="storefront-carousel__track" style={{ transform: `translateX(-${slideIndex * 100}%)` }}>
-          {sliderItems.map((promo, index) => {
-            const frame = parsePromoFrame(promo.image)
-            return <div key={`${promo.id}-${index}`} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
-              <img src={frame.src} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} />
-            </div>
-          })}
+      <div className="storefront-carousel__layout">
+        <div
+          className={sliderIsDragging ? 'storefront-carousel__viewport is-dragging' : 'storefront-carousel__viewport'}
+          onPointerDown={startSliderDrag}
+          onPointerMove={moveSliderDrag}
+          onPointerUp={endSliderDrag}
+          onPointerCancel={endSliderDrag}
+        >
+          <div className="storefront-carousel__track" style={{ transform: `translateX(calc(-${slideIndex * 100}% + ${sliderDragOffset}px))` }}>
+            {sliderItems.map((promo, index) => {
+              const frame = parsePromoFrame(promo.image)
+              return <div key={`${promo.id}-${index}`} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
+                <img src={frame.src} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} />
+              </div>
+            })}
+          </div>
+          {sliderItems.length > 1 && <>
+            <button className="carousel-hit carousel-hit--left" onClick={() => moveSlide(-1)} aria-label="Предыдущий баннер" />
+            <button className="carousel-hit carousel-hit--right" onClick={() => moveSlide(1)} aria-label="Следующий баннер" />
+            <div className="carousel-dots" aria-label="Слайды">{sliderItems.map((item, index) => <button key={`${item.id}-dot-${index}`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div>
+          </>}
         </div>
-        {sliderItems.length > 1 && <>
-          <button className="carousel-hit carousel-hit--left" onClick={() => moveSlide(-1)} aria-label="Предыдущий баннер" />
-          <button className="carousel-hit carousel-hit--right" onClick={() => moveSlide(1)} aria-label="Следующий баннер" />
-          <div className="carousel-dots" aria-label="Слайды">{sliderItems.map((item, index) => <button key={`${item.id}-dot-${index}`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div>
-        </>}
+        <aside className="storefront-carousel__aside">
+          <span className="storefront-carousel__aside-kicker">TEXHORU</span>
+          <h3>Акции, новинки и цены — в одной зоне</h3>
+          <p>Большой баннер листается мышкой или пальцем, а справа всегда стоит аккуратная карточка для внимания.</p>
+          <button type="button" className="storefront-carousel__aside-link" onClick={() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Открыть каталог <Icon name="arrow" /></button>
+        </aside>
       </div>
     </section>}
     <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>Товары</h2></div><div className="catalog-source"><span className={apiOnline ? 'source-dot online' : 'source-dot'} />{apiOnline ? 'данные из API' : 'локальный preview'}</div></div><div className="category-row">{categories.map((item) => <button key={item} className={item === category ? 'category active' : 'category'} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length === 0 && <div className="empty-search">Ничего не найдено.</div>}</section>

@@ -38,6 +38,33 @@ export type PromoBanner = {
   isActive: boolean
 }
 
+
+export type PriceMonitorItem = {
+  id: string
+  externalUrl: string
+  externalName?: string | null
+  externalSku?: string | null
+  latestPrice?: number | null
+  oldPrice?: number | null
+  inStock?: boolean | null
+  lastCheckedAt?: string | null
+  lastError?: string | null
+  recommendedPrice?: number | null
+  source: { id: string; key: string; name: string; baseUrl: string }
+  product?: { id: number; sku: string; name: string; price: number; category?: ApiCategory } | null
+}
+
+export type FiveRuImportResult = {
+  ok: boolean
+  sourceCategoryName: string
+  discoveredLinks: number
+  imported: number
+  created: number
+  updated: number
+  categories: string[]
+  errors: number
+}
+
 export type TrackedOrder = {
   number: number
   status: string
@@ -132,6 +159,11 @@ export const api = {
   adminMarkNotificationRead(id: string) { return request(`/admin/notifications/${id}/read`, { method: 'PATCH' }) },
   syncLogs() { return request<any[]>('/admin/integrations/1c/logs') },
   auditLogs() { return request<any[]>('/admin/audit') },
+  adminPriceMonitor() { return request<PriceMonitorItem[]>('/admin/price-monitor') },
+  adminCheckCompetitorPrice(input: { url: string; productId?: number }) { return request<PriceMonitorItem>('/admin/price-monitor/check', { method: 'POST', body: JSON.stringify(input) }) },
+  adminImportFiveRuCatalog(input: { url: string; limit?: number }) { return request<FiveRuImportResult>('/admin/price-monitor/import-05ru', { method: 'POST', body: JSON.stringify(input) }) },
+  adminApplyRecommendedPrice(id: string) { return request<PriceMonitorItem>(`/admin/price-monitor/${id}/apply-recommended`, { method: 'POST' }) },
+  adminClearFiveRuTestImport() { return request<{ ok: boolean; deleted: number; archived: number; categoriesDeleted: number }>('/admin/price-monitor/test-import-05ru', { method: 'DELETE' }) },
   adminPromos() { return request<PromoBanner[]>('/admin/content/promos') },
   adminCreatePromo(input: Record<string, unknown>) { return request('/admin/content/promos', { method: 'POST', body: JSON.stringify(input) }) },
   adminUpdatePromo(id: string, input: Record<string, unknown>) { return request(`/admin/content/promos/${id}`, { method: 'PATCH', body: JSON.stringify(input) }) },

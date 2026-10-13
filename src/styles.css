@@ -4806,3 +4806,402 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
   .promo-editor__crop-slider { grid-template-columns: 32px minmax(0,1fr) 32px; }
   .promo-editor__crop-slider .promo-editor__crop-reset { grid-column: 1 / -1; }
 }
+
+/* v77 — competitor price monitor + safe test catalog import */
+.price-monitor { padding-top: 22px; display: grid; gap: 18px; }
+.price-monitor__check,
+.price-monitor__import,
+.price-monitor__results { background: #fff; border: 1px solid var(--section-line); }
+.price-monitor__check,
+.price-monitor__import { padding: 20px; display: grid; grid-template-columns: minmax(0,1.45fr) minmax(220px,.65fr) auto; gap: 12px; align-items: end; }
+.price-monitor__import { grid-template-columns: minmax(0,1.45fr) 200px auto auto; }
+.price-monitor__head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: end; gap: 20px; padding-bottom: 8px; }
+.price-monitor__head h2,
+.price-monitor__results-head h2 { margin: 0; font-size: 30px; letter-spacing: -.02em; }
+.price-monitor__head > span { color: #777; font: 500 10px var(--font-mono); text-transform: uppercase; }
+.price-monitor__check label,
+.price-monitor__import label { display: grid; gap: 7px; }
+.price-monitor__check label > span,
+.price-monitor__import label > span { color: #6e6e69; font: 500 10px var(--font-mono); text-transform: uppercase; letter-spacing: .05em; }
+.price-monitor__check input,
+.price-monitor__check select,
+.price-monitor__import input,
+.price-monitor__import select { width: 100%; min-height: 46px; border: 1px solid var(--section-line); background: #fafaf8; color: #111; padding: 0 12px; outline: 0; }
+.price-monitor__check input:focus,
+.price-monitor__check select:focus,
+.price-monitor__import input:focus,
+.price-monitor__import select:focus { border-color: var(--red); }
+.price-monitor__check button,
+.price-monitor__import button { min-height: 46px; padding: 0 18px; border: 0; background: var(--red); color: #fff; font: 700 11px var(--font-mono); text-transform: uppercase; cursor: pointer; white-space: nowrap; }
+.price-monitor__check button:disabled,
+.price-monitor__import button:disabled { opacity: .5; cursor: wait; }
+.price-monitor__import .price-monitor__danger { background: #111; }
+.price-monitor__check > small,
+.price-monitor__import > small { grid-column: 1 / -1; color: #777; line-height: 1.5; }
+.price-monitor__notice { grid-column: 1 / -1; margin: 0; padding: 11px 12px; background: #f3f3ef; color: #222; font-size: 12px; border-left: 3px solid #111; }
+.price-monitor__results-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 18px; border-bottom: 1px solid var(--section-line); }
+.price-monitor__results-head > strong { font-size: 36px; line-height: 1; }
+.price-monitor__empty { padding: 24px 18px; color: #777; }
+.price-monitor__item { display: grid; grid-template-columns: minmax(260px,1.65fr) .7fr .7fr .55fr minmax(190px,1fr); gap: 16px; align-items: center; padding: 16px 18px; border-top: 1px solid var(--section-line); }
+.price-monitor__item:first-of-type { border-top: 0; }
+.price-monitor__item.is-error { border-left: 3px solid var(--red); }
+.price-monitor__item > div { display: grid; gap: 4px; min-width: 0; }
+.price-monitor__item span,
+.price-monitor__item small { color: #888; font: 500 10px var(--font-mono); }
+.price-monitor__item strong { font-size: 14px; line-height: 1.35; }
+.price-monitor__item-main strong { font-size: 15px; }
+.price-monitor__item a { width: fit-content; color: var(--red); font: 600 10px var(--font-mono); text-decoration: none; }
+.price-monitor__item > p { grid-column: 1 / -1; margin: 0; padding: 10px 12px; background: rgba(224,0,22,.06); color: #9f0010; font-size: 12px; }
+.price-monitor__ours button { width: fit-content; margin-top: 5px; min-height: 30px; padding: 0 10px; border: 1px solid #111; background: #fff; color: #111; font: 700 9px var(--font-mono); text-transform: uppercase; cursor: pointer; }
+.price-monitor__ours button:hover { background: #111; color: #fff; }
+.price-monitor__ours button:disabled { opacity: .5; cursor: wait; }
+
+@media (max-width: 1180px) {
+  .price-monitor__import { grid-template-columns: 1fr 220px; }
+  .price-monitor__import button { grid-column: auto; }
+  .price-monitor__item { grid-template-columns: 1.4fr .7fr .7fr; }
+  .price-monitor__item-main,
+  .price-monitor__ours { grid-column: span 2; }
+}
+@media (max-width: 1000px) {
+  .price-monitor__check { grid-template-columns: 1fr 1fr; }
+  .price-monitor__check button { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .price-monitor__check,
+  .price-monitor__import { grid-template-columns: 1fr; padding: 14px; }
+  .price-monitor__check button,
+  .price-monitor__import button { grid-column: auto; }
+  .price-monitor__head { align-items: start; flex-direction: column; }
+  .price-monitor__item { grid-template-columns: 1fr 1fr; padding: 14px; }
+  .price-monitor__item-main,
+  .price-monitor__ours { grid-column: 1 / -1; }
+}
+
+
+/* v80 — aligned header + split rounded promo zone + desktop drag swipe */
+:root {
+  --storefront-frame: 1580px;
+  --storefront-gutter: clamp(16px, 2.2vw, 30px);
+}
+
+.header.header--storefront,
+.catalog,
+.footer {
+  width: min(var(--storefront-frame), calc(100% - (var(--storefront-gutter) * 2))) !important;
+  max-width: none !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.header.header--storefront {
+  min-height: 86px;
+  padding: 18px 0 14px !important;
+  background: transparent !important;
+  border-bottom: 1px solid rgba(17,17,17,.12);
+  align-items: center;
+}
+
+.storefront-carousel {
+  width: min(var(--storefront-frame), calc(100% - (var(--storefront-gutter) * 2))) !important;
+  margin: 18px auto 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.storefront-carousel__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: clamp(14px, 1.6vw, 20px);
+  align-items: stretch;
+}
+
+.storefront-carousel__viewport,
+.storefront-carousel__aside {
+  border-radius: 28px;
+  overflow: hidden;
+}
+
+.storefront-carousel__viewport {
+  position: relative;
+  aspect-ratio: 16 / 7.4 !important;
+  min-height: 420px;
+  background: #ecece8;
+  box-shadow: 0 18px 50px rgba(0,0,0,.06);
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+
+.storefront-carousel__viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.storefront-carousel__track {
+  transition: transform .48s cubic-bezier(.22,.7,.2,1);
+  will-change: transform;
+}
+
+.storefront-carousel__viewport.is-dragging .storefront-carousel__track {
+  transition: none;
+}
+
+.storefront-slide,
+.storefront-slide--light,
+.storefront-slide--dark,
+.storefront-slide--red {
+  border-radius: 28px;
+}
+
+.storefront-slide img {
+  display: block;
+}
+
+.storefront-carousel__aside {
+  position: relative;
+  min-height: 420px;
+  padding: 30px 28px;
+  background: linear-gradient(180deg, #dba8f0 0%, #cc97e7 100%);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 18px 50px rgba(0,0,0,.05);
+}
+
+.storefront-carousel__aside::before {
+  content: '';
+  position: absolute;
+  right: -30px;
+  bottom: -36px;
+  width: 210px;
+  height: 210px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(255,255,255,.26), rgba(255,255,255,0) 68%);
+}
+
+.storefront-carousel__aside-kicker {
+  display: inline-flex;
+  width: max-content;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  font: 700 10px var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.storefront-carousel__aside h3 {
+  margin: 0;
+  font-size: clamp(28px, 2.5vw, 46px);
+  line-height: .95;
+  max-width: 8ch;
+}
+
+.storefront-carousel__aside p {
+  margin: 14px 0 0;
+  max-width: 24ch;
+  color: rgba(255,255,255,.88);
+  font-size: 15px;
+  line-height: 1.48;
+}
+
+.storefront-carousel__aside-link {
+  margin-top: 26px;
+  align-self: flex-start;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.92);
+  color: #111;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font: 700 11px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.storefront-carousel__aside-link svg {
+  width: 18px;
+  height: 18px;
+}
+
+.carousel-hit {
+  width: 22%;
+}
+
+.carousel-dots {
+  bottom: 16px !important;
+  gap: 8px !important;
+}
+
+.carousel-dots button,
+.carousel-dots button.active {
+  width: 6px !important;
+  height: 6px !important;
+  min-width: 6px !important;
+  background: rgba(255,255,255,.45) !important;
+}
+
+.carousel-dots button.active {
+  background: rgba(255,255,255,.96) !important;
+  transform: scale(1.25);
+}
+
+@media (max-width: 1180px) {
+  .storefront-carousel__layout {
+    grid-template-columns: minmax(0, 1fr) 280px;
+  }
+
+  .storefront-carousel__viewport,
+  .storefront-carousel__aside {
+    min-height: 380px;
+  }
+}
+
+@media (max-width: 900px) {
+  .header.header--storefront {
+    padding-top: 14px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .storefront-carousel__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .storefront-carousel__viewport {
+    min-height: 0;
+    aspect-ratio: 16 / 9 !important;
+  }
+
+  .storefront-carousel__aside {
+    min-height: 240px;
+  }
+
+  .storefront-carousel__aside h3 {
+    max-width: 12ch;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --storefront-gutter: 10px;
+  }
+
+  .header.header--storefront {
+    min-height: 74px;
+  }
+
+  .storefront-carousel {
+    margin-top: 12px !important;
+  }
+
+  .storefront-carousel__viewport,
+  .storefront-carousel__aside {
+    border-radius: 22px;
+  }
+
+  .storefront-carousel__aside {
+    padding: 22px 20px;
+  }
+
+  .storefront-carousel__aside h3 {
+    font-size: 32px;
+  }
+
+  .storefront-carousel__aside p {
+    font-size: 14px;
+  }
+}
+
+
+
+/* v87 — permanent white storefront header with a quiet separator line */
+.header.header--storefront {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 40 !important;
+  background: rgba(247,247,244,.98) !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(17,17,17,.12) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.header.header--storefront > .brand {
+  color: #111 !important;
+}
+
+.header.header--storefront > .brand .brand-ru {
+  color: var(--red) !important;
+}
+
+.header.header--storefront .header-tool,
+.header.header--storefront .ghost-button,
+.header.header--storefront .cart-button {
+  color: #111 !important;
+}
+
+.header.header--storefront .header-search-inline {
+  background: #fff !important;
+  border-color: rgba(17,17,17,.14) !important;
+  color: #666 !important;
+  box-shadow: none !important;
+}
+
+.header.header--storefront .header-search-inline input {
+  color: #111 !important;
+}
+
+.header.header--storefront .header-search-inline input::placeholder {
+  color: #969690 !important;
+}
+
+.header.header--storefront .header-search-inline button {
+  color: #777 !important;
+}
+
+/* v88 — compact storefront footer */
+.footer {
+  min-height: 104px !important;
+  padding-top: 20px !important;
+  padding-bottom: 20px !important;
+  align-items: center !important;
+}
+
+@media (max-width: 760px) {
+  .footer {
+    min-height: 88px !important;
+    padding-top: 16px !important;
+    padding-bottom: 16px !important;
+  }
+}
+
+/* v89 — product detail uses the same storefront frame as the header */
+.product-page {
+  width: min(var(--storefront-frame), calc(100% - (var(--storefront-gutter) * 2))) !important;
+  max-width: none !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.product-page__layout,
+.product-details,
+.related-block {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+@media (max-width: 900px) {
+  .product-page {
+    width: calc(100% - (var(--storefront-gutter) * 2)) !important;
+  }
+}

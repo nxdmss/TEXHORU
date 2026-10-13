@@ -13,6 +13,7 @@ import { OrdersModule } from './orders/orders.module'
 import { PaymentsModule } from './payments/payments.module'
 import { PrismaModule } from './prisma/prisma.module'
 import { ProductsModule } from './products/products.module'
+import { PriceMonitorModule } from './price-monitor/price-monitor.module'
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ProductsModule } from './products/products.module'
     AuditModule,
     AuthModule,
     ProductsModule,
+    PriceMonitorModule,
     OrdersModule,
     PaymentsModule,
     NotificationsModule,

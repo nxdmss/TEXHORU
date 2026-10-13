@@ -5,14 +5,29 @@ import { dirname, join, resolve } from 'node:path'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const server = join(root, 'server')
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+
+function npmInvocation(args) {
+  if (process.platform === 'win32') {
+    // Node 24 no longer reliably spawns .cmd files directly on Windows.
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', `npm ${args.join(' ')}`],
+    }
+  }
+  return { command: 'npm', args }
+}
 
 function run(args, cwd, extraEnv = {}) {
-  const result = spawnSync(npm, args, {
+  const invocation = npmInvocation(args)
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd,
     stdio: 'inherit',
     env: { ...process.env, ...extraEnv },
   })
+  if (result.error) {
+    console.error(`Не удалось запустить npm: ${result.error.message}`)
+    process.exit(1)
+  }
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
@@ -26,15 +41,17 @@ if (!existsSync(envLocal)) {
 mkdirSync(join(server, 'uploads', 'products'), { recursive: true })
 mkdirSync(join(server, 'uploads', 'promos'), { recursive: true })
 
-console.log('\n[1/5] Frontend dependencies')
+console.log('\n[1/6] Frontend dependencies')
 run(['install'], root)
-console.log('\n[2/5] Backend dependencies')
+console.log('\n[2/6] Backend dependencies')
 run(['install'], server)
-console.log('\n[3/5] Prisma client')
+console.log('\n[3/6] Chromium for price monitor')
+run(['exec', '--', 'playwright', 'install', 'chromium'], server)
+console.log('\n[4/6] Prisma client')
 run(['run', 'prisma:local:generate'], server, { DATABASE_URL: 'file:./dev-local.db' })
-console.log('\n[4/5] SQLite schema')
+console.log('\n[5/6] SQLite schema')
 run(['run', 'prisma:local:push'], server, { DATABASE_URL: 'file:./dev-local.db' })
-console.log('\n[5/5] Admin + base content')
+console.log('\n[6/6] Admin + base content')
 run(['run', 'prisma:seed'], server, {
   DATABASE_URL: 'file:./dev-local.db',
   TEXHORU_ENV_FILE: '.env.local',

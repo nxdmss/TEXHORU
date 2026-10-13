@@ -118,6 +118,7 @@ model Product {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   orderItems   OrderItem[]
+  competitorLinks CompetitorProduct[]
 
   @@index([categoryId, status])
   @@index([brand])
@@ -232,4 +233,50 @@ model AuditLog {
 
   @@index([createdAt])
   @@index([entity, entityId])
+}
+
+model CompetitorSource {
+  id        String              @id @default(cuid())
+  key       String              @unique
+  name      String
+  baseUrl   String
+  isActive  Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  products  CompetitorProduct[]
+}
+
+model CompetitorProduct {
+  id            String                   @id @default(cuid())
+  sourceId      String
+  source        CompetitorSource         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  productId     Int?
+  product       Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
+  externalUrl   String                   @unique
+  externalName  String?
+  externalSku   String?
+  latestPrice   Int?
+  oldPrice      Int?
+  inStock       Boolean?
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  history       CompetitorPriceHistory[]
+
+  @@index([sourceId])
+  @@index([productId])
+  @@index([lastCheckedAt])
+}
+
+model CompetitorPriceHistory {
+  id                  String            @id @default(cuid())
+  competitorProductId String
+  competitorProduct   CompetitorProduct @relation(fields: [competitorProductId], references: [id], onDelete: Cascade)
+  price               Int
+  oldPrice            Int?
+  inStock             Boolean?
+  checkedAt           DateTime          @default(now())
+
+  @@index([competitorProductId, checkedAt])
 }
