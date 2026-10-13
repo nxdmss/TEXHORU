@@ -6,6 +6,10 @@ export type ApiCategory = { id: string; name: string; slug: string; sortOrder?: 
 export type ApiProduct = {
   id: number
   oneCId?: string | null
+  costPrice?: number | null
+  gtin?: string | null
+  mpn?: string | null
+  attributes?: Record<string, string>
   sku: string
   slug: string
   name: string
@@ -50,9 +54,27 @@ export type PriceMonitorItem = {
   lastCheckedAt?: string | null
   lastError?: string | null
   recommendedPrice?: number | null
+  recommendationReasons: string[]
+  attributes: Record<string, string>
+  seller?: string | null
+  region?: string | null
+  priceSource?: string | null
+  matchStatus: string
+  lastSuccessAt?: string | null
   source: { id: string; key: string; name: string; baseUrl: string }
-  product?: { id: number; sku: string; name: string; price: number; category?: ApiCategory } | null
+  product?: { id: number; oneCId?: string | null; sku: string; name: string; price: number; category?: ApiCategory } | null
 }
+
+export type MonitorJob = {
+  id: string; kind: string; status: string; page: number; maxPages: number; processed: number; errors: number
+  lastError?: string | null; url?: string | null; createdAt: string; pendingUrls: string[]
+}
+export type MatchCandidate = {
+  product: { id: number; oneCId?: string | null; name: string; sku: string }
+  score: number; reasons: string[]; conflicts: string[]; missing: string[]
+  ours: Record<string, string>; theirs: Record<string, string>
+}
+export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
 
 export type FiveRuImportResult = {
   ok: boolean
@@ -159,6 +181,21 @@ export const api = {
   adminMarkNotificationRead(id: string) { return request(`/admin/notifications/${id}/read`, { method: 'PATCH' }) },
   syncLogs() { return request<any[]>('/admin/integrations/1c/logs') },
   auditLogs() { return request<any[]>('/admin/audit') },
+  monitorCandidates(id: string) { return request<MatchCandidate[]>(`/admin/price-monitor/${id}/candidates`) },
+  monitorConfirm(id: string, productId: number) { return request<PriceMonitorItem>(`/admin/price-monitor/${id}/confirm`, { method: 'POST', body: JSON.stringify({ productId }) }) },
+  monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
+  monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
+  monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
+  monitorScan(url: string, maxPages: number) { return request<MonitorJob>('/admin/price-monitor/scan', { method: 'POST', body: JSON.stringify({ url, maxPages }) }) },
+  monitorCheckAll() { return request<MonitorJob>('/admin/price-monitor/check-all', { method: 'POST' }) },
+  monitorJobAction(id: string, action: 'retry' | 'cancel') { return request(`/admin/price-monitor/jobs/${id}/${action}`, { method: 'POST' }) },
+  monitorQueue() { return request<{ queued: number }>('/admin/price-monitor/queue-1c', { method: 'POST' }) },
+  monitorDeliveries() { return request<MonitorDelivery[]>('/admin/price-monitor/deliveries') },
+  monitorSettings() { return request<{ catalogUrl: string; intervalMinutes: number }>('/admin/price-monitor/settings') },
+  monitorSaveSettings(catalogUrl: string, intervalMinutes: number) { return request('/admin/price-monitor/settings', { method: 'POST', body: JSON.stringify({ catalogUrl, intervalMinutes }) }) },
+  monitorExport() { return request<{ schemaVersion: number; items: Array<Record<string, unknown>> }>('/admin/price-monitor/export-1c') },
+  monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
+  adminImportOneC(data: unknown) { return request('/admin/integrations/1c/catalog', { method: 'POST', body: JSON.stringify(data) }) },
   adminPriceMonitor() { return request<PriceMonitorItem[]>('/admin/price-monitor') },
   adminCheckCompetitorPrice(input: { url: string; productId?: number }) { return request<PriceMonitorItem>('/admin/price-monitor/check', { method: 'POST', body: JSON.stringify(input) }) },
   adminImportFiveRuCatalog(input: { url: string; limit?: number }) { return request<FiveRuImportResult>('/admin/price-monitor/import-05ru', { method: 'POST', body: JSON.stringify(input) }) },

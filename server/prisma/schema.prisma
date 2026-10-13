@@ -113,6 +113,10 @@ model Product {
   warranty     String        @default("")
   deliveryNote String        @default("")
   specs        Json          @default("[]")
+  gtin         String?
+  mpn          String?
+  attributes   Json          @default("{}")
+  costPrice    Int?
   categoryId   String
   category     Category      @relation(fields: [categoryId], references: [id])
   createdAt    DateTime      @default(now())
@@ -255,6 +259,15 @@ model CompetitorProduct {
   externalUrl   String                   @unique
   externalName  String?
   externalSku   String?
+  attributes    Json                     @default("{}")
+  seller        String?
+  region        String?
+  priceSource   String?
+  matchStatus   String                   @default("UNMATCHED")
+  confirmedFingerprint String?
+  confirmedProductFingerprint String?
+  confirmedAt   DateTime?
+  lastSuccessAt DateTime?
   latestPrice   Int?
   oldPrice      Int?
   inStock       Boolean?
@@ -277,6 +290,48 @@ model CompetitorPriceHistory {
   oldPrice            Int?
   inStock             Boolean?
   checkedAt           DateTime          @default(now())
+  createdAt           DateTime          @default(now())
 
   @@index([competitorProductId, checkedAt])
+}
+
+// Immutable observations sent to 1C. Retried until acknowledgement by message id.
+model MonitorDelivery {
+  id          String   @id @default(cuid())
+  historyId   String   @unique
+  linkId      String
+  payload     Json
+  status      String   @default("PENDING")
+  attempts    Int      @default(0)
+  lastError   String?
+  createdAt   DateTime @default(now())
+  deliveredAt DateTime?
+  @@index([status, createdAt])
+}
+
+// One persistent local worker. Every completed card advances the stored cursor.
+model MonitorJob {
+  id          String   @id @default(cuid())
+  kind        String
+  status      String   @default("QUEUED")
+  url         String?
+  page        Int      @default(0)
+  maxPages    Int      @default(1)
+  perPage     Int      @default(24)
+  pendingUrls Json     @default("[]")
+  visitedUrls Json     @default("[]")
+  processed   Int      @default(0)
+  errors      Int      @default(0)
+  lastError   String?
+  leaseUntil  DateTime?
+  createdAt   DateTime @default(now())
+  finishedAt  DateTime?
+  @@index([status, createdAt])
+}
+
+model MonitorSettings {
+  id              String   @id @default("05ru")
+  catalogUrl      String   @default("https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/")
+  intervalMinutes Int      @default(0)
+  nextRunAt       DateTime?
 }

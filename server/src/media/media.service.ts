@@ -12,7 +12,7 @@ type MediaFolder = 'products' | 'promos'
 
 @Injectable()
 export class MediaService {
-  private readonly localRoot = resolve(process.cwd(), 'uploads')
+  private readonly localRoot = resolve(process.env.TEXHORU_UPLOADS_DIR || resolve(process.cwd(), 'uploads'))
   private readonly driver: 'local' | 'yandex'
   private readonly bucket: string
   private readonly publicBaseUrl: string

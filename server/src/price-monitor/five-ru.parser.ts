@@ -1,369 +1,168 @@
 import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { identity, normalize, type Identity } from './product-matching'
+import { existsSync } from 'node:fs'
 
 type JsonObject = Record<string, unknown>
-
-type CatalogCard = {
-  url: string
-  name: string
-  cardText: string
-  priceTexts: string[]
-  inStock: boolean | null
-}
-
 export type FiveRuResult = {
-  name: string
-  price: number
-  oldPrice: number | null
-  inStock: boolean
-  externalSku: string | null
-  categoryName: string
-  brand: string
-  url: string
+  name: string; price: number; oldPrice: number | null; inStock: boolean | null
+  externalSku: string | null; categoryName: string; brand: string; url: string
+  attributes: Identity; seller: string | null; region: string | null; priceSource: string
+}
+export type ProductSnapshot = {
+  h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
+  oldPrice: string | null; availability: string | null; specs: Array<{ label: string; value: string }>
+  seller?: string | null; region?: string | null; category?: string | null
+  metaCurrency?: string | null
 }
 
-export type FiveRuCatalogResult = {
-  sourceCategoryName: string
-  discoveredLinks: number
-  products: FiveRuResult[]
-  errors: Array<{ url: string; message: string }>
+export function fiveRuUrl(raw: string, mode: 'product' | 'catalog') {
+  let url: URL
+  try { url = new URL(raw.trim()) } catch { throw new BadRequestException('Некорректная ссылка') }
+  if (url.protocol !== 'https:' || !['05.ru', 'www.05.ru'].includes(url.hostname.toLowerCase()) || url.username || url.password || (url.port && url.port !== '443')) {
+    throw new BadRequestException('Нужна HTTPS-ссылка на 05.ru без логина и нестандартного порта')
+  }
+  url.hostname = '05.ru'; url.hash = ''
+  if (mode === 'product') {
+    if (!/^\/cat\/[^/]+\/p\/[^/]+\/?$/.test(url.pathname)) throw new BadRequestException('Нужна сама карточка товара 05.ru, без /reviews/')
+    url.search = ''; url.pathname = url.pathname.replace(/\/?$/, '/')
+  } else if (!url.pathname.startsWith('/cat/') || /\/p\//.test(url.pathname)) throw new BadRequestException('Нужна ссылка на раздел каталога 05.ru')
+  return url.toString()
+}
+
+export function priceNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 && value <= 5_000_000 ? Math.round(value) : null
+  if (typeof value !== 'string') return null
+  const clean = value.trim().replace(/[\s\u00a0\u202f]/g, '').replace(/(?:₽|руб\.?|RUB)$/i, '').replace(',', '.')
+  if (!/^\d+(?:\.\d{1,2})?$/.test(clean)) return null
+  return priceNumber(Number(clean))
+}
+function ldObjects(scripts: string[]) {
+  const out: JsonObject[] = []
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach(walk)
+    else if (value && typeof value === 'object') { out.push(value as JsonObject); Object.values(value).forEach(walk) }
+  }
+  for (const text of scripts) { try { walk(JSON.parse(text)) } catch {} }
+  return out
+}
+function byType(object: JsonObject, type: string) { return object['@type'] === type || (Array.isArray(object['@type']) && object['@type'].includes(type)) }
+function objectName(value: unknown) { return typeof value === 'string' ? value : value && typeof value === 'object' ? String((value as JsonObject).name || '') : '' }
+
+// Prices and stock never come from the entire page: it also contains recommendations and instalments.
+export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuResult {
+  const all = ldObjects(snapshot.scripts)
+  const products = all.filter(o => byType(o, 'Product'))
+  const product = products.find(o => normalize(String(o.name || '')) === normalize(snapshot.h1)) || (!snapshot.h1 && products.length === 1 ? products[0] : undefined)
+  const name = snapshot.h1 || String(product?.name || '')
+  if (!name) throw new Error('Не найдено название основной карточки')
+  const offers = Array.isArray(product?.offers) ? product.offers as JsonObject[] : product?.offers && typeof product.offers === 'object' ? [product.offers as JsonObject] : []
+  const single = offers.length === 1 && !byType(offers[0], 'AggregateOffer') ? offers[0] : undefined
+  const currency = String(single?.priceCurrency || 'RUB').toUpperCase()
+  if (currency !== 'RUB') throw new Error(`Цена не в рублях: ${currency}`)
+  const candidates: Array<[unknown, string]> = [[single?.price, 'JSON-LD Offer'], [snapshot.metaPrice, 'product:price:amount'], [snapshot.domPrice, 'DOM основной карточки']]
+  const found = candidates.map(([value, source]) => ({ price: priceNumber(value), source })).find(v => v.price)
+  if (!found?.price) throw new Error('Не найдена однозначная цена основной карточки. Общая цена страницы не используется.')
+  if (found.source === 'product:price:amount' && snapshot.metaCurrency && snapshot.metaCurrency !== 'RUB') throw new Error('Основная цена не в RUB')
+  const availability = String(single?.availability || snapshot.availability || '').toLowerCase()
+  const inStock = /(?:\/|^)(instock|limitedavailability)$|^в наличии$|^в корзину$/i.test(availability) ? true
+    : /outofstock|soldout|discontinued|нет в наличии|распродано|под заказ|preorder|backorder/i.test(availability) ? false : null
+  const brand = objectName(product?.brand) || identity({ name }).brand || 'Без бренда'
+  const additional = Array.isArray(product?.additionalProperty) ? product.additionalProperty as JsonObject[] : []
+  const specs = [...snapshot.specs, ...additional.map(o => ({ label: String(o.name || ''), value: String(o.value || '') }))]
+  const condition = String(single?.itemCondition || product?.itemCondition || '')
+  const attributes = identity({ name, brand, specs, attributes: { condition: /used|refurbished/i.test(condition) ? 'used' : /newcondition/i.test(condition) ? 'new' : undefined }, gtin: String(product?.gtin13 || product?.gtin14 || product?.gtin12 || product?.gtin8 || product?.gtin || ''), mpn: String(product?.mpn || '') })
+  const old = priceNumber(snapshot.oldPrice)
+  return {
+    name, price: found.price, oldPrice: old && old > found.price ? old : null, inStock,
+    externalSku: String(product?.sku || '') || new URL(url).pathname.match(/-(\d+)\/$/)?.[1] || null,
+    categoryName: objectName(product?.category) || snapshot.category || 'Товары 05.ru', brand, url, attributes,
+    seller: objectName(single?.seller) || snapshot.seller || null, region: objectName(single?.eligibleRegion) || snapshot.region || null, priceSource: found.source,
+  }
 }
 
 @Injectable()
 export class FiveRuParser {
-  private assertUrl(rawUrl: string, mode: 'product' | 'catalog') {
-    let url: URL
-    try { url = new URL(rawUrl.trim()) } catch { throw new BadRequestException('Некорректная ссылка') }
-    const host = url.hostname.toLowerCase()
-    if (url.protocol !== 'https:' || !['05.ru', 'www.05.ru'].includes(host)) {
-      throw new BadRequestException('Сейчас мониторинг разрешён только для 05.ru')
-    }
-    if (mode === 'product' && !/\/cat\/[^/]+\/p\//.test(url.pathname)) {
-      throw new BadRequestException('Нужна ссылка на карточку товара 05.ru')
-    }
-    if (mode === 'catalog' && (!url.pathname.startsWith('/cat/') || /\/p\//.test(url.pathname))) {
-      throw new BadRequestException('Нужна ссылка на раздел каталога 05.ru')
-    }
-    return url.toString()
+  private async browser() {
+    const channel = process.platform === 'win32' && !existsSync(chromium.executablePath()) ? 'msedge' : 'chromium'
+    return chromium.launch({ channel, headless: process.env.FIVE_RU_HEADFUL !== 'true' })
   }
-
-  private asNumber(value: unknown) {
-    if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value)
-    if (typeof value !== 'string') return null
-    const normalized = value.replace(/[^0-9.,]/g, '').replace(',', '.')
-    const result = Number(normalized)
-    return Number.isFinite(result) && result > 0 ? Math.round(result) : null
-  }
-
-  private priceNumbers(text: string) {
-    const matches = [
-      ...text.matchAll(/(\d{1,3}(?:[\s\u00A0]\d{3})+|\d{4,7})\s*(?:₽|руб(?:\.|лей)?)/gi),
-    ]
-    const values = matches
-      .map((match) => this.asNumber(match[1]))
-      .filter((value): value is number => Boolean(value && value >= 1_000 && value <= 5_000_000))
-    return [...new Set(values)]
-  }
-
-  private flattenLd(value: unknown, out: JsonObject[] = []) {
-    if (Array.isArray(value)) {
-      for (const item of value) this.flattenLd(item, out)
-      return out
-    }
-    if (!value || typeof value !== 'object') return out
-    const object = value as JsonObject
-    out.push(object)
-    for (const nested of Object.values(object)) {
-      if (nested && typeof nested === 'object') this.flattenLd(nested, out)
-    }
-    return out
-  }
-
-  private readLdObjects(scripts: string[]) {
-    const all: JsonObject[] = []
-    for (const text of scripts) {
-      try { this.flattenLd(JSON.parse(text), all) } catch {}
-    }
-    return all
-  }
-
-  private findByType(all: JsonObject[], expected: string) {
-    return all.find((item) => {
-      const type = item['@type']
-      return type === expected || (Array.isArray(type) && type.includes(expected))
+  private async context(browser: Browser) {
+    const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1440, height: 1000 } })
+    await context.route('**/*', route => {
+      const u = new URL(route.request().url())
+      return u.protocol === 'https:' && (u.hostname === '05.ru' || u.hostname.endsWith('.05.ru')) && (!u.port || u.port === '443') ? route.continue() : route.abort()
     })
+    return context
   }
-
-  private offerFromProduct(product: JsonObject | undefined) {
-    const offers = product?.offers
-    if (Array.isArray(offers)) return (offers.find((item) => item && typeof item === 'object') ?? null) as JsonObject | null
-    return offers && typeof offers === 'object' ? offers as JsonObject : null
-  }
-
-  private productBrand(product: JsonObject | undefined, name: string) {
-    const brand = product?.brand
-    if (typeof brand === 'string' && brand.trim()) return brand.trim()
-    if (brand && typeof brand === 'object') {
-      const value = String((brand as JsonObject).name ?? '').trim()
-      if (value) return value
-    }
-    const known = ['Apple', 'Samsung', 'Xiaomi', 'TECNO', 'Infinix', 'Honor', 'POCO', 'Realme', 'Huawei', 'OnePlus', 'Google', 'Nothing']
-    return known.find((item) => new RegExp(`\\b${item}\\b`, 'i').test(name)) ?? 'Без бренда'
-  }
-
-  private productCategory(product: JsonObject | undefined, all: JsonObject[], productName: string) {
-    const category = product?.category
-    if (typeof category === 'string' && category.trim()) return category.trim()
-    if (category && typeof category === 'object') {
-      const value = String((category as JsonObject).name ?? '').trim()
-      if (value) return value
-    }
-
-    const breadcrumb = this.findByType(all, 'BreadcrumbList')
-    const entries = Array.isArray(breadcrumb?.itemListElement) ? breadcrumb?.itemListElement as unknown[] : []
-    const names = entries.map((entry) => {
-      if (!entry || typeof entry !== 'object') return ''
-      const object = entry as JsonObject
-      const direct = String(object.name ?? '').trim()
-      if (direct) return direct
-      const item = object.item
-      return item && typeof item === 'object' ? String((item as JsonObject).name ?? '').trim() : ''
-    }).filter(Boolean)
-      .filter((value) => !/^(главная|каталог)$/i.test(value) && value !== productName)
-
-    return names.at(-1) || 'Товары 05.ru'
-  }
-
-  private async newContext(browser: Browser) {
-    return browser.newContext({
-      locale: 'ru-RU',
-      viewport: { width: 1440, height: 1000 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-      extraHTTPHeaders: {
-        'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8',
-        'upgrade-insecure-requests': '1',
-      },
-    })
-  }
-
-  private async parseProductPage(context: BrowserContext, rawUrl: string, fallbackCategory = 'Товары 05.ru'): Promise<FiveRuResult> {
-    const url = this.assertUrl(rawUrl, 'product')
-    let page: Page | undefined
+  private async open(context: BrowserContext, url: string) {
+    const page = await context.newPage()
     try {
-      page = await context.newPage()
       const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}`)
-      await page.waitForTimeout(900)
-
-      const scripts = await page.locator('script[type="application/ld+json"]').allTextContents().catch(() => [])
-      const allLd = this.readLdObjects(scripts)
-      const product = this.findByType(allLd, 'Product')
-      const offer = this.offerFromProduct(product)
-
-      const h1 = (await page.locator('h1').first().innerText().catch(() => '')).trim()
-      const name = String(product?.name ?? h1).trim()
-
-      const metaPrice = await page.locator('meta[property="product:price:amount"]').first().getAttribute('content').catch(() => null)
-      const itemPropPrice = await page.locator('[itemprop="price"]').first().getAttribute('content').catch(() => null)
-      const bodyText = await page.locator('body').innerText().catch(() => '')
-      const bodyPrices = this.priceNumbers(bodyText)
-
-      const price = [offer?.price, offer?.lowPrice, metaPrice, itemPropPrice]
-        .map((value) => this.asNumber(value))
-        .find((value): value is number => Boolean(value)) ?? bodyPrices[0] ?? null
-
-      if (!name || !price) throw new Error('Не удалось прочитать название или цену товара')
-
-      const priceSpecification = offer?.priceSpecification && typeof offer.priceSpecification === 'object'
-        ? offer.priceSpecification as JsonObject
-        : null
-      const explicitOld = [offer?.highPrice, priceSpecification?.price]
-        .map((value) => this.asNumber(value))
-        .find((value): value is number => Boolean(value && value > price)) ?? bodyPrices.find((value) => value > price) ?? null
-
-      const availability = String(offer?.availability ?? '').toLowerCase()
-      const inStock = availability
-        ? !availability.includes('outofstock') && !availability.includes('soldout')
-        : /в корзину|в наличии/i.test(bodyText) && !/распродано|нет в наличии/i.test(bodyText)
-
-      const sku = String(product?.sku ?? product?.mpn ?? '').trim() || this.externalIdFromUrl(url)
-      const categoryName = this.productCategory(product, allLd, name) || fallbackCategory
-      const brand = this.productBrand(product, name)
-      return { name, price, oldPrice: explicitOld, inStock, externalSku: sku, categoryName, brand, url }
-    } finally {
-      await page?.close().catch(() => undefined)
-    }
-  }
-
-  private externalIdFromUrl(rawUrl: string) {
-    try {
-      const pathname = new URL(rawUrl).pathname.replace(/\/+$/, '')
-      const tail = pathname.split('/').at(-1) ?? ''
-      const numeric = tail.match(/-(\d{3,})$/)?.[1]
-      return numeric || null
-    } catch {
-      return null
-    }
-  }
-
-  private async extractCatalogCards(page: Page) {
-    return page.locator('a[href]').evaluateAll((nodes) => {
-      const normalize = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim()
-      const seen = new Map<string, CatalogCard>()
-
-      for (const rawNode of nodes) {
-        const anchor = rawNode as HTMLAnchorElement
-        let href = ''
-        try { href = new URL(anchor.href, window.location.href).toString() } catch { continue }
-        let parsed: URL
-        try { parsed = new URL(href) } catch { continue }
-        if (!['05.ru', 'www.05.ru'].includes(parsed.hostname.toLowerCase()) || !/\/cat\/[^/]+\/p\//.test(parsed.pathname)) continue
-        if (seen.has(href)) continue
-
-        let container: HTMLElement = anchor
-        let cursor: HTMLElement | null = anchor
-        for (let depth = 0; depth < 7 && cursor; depth += 1) {
-          const text = normalize(cursor.innerText)
-          if (/₽|руб(?:\.|лей)?/i.test(text) && text.length < 2500) {
-            container = cursor
-            break
-          }
-          cursor = cursor.parentElement
-        }
-
-        const cardText = normalize(container.innerText)
-        const priceTexts = Array.from(container.querySelectorAll('[class*="price"], [data-price], [itemprop="price"]'))
-          .map((node) => {
-            const element = node as HTMLElement
-            return normalize(element.getAttribute('content') || element.getAttribute('data-price') || element.innerText)
-          })
-          .filter(Boolean)
-          .slice(0, 12)
-
-        const titleCandidates = [
-          anchor.getAttribute('title'),
-          anchor.getAttribute('aria-label'),
-          (container.querySelector('h2, h3, h4, [class*="title"], [class*="name"]') as HTMLElement | null)?.innerText,
-          (anchor.querySelector('img') as HTMLImageElement | null)?.alt,
-          (container.querySelector('img') as HTMLImageElement | null)?.alt,
-          anchor.innerText,
-        ].map(normalize).filter((value) => value && value.length >= 5 && !/^\d[\d\s]*[₽р]/i.test(value))
-
-        const name = titleCandidates.sort((a, b) => b.length - a.length)[0]?.slice(0, 300) || ''
-        const inStock = /распродано|нет в наличии|под заказ/i.test(cardText)
-          ? false
-          : /в корзину|купить|в наличии/i.test(cardText)
-            ? true
-            : null
-
-        seen.set(href, { url: href, name, cardText, priceTexts, inStock })
-      }
-      return Array.from(seen.values())
-    }) as Promise<CatalogCard[]>
-  }
-
-  private cardToProduct(card: CatalogCard, sourceCategoryName: string): FiveRuResult | null {
-    if (!card.name) return null
-    const preferred = card.priceTexts.flatMap((text) => this.priceNumbers(text))
-    const fallback = this.priceNumbers(card.cardText)
-    const prices = [...new Set([...preferred, ...fallback])]
-    const price = prices[0] ?? null
-    if (!price) return null
-    const oldPrice = prices.find((value) => value > price) ?? null
-    return {
-      name: card.name,
-      price,
-      oldPrice,
-      inStock: card.inStock ?? true,
-      externalSku: this.externalIdFromUrl(card.url),
-      categoryName: sourceCategoryName,
-      brand: this.productBrand(undefined, card.name),
-      url: card.url,
-    }
-  }
-
-  private async parseInParallel(context: BrowserContext, urls: string[], fallbackCategory: string) {
-    const products: FiveRuResult[] = []
-    const errors: Array<{ url: string; message: string }> = []
-    const queue = [...urls]
-    const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
-      while (queue.length) {
-        const productUrl = queue.shift()
-        if (!productUrl) return
-        try {
-          products.push(await this.parseProductPage(context, productUrl, fallbackCategory))
-        } catch (error) {
-          errors.push({ url: productUrl, message: error instanceof Error ? error.message : 'Неизвестная ошибка' })
-        }
-      }
-    })
-    await Promise.all(workers)
-    return { products, errors }
-  }
-
-  async parse(rawUrl: string): Promise<FiveRuResult> {
-    let browser: Browser | undefined
-    try {
-      browser = await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled'] })
-      const context = await this.newContext(browser)
-      return await this.parseProductPage(context, rawUrl)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Неизвестная ошибка'
-      throw new BadGatewayException(`Не удалось проверить 05.ru: ${message}`)
-    } finally {
-      await browser?.close().catch(() => undefined)
-    }
-  }
-
-  async parseCatalog(rawUrl: string, limit: number): Promise<FiveRuCatalogResult> {
-    const url = this.assertUrl(rawUrl, 'catalog')
-    const safeLimit = Math.min(24, Math.max(1, Math.round(limit || 12)))
-    let browser: Browser | undefined
-    try {
-      browser = await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled'] })
-      const context = await this.newContext(browser)
-      const page = await context.newPage()
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}`)
+      if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
+      if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Карточка перенаправила на другой сайт')
+      await page.locator('h1').first().waitFor({ timeout: 10_000 })
       await page.waitForTimeout(1000)
-
-      for (let index = 0; index < 5; index += 1) {
-        const before = (await this.extractCatalogCards(page)).length
-        if (before >= safeLimit * 2) break
-        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => undefined)
-        await page.waitForTimeout(300)
+      return page
+    } catch (error) { await page.close(); throw error }
+  }
+  private async snapshot(page: Page): Promise<ProductSnapshot> {
+    await page.locator('.shop-info__link').first().waitFor({ timeout: 8000 }).catch(() => undefined)
+    return page.evaluate(() => {
+      const main = document.querySelector('main') || document.body
+      const text = (selector: string) => {
+        const nodes = Array.from(main.querySelectorAll(selector)).filter(el => (el as HTMLElement).offsetParent !== null)
+        const values = [...new Set(nodes.map(el => el.getAttribute('content') || (el as HTMLElement).innerText.trim()).filter(Boolean))]
+        return values.length === 1 ? values[0] : null
       }
-
-      const sourceCategoryName = (await page.locator('h1').first().innerText().catch(() => '')).trim() || 'Каталог 05.ru'
-      const cards = await this.extractCatalogCards(page)
-      await page.close().catch(() => undefined)
-
-      if (!cards.length) throw new Error('В разделе не нашлись карточки товаров. Возможно, 05.ru поменял разметку.')
-
-      const selected = cards.slice(0, safeLimit)
-      const products: FiveRuResult[] = []
-      const fallbackUrls: string[] = []
-
-      for (const card of selected) {
-        const fastProduct = this.cardToProduct(card, sourceCategoryName)
-        if (fastProduct) products.push(fastProduct)
-        else fallbackUrls.push(card.url)
+      const specs = Array.from(main.querySelectorAll('tr')).map(row => {
+        const cells = row.querySelectorAll('th,td')
+        return { label: cells[0]?.textContent?.trim() || '', value: cells[1]?.textContent?.trim() || '' }
+      }).filter(s => s.label && s.value)
+      specs.push(...Array.from(main.querySelectorAll('dl.product-characteristics__row')).map(row => ({ label: row.querySelector('dt')?.textContent?.trim() || '', value: row.querySelector('dd')?.textContent?.trim() || '' })))
+      return {
+        h1: document.querySelector('h1')?.textContent?.trim() || '',
+        scripts: Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(el => el.textContent || ''),
+        metaPrice: document.querySelector('meta[property="product:price:amount"]')?.getAttribute('content') || null,
+        metaCurrency: document.querySelector('meta[property="product:price:currency"]')?.getAttribute('content') || null,
+        domPrice: text('.product-price-preview__value') || text('.offer-seller__price') || text('[itemprop="price"], [data-product-price]'),
+        oldPrice: text('[data-product-old-price], .product-price del, .product-price s'),
+        availability: main.querySelector('[itemprop="availability"]')?.getAttribute('href') || text('[data-product-availability]'), specs,
+        seller: text('.shop-info__link'), region: document.querySelector('.button-select-location__selected')?.textContent?.trim() || null,
+        category: main.querySelector('a[href*="/cat/mc/"]')?.textContent?.trim() || null,
       }
-
-      const errors: Array<{ url: string; message: string }> = []
-      if (fallbackUrls.length) {
-        const fallback = await this.parseInParallel(context, fallbackUrls, sourceCategoryName)
-        products.push(...fallback.products)
-        errors.push(...fallback.errors)
-      }
-
-      if (!products.length) throw new Error(`Нашлось ${cards.length} ссылок, но данные товаров прочитать не удалось`)
-      return { sourceCategoryName, discoveredLinks: cards.length, products: products.slice(0, safeLimit), errors }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Неизвестная ошибка'
-      throw new BadGatewayException(`Не удалось импортировать раздел 05.ru: ${message}`)
-    } finally {
-      await browser?.close().catch(() => undefined)
-    }
+    })
+  }
+  async parse(raw: string): Promise<FiveRuResult> {
+    const url = fiveRuUrl(raw, 'product')
+    let browser: Browser | undefined
+    try {
+      browser = await this.browser()
+      const page = await this.open(await this.context(browser), url)
+      return extractFiveRu(await this.snapshot(page), url)
+    } catch (error) { throw new BadGatewayException(`Не удалось проверить 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`) }
+    finally { await browser?.close() }
+  }
+  async discover(raw: string, limit = 100) {
+    const url = fiveRuUrl(raw, 'catalog')
+    let browser: Browser | undefined
+    try {
+      browser = await this.browser()
+      const page = await this.open(await this.context(browser), url)
+      await page.locator('.product-card a[href*="/p/"]').first().waitFor({ timeout: 15000 })
+      for (let n = 0; n < 4; n++) { await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await page.waitForTimeout(400) }
+      const result = await page.evaluate(() => ({
+        links: Array.from(document.querySelectorAll('.product-card a[href]')).map(el => (el as HTMLAnchorElement).href),
+        next: (document.querySelector('.page-nav__arrow_right:not(.page-nav__arrow_disabled) a[href], a[rel="next"], a[aria-label="Следующая страница"], a[aria-label="Следующая"]') as HTMLAnchorElement | null)?.href || null,
+        title: document.querySelector('h1')?.textContent?.trim() || 'Каталог 05.ru',
+      }))
+      const all = [...new Set(result.links.flatMap(link => { try { return [fiveRuUrl(link, 'product')] } catch { return [] } }))]
+      if (!all.length) throw new Error('Не найдены ссылки на товары. Возможно, сайт изменил разметку или показал проверку доступа.')
+      let next: string | null = null
+      if (result.next) { try { next = fiveRuUrl(result.next, 'catalog') } catch {} }
+      const truncated = all.length > limit
+      return { urls: all.slice(0, limit), next: truncated ? null : next, truncated, discovered: all.length, title: result.title }
+    } catch (error) { throw new BadGatewayException(`Каталог 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`) }
+    finally { await browser?.close() }
   }
 }

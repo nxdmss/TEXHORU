@@ -1,6 +1,9 @@
+import { CatalogSections } from './CatalogSections'
+import { inCatalogSection } from './catalog-groups'
+import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, API_URL, type ApiCategory, type ApiProduct, type PriceMonitorItem, type PromoBanner, type TrackedOrder } from './api'
-import { activeOrders, categories, orderHistory, products as fallbackProducts } from './data'
+import { api, API_URL, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
+import { activeOrders, orderHistory, products as fallbackProducts } from './data'
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
 const money = new Intl.NumberFormat('ru-RU')
@@ -368,27 +371,20 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [categoryDraft, setCategoryDraft] = useState({ name: '', slug: '' })
   const [productSearch, setProductSearch] = useState('')
   const [adminCategory, setAdminCategory] = useState('ALL')
+  const [adminSection, setAdminSection] = useState('')
+  const [adminLimit, setAdminLimit] = useState(36)
   const [productVisibility, setProductVisibility] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL')
+  useEffect(() => { setAdminLimit(36) }, [adminSection, adminCategory, productSearch, productVisibility])
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingProductId, setEditingProductId] = useState<number | null>(null)
   const [productDraft, setProductDraft] = useState<AdminProductDraft>(() => blankProductDraft())
   const [savingProduct, setSavingProduct] = useState(false)
-  const [priceItems, setPriceItems] = useState<PriceMonitorItem[]>([])
-  const [priceUrl, setPriceUrl] = useState('https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-e-sim-bez-rustore-24007/')
-  const [priceProductId, setPriceProductId] = useState('')
-  const [priceChecking, setPriceChecking] = useState(false)
-  const [priceCatalogUrl, setPriceCatalogUrl] = useState('https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/')
-  const [priceImportLimit, setPriceImportLimit] = useState('12')
-  const [priceImporting, setPriceImporting] = useState(false)
-  const [priceImportMessage, setPriceImportMessage] = useState('')
-  const [priceApplyingId, setPriceApplyingId] = useState<string | null>(null)
-  const [priceClearing, setPriceClearing] = useState(false)
 
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const [p, o, n, l, c, promosData, auditData, priceData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs(), api.adminPriceMonitor()])
-      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData); setPriceItems(priceData)
+      const [p, o, n, l, c, promosData, auditData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs()])
+      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData)
       setProductDraft((value) => value.categoryId ? value : { ...value, categoryId: c[0]?.id ?? '' })
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось загрузить админку') } finally { setLoading(false) }
   }
@@ -574,10 +570,10 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     const visibleByStatus = (item: AdminProduct) => productVisibility === 'ALL' || item.status === productVisibility
     return apiCategories.map((category) => ({
       category,
-      items: products.filter((item) => item.category?.id === category.id && (adminCategory === 'ALL' || adminCategory === category.id) && visibleByStatus(item) && (!q || `${item.name} ${item.brand} ${item.sku}`.toLowerCase().includes(q))),
+      items: products.filter((item) => item.category?.id === category.id && inCatalogSection({ name: item.name, categoryName: item.category?.name }, adminSection) && (adminCategory === 'ALL' || adminCategory === category.id) && visibleByStatus(item) && (!q || `${item.name} ${item.brand} ${item.sku}`.toLowerCase().includes(q))),
       total: products.filter((item) => item.category?.id === category.id && visibleByStatus(item)).length,
     })).filter((group) => (adminCategory === 'ALL' ? group.items.length > 0 : group.category.id === adminCategory))
-  }, [apiCategories, products, productSearch, adminCategory, productVisibility])
+  }, [apiCategories, products, productSearch, adminCategory, productVisibility, adminSection])
 
   const archiveProduct = async (item: AdminProduct) => {
     if (!confirm(`Скрыть «${item.name}» с сайта? Товар останется в базе и его можно будет вернуть.`)) return
@@ -591,69 +587,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const deleteProduct = async (item: AdminProduct) => {
     if (!confirm(`Удалить «${item.name}» НАВСЕГДА? Это действие нельзя отменить.`)) return
     try { await api.adminDeleteProduct(item.id); await load() } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось удалить товар') }
-  }
-
-  const checkCompetitorPrice = async (event: FormEvent) => {
-    event.preventDefault()
-    setPriceChecking(true)
-    setError('')
-    try {
-      await api.adminCheckCompetitorPrice({
-        url: priceUrl.trim(),
-        productId: priceProductId ? Number(priceProductId) : undefined,
-      })
-      setPriceItems(await api.adminPriceMonitor())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось проверить цену')
-      setPriceItems(await api.adminPriceMonitor().catch(() => priceItems))
-    } finally {
-      setPriceChecking(false)
-    }
-  }
-
-  const importFiveRuCatalog = async (event: FormEvent) => {
-    event.preventDefault()
-    setPriceImporting(true)
-    setPriceImportMessage('')
-    setError('')
-    try {
-      const result = await api.adminImportFiveRuCatalog({ url: priceCatalogUrl.trim(), limit: Number(priceImportLimit || 12) })
-      setPriceImportMessage(`Импортировано: ${result.imported}. Новых: ${result.created}, обновлено: ${result.updated}. Разделов: ${result.categories.length}. Ошибок карточек: ${result.errors}.`)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось импортировать раздел 05.ru')
-    } finally {
-      setPriceImporting(false)
-    }
-  }
-
-  const applyRecommendedPrice = async (id: string) => {
-    setPriceApplyingId(id)
-    setError('')
-    try {
-      await api.adminApplyRecommendedPrice(id)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось применить цену')
-    } finally {
-      setPriceApplyingId(null)
-    }
-  }
-
-  const clearFiveRuTestImport = async () => {
-    if (!confirm('Удалить все тестовые товары с SKU 05RU-* и пустые тестовые разделы 05.ru? Реальные товары и 1С не затрагиваются.')) return
-    setPriceClearing(true)
-    setError('')
-    setPriceImportMessage('')
-    try {
-      const result = await api.adminClearFiveRuTestImport()
-      setPriceImportMessage(`Тестовый импорт очищен. Удалено товаров: ${result.deleted}, архивировано из-за заказов: ${result.archived}, удалено разделов: ${result.categoriesDeleted}.`)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось очистить тестовый импорт')
-    } finally {
-      setPriceClearing(false)
-    }
   }
 
   if (checkingSession) return <section className="admin-shell"><div className="admin-loading">Проверяем сессию…</div></section>
@@ -671,21 +604,23 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       <aside className="admin-category-panel">
         <div className="admin-category-panel__head"><div><span>Каталог</span><strong>Группы товаров</strong></div><button className="admin-category-add" onClick={() => setCategoryCreating((value) => !value)}>+ Группа</button></div>
         {categoryCreating && <form className="admin-category-create" onSubmit={createCategory}><input autoFocus required placeholder="Название группы" value={categoryDraft.name} onChange={(e) => setCategoryDraft({ name: e.target.value, slug: slugifyProduct(e.target.value) })} /><input required placeholder="slug" value={categoryDraft.slug} onChange={(e) => setCategoryDraft({ ...categoryDraft, slug: slugifyProduct(e.target.value) })} /><div><button type="button" onClick={() => setCategoryCreating(false)}>Отмена</button><button>Создать</button></div></form>}
-        <button className={adminCategory === 'ALL' ? 'active' : ''} onClick={() => setAdminCategory('ALL')}><span>Все товары</span><b>{products.length}</b></button>
-        {apiCategories.map((category) => <button key={category.id} className={adminCategory === category.id ? 'active' : ''} onClick={() => setAdminCategory(category.id)}><span>{category.name}{category.isActive === false ? ' · скрыта' : ''}</span><b>{products.filter((item) => item.category?.id === category.id).length}</b></button>)}
+        <button className={adminCategory === 'ALL' ? 'active' : ''} onClick={() => { setAdminCategory('ALL'); setAdminSection(''); setProductSearch('') }}><span>Все разделы</span><b>{products.length}</b></button>
+        {apiCategories.map((category) => <button key={category.id} className={adminCategory === category.id ? 'active' : ''} onClick={() => { setAdminCategory(category.id); setAdminSection('') }}><span>{category.name}{category.isActive === false ? ' · скрыта' : ''}</span><b>{products.filter((item) => item.category?.id === category.id).length}</b></button>)}
       </aside>
 
       <div className="admin-catalog-workspace">
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminCategory === 'ALL' ? 'Весь каталог' : apiCategories.find((item) => item.id === adminCategory)?.name}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminCategory === 'ALL' ? 'Каталог по разделам' : apiCategories.find((item) => item.id === adminCategory)?.name}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
         <div className="admin-product-visibility" aria-label="Статус товаров">
           <button className={productVisibility === 'ALL' ? 'active' : ''} onClick={() => setProductVisibility('ALL')}>Все <span>{products.length}</span></button>
           <button className={productVisibility === 'ACTIVE' ? 'active' : ''} onClick={() => setProductVisibility('ACTIVE')}>На сайте <span>{products.filter((item) => item.status === 'ACTIVE').length}</span></button>
           <button className={productVisibility === 'ARCHIVED' ? 'active' : ''} onClick={() => setProductVisibility('ARCHIVED')}>Скрытые <span>{products.filter((item) => item.status === 'ARCHIVED').length}</span></button>
         </div>
 
-        <div className="admin-product-groups">{productGroups.map((group) => <section className="admin-product-group" key={group.category.id}>
+        {adminCategory === 'ALL' && <CatalogSections items={products.filter(p => productVisibility === 'ALL' || p.status === productVisibility).map(p => ({ name: p.name, categoryName: p.category?.name }))} selection={adminSection} searching={Boolean(productSearch.trim())} onSelect={value => { setAdminSection(value); setProductSearch('') }} />}
+        {<><div className="catalog-result-count">{productGroups.reduce((n, g) => n + g.items.length, 0)} товаров · показано до {adminLimit}</div>
+        <div className="admin-product-groups">{productGroups.filter((_, i) => productGroups.slice(0, i).reduce((n, g) => n + g.items.length, 0) < adminLimit).map((group) => <section className="admin-product-group" key={group.category.id}>
           <div className="admin-product-group__head"><div><h3>{group.category.name}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
-          {group.items.length ? <div className="admin-product-grid">{group.items.map((item) => <article className={item.status === 'ARCHIVED' ? 'admin-product-tile is-archived' : 'admin-product-tile'} key={item.id}>
+          {group.items.length ? <div className="admin-product-grid">{group.items.slice(0, Math.max(0, adminLimit - productGroups.slice(0, productGroups.indexOf(group)).reduce((n, g) => n + g.items.length, 0))).map((item) => <article className={item.status === 'ARCHIVED' ? 'admin-product-tile is-archived' : 'admin-product-tile'} key={item.id}>
             <button className="admin-product-tile__main" onClick={() => openEditProduct(item)}>
               <div className="admin-product-tile__image"><img src={item.image || '/products/phone.svg'} alt="" onError={(e) => { e.currentTarget.src = '/products/phone.svg' }} />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
               <div className="admin-product-tile__copy"><small>{item.brand} · {item.sku}</small><strong>{item.name}</strong><div><b>{money.format(item.price)} ₽</b><span>{item.stockQty} шт.</span></div></div>
@@ -697,7 +632,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
             </div>
           </article>)}</div> : <div className="admin-group-empty">По этому фильтру товаров нет.</div>}
         </section>)}</div>
-        {productGroups.length === 0 && <div className="admin-group-empty admin-group-empty--large">Ничего не найдено. Измени поиск или выбери другую группу.</div>}
+        {productGroups.reduce((n, g) => n + g.items.length, 0) > adminLimit && <button className="catalog-more" onClick={() => setAdminLimit(n => n + 36)}>Показать ещё 36</button>}
+        {productGroups.length === 0 && <div className="admin-group-empty admin-group-empty--large">Ничего не найдено. Измени поиск или выбери другую группу.</div>}</>}
       </div>
     </div>}
 
@@ -760,37 +696,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         </form>
       </div>}
     </div>}
-    {tab === 'prices' && <div className="price-monitor">
-      <form className="price-monitor__check" onSubmit={checkCompetitorPrice}>
-        <div className="price-monitor__head"><div><p className="eyebrow">Первый источник</p><h2>05.ru</h2></div><span>Ручная проверка · безопасный режим</span></div>
-        <label><span>Ссылка на товар 05.ru</span><input required type="url" value={priceUrl} onChange={(e) => setPriceUrl(e.target.value)} /></label>
-        <label><span>Сопоставить с товаром TEXHORU</span><select value={priceProductId} onChange={(e) => setPriceProductId(e.target.value)}><option value="">Пока не сопоставлять</option>{products.filter((item) => item.status !== 'ARCHIVED').map((item) => <option key={item.id} value={item.id}>{item.name} · {item.sku}</option>)}</select></label>
-        <button type="submit" disabled={priceChecking}>{priceChecking ? 'Проверяем 05.ru…' : 'Проверить цену'}</button>
-        <small>После сопоставления TEXHORU считает рекомендацию: цена 05.ru минус 500 ₽. Применение пока меняет только локальную цену TEXHORU. При следующем импорте из 1С она может быть перезаписана.</small>
-      </form>
-
-      <form className="price-monitor__import" onSubmit={importFiveRuCatalog}>
-        <div className="price-monitor__head"><div><p className="eyebrow">Тестовое наполнение</p><h2>Скопировать раздел 05.ru</h2></div><span>Товары + разделы · до 24 карточек за запуск</span></div>
-        <label><span>Ссылка на раздел 05.ru</span><input required type="url" value={priceCatalogUrl} onChange={(e) => setPriceCatalogUrl(e.target.value)} /></label>
-        <label><span>Сколько товаров взять</span><select value={priceImportLimit} onChange={(e) => setPriceImportLimit(e.target.value)}><option value="6">6 товаров</option><option value="12">12 товаров</option><option value="24">24 товара</option></select></label>
-        <button type="submit" disabled={priceImporting}>{priceImporting ? 'Импортируем…' : 'Импортировать для теста'}</button>
-        <button className="price-monitor__danger" type="button" disabled={priceClearing || priceImporting} onClick={clearFiveRuTestImport}>{priceClearing ? 'Очищаем…' : 'Удалить тестовый импорт'}</button>
-        <small>Создаются отдельные группы «ТЕСТ 05.ru · …» и товары с SKU 05RU-*. Берём фактические данные: название, бренд, цену, наличие и раздел. Чужие описания и фотографии специально не копируются.</small>
-        {priceImportMessage && <p className="price-monitor__notice">{priceImportMessage}</p>}
-      </form>
-
-      <section className="price-monitor__results">
-        <div className="price-monitor__results-head"><div><p className="eyebrow">История</p><h2>Проверенные товары</h2></div><strong>{priceItems.length}</strong></div>
-        {priceItems.length === 0 ? <div className="price-monitor__empty">Пока пусто. Нажми «Проверить цену» выше.</div> : priceItems.map((item) => <article className={item.lastError ? 'price-monitor__item is-error' : 'price-monitor__item'} key={item.id}>
-          <div className="price-monitor__item-main"><span>{item.source?.name || '05.ru'} · {item.lastCheckedAt ? new Date(item.lastCheckedAt).toLocaleString('ru-RU') : 'не проверялся'}</span><strong>{item.externalName || 'Карточка 05.ru'}</strong><a href={item.externalUrl} target="_blank" rel="noreferrer">Открыть товар ↗</a></div>
-          <div><span>Цена конкурента</span><strong>{item.latestPrice ? `${money.format(item.latestPrice)} ₽` : '—'}</strong>{item.oldPrice ? <small>старая {money.format(item.oldPrice)} ₽</small> : null}</div>
-          <div><span>Рекомендация</span><strong>{item.recommendedPrice ? `${money.format(item.recommendedPrice)} ₽` : '—'}</strong><small>05.ru − 500 ₽</small></div>
-          <div><span>Наличие</span><strong>{item.inStock === true ? 'В наличии' : item.inStock === false ? 'Нет в наличии' : '—'}</strong></div>
-          <div className="price-monitor__ours"><span>Наш товар</span><strong>{item.product?.name || 'Не сопоставлен'}</strong>{item.product ? <small>наша цена {money.format(item.product.price)} ₽</small> : null}{item.product && item.recommendedPrice && item.inStock !== false && item.product.price !== item.recommendedPrice ? <button type="button" disabled={priceApplyingId === item.id} onClick={() => void applyRecommendedPrice(item.id)}>{priceApplyingId === item.id ? 'Применяем…' : 'Применить рекомендацию'}</button> : null}</div>
-          {item.lastError && <p>{item.lastError}</p>}
-        </article>)}
-      </section>
-    </div>}
+    {tab === 'prices' && <PriceMonitorPanel products={products} onCatalogImported={load} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
     {tab === 'sync' && <div className="admin-feed">{logs.length === 0 && <p>Обмен с 1С ещё не запускался.</p>}{logs.map((item) => <article key={item.id} className={item.status === 'FAILED' ? 'is-error' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.direction}</span><strong>{item.entity} · {item.status}</strong><p>{item.message || 'Без сообщения'}</p></article>)}</div>}
@@ -801,6 +707,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
 function App() {
   const [category, setCategory] = useState<Category>('Все')
+  const [storeSection, setStoreSection] = useState('')
+  const [storeLimit, setStoreLimit] = useState(24)
   const [query, setQuery] = useState('')
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(fallbackProducts)
   const [promos, setPromos] = useState<PromoBanner[]>(defaultPromos)
@@ -834,7 +742,9 @@ function App() {
   const mockPaymentMatch = path.match(/^\/payment\/mock\/([^/]+)\/?$/)
   const selectedProduct = productMatch ? catalogProducts.find((item) => item.id === Number(productMatch[1])) : undefined
   const isProductPage = Boolean(productMatch), isAccountPage = /^\/account\/?$/.test(path), isCheckoutPage = /^\/checkout\/?$/.test(path), isAdminPage = /^\/admin\/?$/.test(path)
-  const filtered = useMemo(() => { const q = query.trim().toLowerCase(); return catalogProducts.filter((product) => (category === 'Все' || product.category === category) && (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))) }, [category, query, catalogProducts])
+  useEffect(() => { setStoreLimit(24) }, [storeSection, category, query])
+  const storeCategories = [...new Set(catalogProducts.map(p => p.category))]
+  const filtered = useMemo(() => { const q = query.trim().toLowerCase(); return catalogProducts.filter((product) => (category === 'Все' || product.category === category) && inCatalogSection({ name: product.name, categoryName: product.category }, storeSection) && (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))) }, [category, query, catalogProducts, storeSection])
   const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : defaultPromos, [promos, promosLoaded])
   useEffect(() => {
     if (path !== '/' || sliderItems.length < 2) return
@@ -848,6 +758,8 @@ function App() {
   const openProduct = (product: Product) => navigate(`/product/${product.id}`)
   const jumpToCatalog = (nextCategory: Category = 'Все') => {
     setCategory(nextCategory)
+    setQuery('')
+    setStoreSection('')
     setMenuOpen(false)
     if (window.location.pathname !== '/') {
       navigate('/')
@@ -916,7 +828,7 @@ function App() {
         </aside>
       </div>
     </section>}
-    <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>Товары</h2></div><div className="catalog-source"><span className={apiOnline ? 'source-dot online' : 'source-dot'} />{apiOnline ? 'данные из API' : 'локальный preview'}</div></div><div className="category-row">{categories.map((item) => <button key={item} className={item === category ? 'category active' : 'category'} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length === 0 && <div className="empty-search">Ничего не найдено.</div>}</section>
+    <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>{query.trim() ? 'Результаты поиска' : 'Каталог'}</h2></div></div><CatalogSections items={catalogProducts.map(p => ({ name: p.name, categoryName: p.category }))} selection={storeSection} searching={Boolean(query.trim())} onSelect={value => { setStoreSection(value); setCategory('Все'); setQuery('') }} />{<><div className="catalog-result-count">Найдено: {filtered.length}</div><div className="product-grid">{filtered.slice(0, storeLimit).map(product => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length > storeLimit && <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}{filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}</>}</section>
   </>
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={product.image} alt={product.name} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
@@ -933,8 +845,8 @@ function App() {
   else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
-  return <div className="app-shell"><header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog(category) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>
-  {menuOpen && <div className="menu-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMenuOpen(false) }}><aside className="category-drawer"><div className="category-drawer__head"><div><span>TEXHORU</span><strong>Категории</strong></div><button onClick={() => setMenuOpen(false)} aria-label="Закрыть меню"><Icon name="close" /></button></div><nav className="category-drawer__list">{categories.map((item) => <button key={item} className={item === category ? 'active' : ''} onClick={() => jumpToCatalog(item)}><span>{item}</span><Icon name="arrow" /></button>)}</nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
+  return <div className="app-shell"><header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog(category) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>
+  {menuOpen && <div className="menu-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMenuOpen(false) }}><aside className="category-drawer"><div className="category-drawer__head"><div><span>TEXHORU</span><strong>Категории</strong></div><button onClick={() => setMenuOpen(false)} aria-label="Закрыть меню"><Icon name="close" /></button></div><nav className="category-drawer__list">{['Все', ...storeCategories].map((item) => <button key={item} className={item === category ? 'active' : ''} onClick={() => jumpToCatalog(item)}><span>{item}</span><Icon name="arrow" /></button>)}</nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
   <main id="top">{content}</main><footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>
   {cartOpen && <div className="overlay" onMouseDown={(event) => { if (event.currentTarget === event.target) setCartOpen(false) }}><aside className="drawer"><div className="drawer-head"><div><p className="eyebrow">Заказ</p><h2>Корзина ({cartCount})</h2></div><button className="icon-button" onClick={() => setCartOpen(false)}><Icon name="close" /></button></div><div className="drawer-body cart-lines">{cart.length === 0 ? <div className="cart-empty">Корзина пока пуста.</div> : cart.map((item) => <div className="cart-line" key={item.product.id}><button className="cart-line__image" onClick={() => { setCartOpen(false); openProduct(item.product) }}><img src={item.product.image} alt={item.product.name} /></button><div className="cart-line-copy"><button className="cart-line__title" onClick={() => { setCartOpen(false); openProduct(item.product) }}>{item.product.name}</button><span>{item.product.shortSpec}</span><b>{money.format(item.product.price)} ₽</b><div className="qty"><button onClick={() => changeQuantity(item.product.id, -1)}><Icon name="minus" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.product.id, 1)}><Icon name="plus" /></button></div></div></div>)}</div><div className="drawer-bottom"><div className="total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><button className="checkout" disabled={!cart.length} onClick={() => { setCartOpen(false); navigate('/checkout') }}>Перейти к оформлению</button><small>{apiOnline ? 'Цена и остаток будут перепроверены сервером.' : 'Для создания заказа запустите backend.'}</small></div></aside></div>}
   </div>

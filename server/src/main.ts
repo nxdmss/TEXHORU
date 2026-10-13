@@ -22,6 +22,7 @@ function assertProductionEnv() {
 async function bootstrap() {
   assertProductionEnv()
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false })
+  app.useBodyParser('json', { limit: '10mb' })
   const origins = (process.env.FRONTEND_ORIGIN ?? 'http://127.0.0.1:5173')
     .split(',')
     .map((origin) => origin.trim())
@@ -48,7 +49,12 @@ async function bootstrap() {
   }
 
   const port = Number(process.env.PORT ?? 3000)
-  await app.listen(port, '0.0.0.0')
+  await app.listen(port, process.env.HOST || '0.0.0.0')
+  process.on('message', message => {
+    if (message && typeof message === 'object' && 'type' in message && message.type === 'TEXHORU_SHUTDOWN') {
+      void app.close().then(() => process.exit(0))
+    }
+  })
   console.log(`TEXHORU server: http://127.0.0.1:${port}/`)
   console.log(`TEXHORU API:    http://127.0.0.1:${port}/api`)
 }

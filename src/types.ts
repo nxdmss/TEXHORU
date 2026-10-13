@@ -1,4 +1,4 @@
-export type Category = 'Все' | 'Смартфоны' | 'Телевизоры' | 'Ноутбуки' | 'Аудио' | 'Для дома'
+export type Category = string
 
 export type ProductSpec = {
   label: string

@@ -1,4 +1,5 @@
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
+import { IdentityDto } from '../price-monitor/price-monitor.dto'
+import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested, MaxLength } from 'class-validator'
 import { Type } from 'class-transformer'
 import { OrderStatus } from '@prisma/client'
 
@@ -18,6 +19,10 @@ export class OneCProductDto {
   @IsInt() @Min(0) price!: number
   @IsInt() @Min(0) stockQty!: number
   @IsOptional() @IsInt() @Min(0) oldPrice?: number
+  @IsOptional() @IsString() @MaxLength(30) gtin?: string
+  @IsOptional() @IsString() @MaxLength(100) mpn?: string
+  @IsOptional() @IsInt() @Min(0) costPrice?: number
+  @IsOptional() @ValidateNested() @Type(() => IdentityDto) attributes?: IdentityDto
 }
 
 export class OneCCatalogDto {

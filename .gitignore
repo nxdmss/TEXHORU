@@ -18,3 +18,10 @@ TEXHORU.exe
 TEXHORU STOP.exe
 icons/*.ico
 *.zip
+
+server/prisma/monitor-test*.db*
+backups/
+
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

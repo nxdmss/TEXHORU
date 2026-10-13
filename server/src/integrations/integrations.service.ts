@@ -1,144 +1,146 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { StockState } from '@prisma/client'
 import { OrdersService } from '../orders/orders.service'
-import { NotificationsService } from '../notifications/notifications.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService, private readonly notifications: NotificationsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService) {}
 
   async importCatalog(dto: OneCCatalogDto) {
     try {
-      const categoryIdByIncomingOneCId = new Map<string, string>()
+      return await this.prisma.$transaction(async tx => {
+        if (new Set(dto.categories.map(c => c.oneCId)).size !== dto.categories.length || new Set(dto.products.map(p => p.oneCId)).size !== dto.products.length) throw new BadRequestException('Повторяющиеся идентификаторы в пакете 1С')
+        const categoryIdByIncomingOneCId = new Map<string, string>()
 
-      for (const category of dto.categories) {
-        const incomingName = category.name.trim()
+        for (const category of dto.categories) {
+          const incomingName = category.name.trim()
 
-        // In our test 1C configuration category IDs/slugs may accidentally be reused.
-        // The visible category name is therefore the strongest discriminator here.
-        const sameName = await this.prisma.category.findFirst({
-          where: { name: incomingName },
-        })
-
-        const sameOneCId = await this.prisma.category.findFirst({
-          where: { oneCId: category.oneCId },
-        })
-
-        const sameIncomingSlug = await this.prisma.category.findFirst({
-          where: { slug: category.slug },
-        })
-
-        let resolvedCategory
-
-        if (sameName) {
-          const canAttachOneCId = !sameOneCId || sameOneCId.id === sameName.id
-          resolvedCategory = await this.prisma.category.update({
-            where: { id: sameName.id },
-            data: {
-              ...(canAttachOneCId ? { oneCId: category.oneCId } : {}),
-              isActive: true,
-            },
+          // In our test 1C configuration category IDs/slugs may accidentally be reused.
+          // The visible category name is therefore the strongest discriminator here.
+          const sameName = await tx.category.findFirst({
+            where: { name: incomingName },
           })
-        } else {
-          // Never reuse a slug that currently belongs to a category with another name.
-          // Otherwise "Смартфоны" can silently become "Игровые приставки" again.
-          const slugIsFree = !sameIncomingSlug
-          const fallbackSlugBase = `1c-${this.categoryNameKey(incomingName)}`
-          let resolvedSlug = slugIsFree ? category.slug : fallbackSlugBase
-          let suffix = 2
 
-          while (await this.prisma.category.findFirst({ where: { slug: resolvedSlug } })) {
-            resolvedSlug = `${fallbackSlugBase}-${suffix}`
-            suffix += 1
+          const sameOneCId = await tx.category.findFirst({
+            where: { oneCId: category.oneCId },
+          })
+
+          const sameIncomingSlug = await tx.category.findFirst({
+            where: { slug: category.slug },
+          })
+
+          let resolvedCategory
+
+          if (sameName) {
+            const canAttachOneCId = !sameOneCId || sameOneCId.id === sameName.id
+            resolvedCategory = await tx.category.update({
+              where: { id: sameName.id },
+              data: {
+                ...(canAttachOneCId ? { oneCId: category.oneCId } : {}),
+                isActive: true,
+              },
+            })
+          } else {
+            // Never reuse a slug that currently belongs to a category with another name.
+            // Otherwise "Смартфоны" can silently become "Игровые приставки" again.
+            const slugIsFree = !sameIncomingSlug
+            const fallbackSlugBase = `1c-${this.categoryNameKey(incomingName)}`
+            let resolvedSlug = slugIsFree ? category.slug : fallbackSlugBase
+            let suffix = 2
+
+            while (await tx.category.findFirst({ where: { slug: resolvedSlug } })) {
+              resolvedSlug = `${fallbackSlugBase}-${suffix}`
+              suffix += 1
+            }
+
+            const canAttachOneCId = !sameOneCId
+            resolvedCategory = await tx.category.create({
+              data: {
+                oneCId: canAttachOneCId ? category.oneCId : null,
+                name: incomingName,
+                slug: resolvedSlug,
+                isActive: true,
+              },
+            })
           }
 
-          const canAttachOneCId = !sameOneCId
-          resolvedCategory = await this.prisma.category.create({
-            data: {
-              oneCId: canAttachOneCId ? category.oneCId : null,
-              name: incomingName,
-              slug: resolvedSlug,
-              isActive: true,
+          categoryIdByIncomingOneCId.set(category.oneCId, resolvedCategory.id)
+        }
+
+        for (const item of dto.products) {
+          const categoryId = categoryIdByIncomingOneCId.get(item.categoryOneCId)
+          const category = categoryId
+            ? await tx.category.findUnique({ where: { id: categoryId } })
+            : await tx.category.findFirst({ where: { oneCId: item.categoryOneCId } })
+
+          if (!category) {
+            throw new Error(`Категория товара из 1С не найдена: categoryOneCId=${item.categoryOneCId}`)
+          }
+
+          const matches = await tx.product.findMany({
+            where: {
+              OR: [
+                { oneCId: item.oneCId },
+                { sku: item.sku },
+                { slug: item.slug },
+              ],
             },
+            take: 4,
           })
+
+          const byOneCId = matches.find((product) => product.oneCId === item.oneCId)
+          const bySku = matches.find((product) => product.sku === item.sku)
+          const bySlug = matches.find((product) => product.slug === item.slug)
+          const matchedIds = new Set(matches.map((product) => product.id))
+
+          if (matchedIds.size > 1) {
+            throw new Error(`Конфликт товара 1С: oneCId=${item.oneCId}, sku=${item.sku}, slug=${item.slug} указывают на разные товары сайта`)
+          }
+
+          const existing = byOneCId ?? bySku ?? bySlug
+          const stockState: StockState = item.stockQty <= 0 ? StockState.OUT_OF_STOCK : item.stockQty <= 3 ? StockState.LOW : StockState.IN_STOCK
+          const productData = {
+            oneCId: item.oneCId,
+            gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice,
+            attributes: item.attributes ? { ...item.attributes } : undefined,
+            sku: item.sku,
+            slug: item.slug,
+            name: item.name,
+            brand: item.brand,
+            categoryId: category.id,
+            price: item.price,
+            oldPrice: item.oldPrice,
+            stockQty: item.stockQty,
+            stockState,
+            status: 'ACTIVE' as const,
+          }
+
+          const updated = existing
+            ? await tx.product.update({ where: { id: existing.id }, data: productData })
+            : await tx.product.create({ data: productData })
+
+          const crossedLowStock = item.stockQty <= 3 && (!existing || existing.stockQty > 3)
+          if (crossedLowStock) {
+            await tx.notification.create({ data: {
+              type: 'LOW_STOCK', title: `Мало товара: ${updated.name}`, body: `Остаток по 1С: ${item.stockQty} шт.`,
+              metadata: { productId: updated.id, oneCId: item.oneCId },
+            } })
+          }
         }
 
-        categoryIdByIncomingOneCId.set(category.oneCId, resolvedCategory.id)
-      }
-
-      for (const item of dto.products) {
-        const categoryId = categoryIdByIncomingOneCId.get(item.categoryOneCId)
-        const category = categoryId
-          ? await this.prisma.category.findUnique({ where: { id: categoryId } })
-          : await this.prisma.category.findFirst({ where: { oneCId: item.categoryOneCId } })
-
-        if (!category) {
-          throw new Error(`Категория товара из 1С не найдена: categoryOneCId=${item.categoryOneCId}`)
-        }
-
-        const matches = await this.prisma.product.findMany({
-          where: {
-            OR: [
-              { oneCId: item.oneCId },
-              { sku: item.sku },
-              { slug: item.slug },
-            ],
+        await tx.syncLog.create({
+          data: {
+            direction: 'FROM_1C',
+            entity: 'CATALOG',
+            status: 'SUCCESS',
+            message: `Категорий: ${dto.categories.length}; товаров: ${dto.products.length}`,
           },
-          take: 4,
         })
 
-        const byOneCId = matches.find((product) => product.oneCId === item.oneCId)
-        const bySku = matches.find((product) => product.sku === item.sku)
-        const bySlug = matches.find((product) => product.slug === item.slug)
-        const matchedIds = new Set(matches.map((product) => product.id))
-
-        if (matchedIds.size > 1) {
-          throw new Error(`Конфликт товара 1С: oneCId=${item.oneCId}, sku=${item.sku}, slug=${item.slug} указывают на разные товары сайта`)
-        }
-
-        const existing = byOneCId ?? bySku ?? bySlug
-        const stockState: StockState = item.stockQty <= 0 ? StockState.OUT_OF_STOCK : item.stockQty <= 3 ? StockState.LOW : StockState.IN_STOCK
-        const productData = {
-          oneCId: item.oneCId,
-          sku: item.sku,
-          slug: item.slug,
-          name: item.name,
-          brand: item.brand,
-          categoryId: category.id,
-          price: item.price,
-          oldPrice: item.oldPrice,
-          stockQty: item.stockQty,
-          stockState,
-          status: 'ACTIVE' as const,
-        }
-
-        const updated = existing
-          ? await this.prisma.product.update({ where: { id: existing.id }, data: productData })
-          : await this.prisma.product.create({ data: productData })
-
-        const crossedLowStock = item.stockQty <= 3 && (!existing || existing.stockQty > 3)
-        if (crossedLowStock) {
-          await this.notifications.create(
-            'LOW_STOCK',
-            `Мало товара: ${updated.name}`,
-            `Остаток по 1С: ${item.stockQty} шт.`,
-            { productId: updated.id, oneCId: item.oneCId },
-          )
-        }
-      }
-
-      await this.prisma.syncLog.create({
-        data: {
-          direction: 'FROM_1C',
-          entity: 'CATALOG',
-          status: 'SUCCESS',
-          message: `Категорий: ${dto.categories.length}; товаров: ${dto.products.length}`,
-        },
-      })
-
-      return { ok: true, categories: dto.categories.length, products: dto.products.length }
+        return { ok: true, categories: dto.categories.length, products: dto.products.length }
+      }, { timeout: 30000 })
     } catch (error) {
       await this.prisma.syncLog.create({
         data: {

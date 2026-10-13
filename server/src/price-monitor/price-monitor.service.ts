@@ -1,199 +1,216 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { CheckCompetitorPriceDto, ImportFiveRuCatalogDto } from './price-monitor.dto'
-import { FiveRuParser, type FiveRuResult } from './five-ru.parser'
+import { CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { FiveRuParser, fiveRuUrl, type FiveRuResult } from './five-ru.parser'
+import { compareItems, fingerprint, recommendation } from './product-matching'
+import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 
 @Injectable()
-export class PriceMonitorService {
-  constructor(private readonly prisma: PrismaService, private readonly fiveRu: FiveRuParser) {}
+export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
+  private timer?: NodeJS.Timeout
+  private working = false
+  private parsing = false
+  constructor(private readonly prisma: PrismaService, private readonly fiveRu: FiveRuParser, private readonly exchange: MonitorExchangeService) {}
 
-  private recommendedPrice(competitorPrice: number | null | undefined) {
-    if (!competitorPrice || competitorPrice <= 0) return null
-    return Math.max(1, competitorPrice - 500)
+  onModuleInit() {
+    if (process.env.MONITOR_WORKER_DISABLED === 'true') return
+    this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 2000)
+    this.timer.unref()
   }
-
-  private withRecommendation<T extends { latestPrice?: number | null }>(item: T) {
-    return { ...item, recommendedPrice: this.recommendedPrice(item.latestPrice) }
+  onModuleDestroy() { if (this.timer) clearInterval(this.timer) }
+  private source() {
+    return this.prisma.competitorSource.upsert({ where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' } })
   }
-
-  private async source() {
-    return this.prisma.competitorSource.upsert({
-      where: { key: '05ru' },
-      update: { name: '05.ru', baseUrl: 'https://05.ru', isActive: true },
-      create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
-    })
+  private decorated<T extends { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null; product?: { name: string; price: number; costPrice?: number | null } | null; matchStatus: string; confirmedFingerprint?: string | null; confirmedProductFingerprint?: string | null; externalName?: string | null; attributes: unknown }>(row: T) {
+    const valid = row.matchStatus === 'CONFIRMED' && row.product && fingerprint(row.product) === row.confirmedProductFingerprint && fingerprint({ name: row.externalName || '', attributes: row.attributes }) === row.confirmedFingerprint
+    return { ...row, matchStatus: row.matchStatus === 'CONFIRMED' && !valid ? 'REVIEW_REQUIRED' : row.matchStatus, ...recommendation(row, valid ? row.product : null) }
   }
-
   async list() {
-    const rows = await this.prisma.competitorProduct.findMany({
-      include: { source: true, product: { include: { category: true } } },
-      orderBy: [{ lastCheckedAt: 'desc' }, { createdAt: 'desc' }],
-    })
-    return rows.map((item) => this.withRecommendation(item))
+    const rows = await this.prisma.competitorProduct.findMany({ include: { source: true, product: { include: { category: true } } }, orderBy: [{ lastCheckedAt: 'desc' }, { createdAt: 'desc' }] })
+    return rows.map(row => this.decorated(row))
   }
+  async candidates(id: string) {
+    const link = await this.prisma.competitorProduct.findUnique({ where: { id } })
+    if (!link) throw new NotFoundException('Карточка не найдена')
+    const products = await this.prisma.product.findMany({ where: { status: 'ACTIVE' } })
+    return products.map(product => ({ product: { id: product.id, oneCId: product.oneCId, name: product.name, sku: product.sku }, ...compareItems(product, { name: link.externalName || '', attributes: link.attributes }) }))
+      .filter(c => c.score >= 20).sort((a,b) => b.score - a.score).slice(0, 5)
+  }
+  async confirm(id: string, productId: number) {
+    const updated = await this.prisma.$transaction(async tx => {
+      const link = await tx.competitorProduct.findUnique({ where: { id } })
+      const product = await tx.product.findUnique({ where: { id: productId } })
+      if (!link || !product || product.status !== 'ACTIVE') throw new NotFoundException('Карточка или активный товар не найдены')
+      if (!link.externalName || !link.lastSuccessAt || link.lastError) throw new BadRequestException('Сначала успешно проверь карточку')
+      const check = compareItems(product, { name: link.externalName, attributes: link.attributes })
+      if (check.conflicts.length) throw new BadRequestException(`Характеристики расходятся: ${check.conflicts.join(', ')}. Исправь данные товара перед подтверждением.`)
+      if (link.productId === productId && link.matchStatus === 'CONFIRMED' && link.confirmedFingerprint === fingerprint({ name: link.externalName, attributes: link.attributes }) && link.confirmedProductFingerprint === fingerprint(product)) {
+        return tx.competitorProduct.findUniqueOrThrow({ where: { id }, include: { product: true, source: true } })
+      }
+      // Explicit user confirmation is allowed with missing fields; the UI lists them.
+      await tx.monitorDelivery.updateMany({ where: { linkId: id, status: 'PENDING' }, data: { status: 'CANCELLED', lastError: 'Связь подтверждена заново' } })
+      // A changed mapping needs a fresh observation, even if the price is unchanged.
+      const history = await tx.competitorPriceHistory.create({ data: { competitorProductId: id, price: link.latestPrice!, oldPrice: link.oldPrice, inStock: link.inStock, checkedAt: link.lastSuccessAt } })
+      const row = await tx.competitorProduct.update({ where: { id }, data: {
+        productId, matchStatus: 'CONFIRMED', confirmedAt: new Date(),
+        confirmedFingerprint: fingerprint({ name: link.externalName, attributes: link.attributes }), confirmedProductFingerprint: fingerprint(product),
+      }, include: { product: true, source: true } })
+      await this.exchange.enqueue(id, tx, history.id)
+      await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing } } })
+      return row
+    })
+    return this.decorated(updated)
+  }
+  async unmatch(id: string) {
+    return this.prisma.$transaction(async tx => {
+      await tx.monitorDelivery.updateMany({ where: { linkId: id, status: 'PENDING' }, data: { status: 'CANCELLED', lastError: 'Связь снята пользователем' } })
+      return tx.competitorProduct.update({ where: { id }, data: { productId: null, matchStatus: 'UNMATCHED', confirmedAt: null, confirmedFingerprint: null, confirmedProductFingerprint: null } })
+    })
+  }
+  async history(id: string) { return this.prisma.competitorPriceHistory.findMany({ where: { competitorProductId: id }, orderBy: { checkedAt: 'desc' }, take: 100 }) }
 
   async check(dto: CheckCompetitorPriceDto) {
-    if (dto.productId) {
-      const product = await this.prisma.product.findUnique({ where: { id: dto.productId } })
-      if (!product) throw new NotFoundException('Товар TEXHORU не найден')
-    }
-
+    const url = fiveRuUrl(dto.url, 'product')
+    if (this.parsing) throw new ConflictException('Парсер занят. Дождись текущей проверки.')
+    if (dto.productId && !await this.prisma.product.findUnique({ where: { id: dto.productId } })) throw new NotFoundException('Товар TEXHORU не найден')
     const source = await this.source()
-
+    this.parsing = true
     try {
-      const result = await this.fiveRu.parse(dto.url)
-      const link = await this.prisma.competitorProduct.upsert({
-        where: { externalUrl: dto.url },
-        update: {
-          sourceId: source.id,
-          productId: dto.productId ?? undefined,
-          externalName: result.name,
-          externalSku: result.externalSku,
-          latestPrice: result.price,
-          oldPrice: result.oldPrice,
-          inStock: result.inStock,
-          lastCheckedAt: new Date(),
-          lastError: null,
-        },
-        create: {
-          sourceId: source.id,
-          productId: dto.productId,
-          externalUrl: dto.url,
-          externalName: result.name,
-          externalSku: result.externalSku,
-          latestPrice: result.price,
-          oldPrice: result.oldPrice,
-          inStock: result.inStock,
-          lastCheckedAt: new Date(),
-        },
-      })
-      await this.prisma.competitorPriceHistory.create({
-        data: { competitorProductId: link.id, price: result.price, oldPrice: result.oldPrice, inStock: result.inStock },
-      })
-      const item = await this.prisma.competitorProduct.findUnique({
-        where: { id: link.id },
-        include: { source: true, product: { include: { category: true } } },
-      })
-      return item ? this.withRecommendation(item) : null
+      const result = await this.fiveRu.parse(url)
+      return await this.save(result, source.id, dto.productId)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Неизвестная ошибка'
-      await this.prisma.competitorProduct.upsert({
-        where: { externalUrl: dto.url },
-        update: { sourceId: source.id, productId: dto.productId ?? undefined, lastCheckedAt: new Date(), lastError: message },
-        create: { sourceId: source.id, productId: dto.productId, externalUrl: dto.url, lastCheckedAt: new Date(), lastError: message },
-      })
+      const message = error instanceof Error ? error.message : 'Ошибка проверки'
+      await this.prisma.competitorProduct.upsert({ where: { externalUrl: url }, update: { lastCheckedAt: new Date(), lastError: message }, create: { sourceId: source.id, externalUrl: url, lastCheckedAt: new Date(), lastError: message } })
       throw error
-    }
+    } finally { this.parsing = false }
   }
-
-  async applyRecommended(id: string) {
-    const link = await this.prisma.competitorProduct.findUnique({ where: { id }, include: { product: true } })
-    if (!link) throw new NotFoundException('Позиция мониторинга не найдена')
-    if (!link.product) throw new BadRequestException('Сначала сопоставь позицию с товаром TEXHORU')
-    if (!link.latestPrice) throw new BadRequestException('Сначала проверь цену конкурента')
-    if (link.inStock === false) throw new BadRequestException('У конкурента товар не в наличии. Автоснижение цены заблокировано.')
-
-    const price = this.recommendedPrice(link.latestPrice)
-    if (!price) throw new BadRequestException('Не удалось рассчитать рекомендованную цену')
-
-    await this.prisma.product.update({
-      where: { id: link.product.id },
-      data: {
-        price,
-        oldPrice: link.product.price !== price ? link.product.price : link.product.oldPrice,
-      },
-    })
-
-    const updated = await this.prisma.competitorProduct.findUnique({
-      where: { id },
-      include: { source: true, product: { include: { category: true } } },
-    })
-    return updated ? this.withRecommendation(updated) : null
-  }
-
-  async importFiveRuCatalog(dto: ImportFiveRuCatalogDto) {
-    const source = await this.source()
-    const scan = await this.fiveRu.parseCatalog(dto.url, dto.limit ?? 12)
-    let created = 0
-    let updated = 0
-    const categories = new Set<string>()
-
-    for (const result of scan.products) {
-      const category = await this.ensureTestCategory(result.categoryName || scan.sourceCategoryName)
-      categories.add(category.name)
-      const sku = this.testSku(result)
-      const slug = `test-05ru-${this.key(result.url)}`
-      const existing = await this.prisma.product.findUnique({ where: { sku } })
-      const stockQty = result.inStock ? 10 : 0
-      const stockState = result.inStock ? StockState.IN_STOCK : StockState.OUT_OF_STOCK
-      const data = {
-        sku,
-        slug,
-        name: result.name,
-        brand: result.brand || 'Без бренда',
-        description: `Тестовый импорт для проверки каталога TEXHORU. Источник: ${result.url}`,
-        shortSpec: 'Тестовый импорт из 05.ru',
-        image: '/products/phone.svg',
-        price: result.price,
-        oldPrice: result.oldPrice,
-        stockQty,
-        stockState,
-        status: ProductStatus.ACTIVE,
-        badge: 'ТЕСТ',
-        warranty: '',
-        deliveryNote: 'Тестовые данные',
-        specs: [{ label: 'Источник', value: '05.ru' }],
-        categoryId: category.id,
+  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number) {
+    return this.prisma.$transaction(async tx => {
+      const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
+      let productId = existing?.productId || suggestedProductId || null
+      let matchStatus = existing?.matchStatus || 'UNMATCHED'
+      let confirmedFingerprint = existing?.confirmedFingerprint || null
+      let confirmedProductFingerprint = existing?.confirmedProductFingerprint || null
+      const theirs = { name: result.name, attributes: result.attributes }
+      if (matchStatus === 'CONFIRMED' && (fingerprint(theirs) !== confirmedFingerprint || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint)) matchStatus = 'REVIEW_REQUIRED'
+      if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
+        const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
+        const candidates = products.map(product => ({ product, check: compareItems(product, theirs) })).filter(c => c.check.score >= 20).sort((a,b) => b.check.score - a.check.score)
+        const exact = candidates.filter(c => c.check.canAutoConfirm)
+        if (exact.length === 1) {
+          productId = exact[0].product.id; matchStatus = 'CONFIRMED'
+          confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
+        } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
+      } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') matchStatus = 'SUGGESTED'
+      const now = new Date()
+      const data = { sourceId, productId, externalName: result.name, externalSku: result.externalSku,
+        attributes: jsonValue(result.attributes), seller: result.seller, region: result.region, priceSource: result.priceSource,
+        latestPrice: result.price, oldPrice: result.oldPrice, inStock: result.inStock, lastCheckedAt: now, lastSuccessAt: now, lastError: null,
+        matchStatus, confirmedFingerprint, confirmedProductFingerprint,
       }
+      const row = await tx.competitorProduct.upsert({ where: { externalUrl: result.url }, update: data, create: { ...data, externalUrl: result.url }, include: { source: true, product: true } })
+      const history = await tx.competitorPriceHistory.create({ data: { competitorProductId: row.id, price: result.price, oldPrice: result.oldPrice, inStock: result.inStock, checkedAt: now } })
+      await this.exchange.enqueue(row.id, tx, history.id)
+      return this.decorated(row)
+    })
+  }
+  async applyRecommended(_id: string) { throw new BadRequestException('Цены изменяются в 1С. Используй «Передать результаты в 1С».') }
 
-      const product = existing
-        ? await this.prisma.product.update({ where: { id: existing.id }, data })
-        : await this.prisma.product.create({ data })
-      existing ? updated += 1 : created += 1
-
-      const link = await this.prisma.competitorProduct.upsert({
-        where: { externalUrl: result.url },
-        update: {
-          sourceId: source.id,
-          productId: product.id,
-          externalName: result.name,
-          externalSku: result.externalSku,
-          latestPrice: result.price,
-          oldPrice: result.oldPrice,
-          inStock: result.inStock,
-          lastCheckedAt: new Date(),
-          lastError: null,
-        },
-        create: {
-          sourceId: source.id,
-          productId: product.id,
-          externalUrl: result.url,
-          externalName: result.name,
-          externalSku: result.externalSku,
-          latestPrice: result.price,
-          oldPrice: result.oldPrice,
-          inStock: result.inStock,
-          lastCheckedAt: new Date(),
-        },
-      })
-      await this.prisma.competitorPriceHistory.create({
-        data: { competitorProductId: link.id, price: result.price, oldPrice: result.oldPrice, inStock: result.inStock },
-      })
-    }
-
-    return {
-      ok: true,
-      sourceCategoryName: scan.sourceCategoryName,
-      discoveredLinks: scan.discoveredLinks,
-      imported: scan.products.length,
-      created,
-      updated,
-      categories: [...categories],
-      errors: scan.errors.length,
-    }
+  async settings() { return this.prisma.monitorSettings.upsert({ where: { id: '05ru' }, update: {}, create: { id: '05ru' } }) }
+  async updateSettings(dto: MonitorSettingsDto) {
+    const catalogUrl = fiveRuUrl(dto.catalogUrl, 'catalog')
+    if (dto.intervalMinutes > 0 && dto.intervalMinutes < 120) throw new BadRequestException('Минимальный интервал — 120 минут')
+    return this.prisma.monitorSettings.upsert({ where: { id: '05ru' }, create: { id: '05ru', catalogUrl, intervalMinutes: dto.intervalMinutes, nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null }, update: { catalogUrl, intervalMinutes: dto.intervalMinutes, nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null } })
+  }
+  jobs() { return this.prisma.monitorJob.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }) }
+  async scan(dto: ScanFiveRuDto) {
+    const url = fiveRuUrl(dto.url, 'catalog')
+    return this.prisma.monitorJob.create({ data: { kind: 'CATALOG', url, maxPages: dto.maxPages || 1, perPage: 200 } })
+  }
+  async checkAll() {
+    const links = await this.prisma.competitorProduct.findMany({ where: { source: { key: '05ru' } }, select: { externalUrl: true } })
+    if (!links.length) throw new BadRequestException('Сначала добавь карточки или собери раздел каталога')
+    return this.prisma.monitorJob.create({ data: { kind: 'RECHECK', pendingUrls: links.map(row => row.externalUrl) } })
+  }
+  async cancelJob(id: string) { return this.prisma.monitorJob.updateMany({ where: { id, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', finishedAt: new Date() } }) }
+  async retryJob(id: string) {
+    const job = await this.prisma.monitorJob.findUnique({ where: { id } })
+    if (!job || !['FAILED', 'CANCELLED'].includes(job.status)) throw new BadRequestException('Можно продолжить остановленную задачу')
+    return this.prisma.monitorJob.update({ where: { id }, data: { status: 'QUEUED', leaseUntil: null, finishedAt: null, lastError: null } })
+  }
+  private strings(value: unknown) { return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [] }
+  private async tick() {
+    if (this.working || this.parsing) return
+    this.working = true
+    try {
+      const now = new Date()
+      await this.prisma.monitorJob.updateMany({ where: { status: 'RUNNING', leaseUntil: { lt: now } }, data: { status: 'QUEUED' } })
+      const settings = await this.settings()
+      if (settings.intervalMinutes && settings.nextRunAt && settings.nextRunAt <= now && !await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+        const links = await this.prisma.competitorProduct.count({ where: { source: { key: '05ru' } } })
+        if (links) await this.checkAll()
+        await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
+      }
+      const job = await this.prisma.monitorJob.findFirst({ where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' } })
+      if (!job) return
+      const claimed = await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'QUEUED' }, data: { status: 'RUNNING', leaseUntil: new Date(Date.now() + 180000) } })
+      if (!claimed.count) return
+      let pending = this.strings(job.pendingUrls)
+      try {
+        if (!pending.length && job.kind === 'CATALOG' && job.url && job.page < job.maxPages) {
+          this.parsing = true
+          let discovered: Awaited<ReturnType<FiveRuParser['discover']>>
+          try { discovered = await this.fiveRu.discover(job.url, job.perPage) } finally { this.parsing = false }
+          const visited = this.strings(job.visitedUrls)
+          pending = discovered.urls.filter(url => !visited.includes(url))
+          await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { pendingUrls: pending, visitedUrls: [...visited, ...pending], page: { increment: 1 }, url: discovered.next, lastError: discovered.truncated ? `На странице ${discovered.discovered} карточек: лимит ${job.perPage}. Продолжение раздела остановлено, уменьшите раздел.` : null } })
+        } else if (pending.length) {
+          try { await this.check({ url: pending[0] }) }
+          catch (error) {
+            const message = error instanceof Error ? error.message : 'Ошибка карточки'
+            // Block/overload aborts the job with the cursor intact, for explicit retry later.
+            if (/HTTP (403|429)|проверку доступа|Timeout/i.test(message)) throw error
+            await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { errors: { increment: 1 }, lastError: message } })
+          }
+          await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { pendingUrls: pending.slice(1), processed: { increment: 1 } } })
+        }
+        const latest = await this.prisma.monitorJob.findUnique({ where: { id: job.id } })
+        if (latest?.status !== 'RUNNING') return
+        const done = !this.strings(latest.pendingUrls).length && (latest.kind !== 'CATALOG' || !latest.url || latest.page >= latest.maxPages)
+        await this.prisma.monitorJob.update({ where: { id: job.id }, data: { status: done ? 'COMPLETED' : 'QUEUED', leaseUntil: null, finishedAt: done ? new Date() : null } })
+      } catch (error) {
+        await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'FAILED', leaseUntil: null, finishedAt: new Date(), lastError: error instanceof Error ? error.message : 'Ошибка задачи' } })
+      }
+    } finally { this.working = false }
   }
 
+  // Kept for older clients: test imports are drafts, never inventory of the real business.
+  async importFiveRuCatalog(dto: ImportFiveRuCatalogDto) {
+    if (this.working || this.parsing) throw new ConflictException('Парсер занят')
+    this.parsing = true
+    try {
+      const source = await this.source()
+      const scan = await this.fiveRu.discover(dto.url, dto.limit || 12)
+      let created = 0, updated = 0, errors = 0
+      const categories = new Set<string>()
+      for (const url of scan.urls) {
+        try {
+          const result = await this.fiveRu.parse(url)
+          const category = await this.ensureTestCategory(scan.title)
+          categories.add(category.name)
+          const sku = this.testSku(result), existing = await this.prisma.product.findUnique({ where: { sku } })
+          const data = { sku, slug: `test-05ru-${this.key(url)}`, name: result.name, brand: result.brand, price: result.price,
+            stockQty: 0, stockState: StockState.OUT_OF_STOCK, status: ProductStatus.DRAFT, categoryId: category.id,
+            badge: 'ТЕСТ', attributes: jsonValue(result.attributes), image: '/products/phone.svg' }
+          const product = existing ? await this.prisma.product.update({ where: { id: existing.id }, data }) : await this.prisma.product.create({ data })
+          existing ? updated++ : created++
+          await this.save(result, source.id, product.id)
+        } catch { errors++ }
+      }
+      return { ok: true, sourceCategoryName: scan.title, discoveredLinks: scan.discovered, imported: created+updated, created, updated, categories: [...categories], errors }
+    } finally { this.parsing = false }
+  }
   async clearFiveRuTestImport() {
     const products = await this.prisma.product.findMany({
       where: { sku: { startsWith: '05RU-' } },

@@ -1,0 +1,18 @@
+{
+  "observedAt": "2026-10-13",
+  "sourceUrl": "https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-e-sim-bez-rustore-24007/",
+  "note": "DOM and JSON-LD observed in the browser; a recorded fixture, not a promise of the current price.",
+  "snapshot": {
+    "h1": "Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый (E-Sim, без RuStore)",
+    "scripts": ["{\"@context\":\"https://schema.org\",\"@type\":\"Product\",\"name\":\"Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый (E-Sim, без RuStore)\",\"sku\":\"22c52d9e2d0d\",\"brand\":{\"@type\":\"Brand\",\"name\":\"Apple\"},\"offers\":{\"@type\":\"Offer\",\"price\":96990,\"priceCurrency\":\"RUB\",\"availability\":\"https://schema.org/InStock\",\"itemCondition\":\"https://schema.org/NewCondition\"}}"],
+    "metaPrice": "96990",
+    "metaCurrency": "RUB",
+    "domPrice": "96 990 ₽",
+    "oldPrice": null,
+    "availability": null,
+    "seller": "05.ru",
+    "region": "Махачкала",
+    "category": "Смартфоны",
+    "specs": [{"label":"Цвет","value":"оранжевый"}]
+  }
+}
