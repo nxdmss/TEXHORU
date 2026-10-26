@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer'
-import { IsArray, ArrayMaxSize, IsInt, IsOptional, IsUrl, Max, Min, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { IsArray, ArrayMaxSize, IsBoolean, IsInt, IsOptional, IsUrl, Max, Min, IsString, MaxLength, ValidateNested } from 'class-validator'
 
 export class IdentityDto {
   @IsOptional() @IsString() @MaxLength(100) brand?: string
@@ -23,6 +23,14 @@ export class ImportFiveRuCatalogDto {
 export class ScanFiveRuDto {
   @IsUrl({ protocols: ['https'], require_protocol: true }) url!: string
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) maxPages?: number
+}
+// Site-only manual price update, guarded by current values and explicit risk acknowledgements.
+export class ApplyRecommendedPriceDto {
+  @Type(() => Number) @IsInt() @Min(0) expectedCurrentPrice!: number
+  @Type(() => Number) @IsInt() @Min(1) expectedCompetitorPrice!: number
+  @Type(() => Number) @IsInt() @Min(1) targetPrice!: number
+  @IsBoolean() acceptUnknownCost!: boolean
+  @IsBoolean() acceptLargeChange!: boolean
 }
 export class MatchProductDto {
   @Type(() => Number) @IsInt() @Min(1) productId!: number

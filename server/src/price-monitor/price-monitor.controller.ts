@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
-import { CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
 
@@ -40,7 +40,7 @@ export class PriceMonitorController {
   importFiveRu(@Body() dto: ImportFiveRuCatalogDto) { return this.monitor.importFiveRuCatalog(dto) }
 
   @Post(':id/apply-recommended')
-  applyRecommended(@Param('id') id: string) { return this.monitor.applyRecommended(id) }
+  applyRecommended(@Param('id') id: string, @Body() dto: ApplyRecommendedPriceDto) { return this.monitor.applyRecommended(id, dto) }
 
   @Delete('test-import-05ru')
   clearFiveRuTestImport() { return this.monitor.clearFiveRuTestImport() }
