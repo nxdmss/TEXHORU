@@ -83,6 +83,37 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       await api.monitorConfirm(item.id, Number(selected))
     }, 'Готово: карточка 05.ru связана с твоим товаром. Цена магазина не изменена.')
   }
+  async function applySitePrice(item: PriceMonitorItem) {
+    if (item.matchStatus !== 'CONFIRMED' || !item.product || !item.latestPrice || item.latestPrice <= 500
+      || item.inStock !== true || item.lastError || !item.lastSuccessAt
+      || Date.now() - new Date(item.lastSuccessAt).getTime() > 24 * 3600_000) {
+      setError('Подтверди соответствие товара и обнови цену 05.ru перед применением.')
+      return
+    }
+    const next = item.latestPrice - 500
+    const old = item.product.price
+    const large = Math.abs(next - old) > old * 0.1
+    const confirmation = [
+      `Изменить цену ТОЛЬКО НА САЙТЕ TEXHORU?`,
+      `Товар: ${item.product.name}`,
+      `Текущая: ${money.format(old)} ₽`,
+      `05.ru: ${money.format(item.latestPrice)} ₽`,
+      `Новая: ${money.format(next)} ₽ (на 500 ₽ ниже 05.ru)`,
+      '',
+      'ВНИМАНИЕ: себестоимость может быть не указана в 1С. Проверь маржу самостоятельно.',
+      ...(large ? ['ВНИМАНИЕ: изменение больше 10%.'] : []),
+      'Цена в 1С НЕ изменится. Повторная выгрузка из 1С может перезаписать цену сайта.',
+      'Подтвердить изменение?',
+    ].join('\n')
+    if (!window.confirm(confirmation)) return
+    await action(`apply-${item.id}`, async () => {
+      await api.adminApplyRecommendedPrice(item.id, {
+        expectedCurrentPrice: old, expectedCompetitorPrice: item.latestPrice!,
+        targetPrice: next, acceptUnknownCost: true, acceptLargeChange: large,
+      })
+      await onCatalogImported()
+    }, `Цена товара на сайте изменена: ${money.format(old)} → ${money.format(next)} ₽. 1С не затронута.`)
+  }
   async function upload(file: File | undefined, mode: 'catalog' | 'receipts') {
     if (!file) return
     await action(mode, async () => {
@@ -126,7 +157,13 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
         const candidate = candidates.find(c => c.product.id === Number(selected))
         return <article className="monitor-v2__product" key={item.id}>
           <div className="monitor-v2__product-row"><div><span className={`monitor-v2__tag ${item.matchStatus === 'CONFIRMED' ? 'is-ok' : ''}`}>{status[item.matchStatus]}</span><h4>{(item.externalName || 'Карточка без результата').replace(/^Фотография товара\s*/i, '')}</h4><a href={item.externalUrl} target="_blank" rel="noreferrer">Открыть на 05.ru ↗</a><small>{item.lastSuccessAt ? `Проверено: ${date(item.lastSuccessAt)}` : 'Цена ещё не проверена'}</small></div><div><span>05.ru</span><strong>{item.latestPrice ? `${money.format(item.latestPrice)} ₽` : '—'}</strong><small>{item.inStock === true ? 'В наличии' : item.inStock === false ? 'Нет в наличии / под заказ' : 'Наличие неизвестно'}</small></div><div><span>Наш товар</span><b>{item.product?.name || 'Не сопоставлен'}</b><small>{item.product ? `${money.format(item.product.price)} ₽` : 'Нажми «Выбрать мой товар»'}</small></div><button disabled={Boolean(busy)} onClick={() => void openMatch(item)}>{opened === item.id ? 'Закрыть' : item.matchStatus === 'CONFIRMED' ? 'Подробнее' : 'Выбрать мой товар'}</button></div>
-          <div className="monitor-price-summary"><span>{item.lastError ? 'Не удалось обновить цену' : !item.lastSuccessAt ? 'Нужна первая проверка' : 'Цена проверена'}</span><span>{item.recommendedPrice ? `Рекомендация: ${money.format(item.recommendedPrice)} ₽` : 'Рекомендация пока недоступна'}</span></div>
+          <div className="monitor-price-summary"><span>{item.lastError ? 'Не удалось обновить цену' : !item.lastSuccessAt ? 'Нужна первая проверка' : 'Цена проверена'}</span><span>{item.recommendedPrice ? `Рекомендация: ${money.format(item.recommendedPrice)} ₽` : 'Рекомендация пока недоступна'}</span></div>{item.matchStatus === 'CONFIRMED' && item.product && item.latestPrice && item.latestPrice > 500
+            && item.inStock === true && !item.lastError && item.lastSuccessAt
+            && Date.now() - new Date(item.lastSuccessAt).getTime() <= 24 * 3600_000
+            ? <div className="monitor-v2__actions"><button disabled={Boolean(busy) || activeJob} onClick={() => void applySitePrice(item)}>
+                {busy === `apply-${item.id}` ? 'Применяем…' : `Применить цену ${money.format(item.latestPrice - 500)} ₽`}
+              </button><small>Только цена на сайте. Перед применением будет подтверждение.</small></div>
+            : null}
           {opened === item.id && <div className="monitor-v2__match"><h4>Выбери свой товар</h4>{(item.lastError || !item.lastSuccessAt) && <div className="form-error"><p>{item.lastError ? friendlyError(item.lastError) : 'Цена ещё не проверена.'}</p><button disabled={Boolean(busy) || activeJob} onClick={() => void action('check', () => api.adminCheckCompetitorPrice({ url: item.externalUrl }), 'Цена обновлена.')}>Повторить проверку</button></div>}<p>Сверь модель, память и цвет. Если прошлая проверка не удалась, кнопка подтверждения сначала повторит её.</p>{matchLoading && <p role="status">Загружаю список товаров…</p>}{!products.some(p => p.status === 'ACTIVE') && <p className="form-error">Нет активных товаров. В разделе «Товары» добавь товар или измени его статус на «Активный».</p>}<div className="monitor-v2__candidate-list">{candidates.map(c => <button className={selected === String(c.product.id) ? 'selected' : ''} key={c.product.id} onClick={() => setSelected(String(c.product.id))}><b>{c.product.name}</b><small>Возможное совпадение — сверь характеристики ниже</small></button>)}</div><label>Или выбери товар вручную<select value={selected} onChange={e => setSelected(e.target.value)}><option value="">Выбрать товар</option>{products.filter(p => p.status === 'ACTIVE').map(p => <option value={p.id} key={p.id}>{p.name} · {p.sku}</option>)}</select></label>
             <details className="monitor-settings-details"><summary>Сравнить характеристики</summary><div className="monitor-v2__table-wrap"><table><thead><tr><th>Характеристика</th><th>Наш товар</th><th>05.ru</th></tr></thead><tbody>{Object.entries(labels).map(([key, label]) => <tr key={key}><td>{label}</td><td>{candidate?.ours[key] || '—'}</td><td>{item.attributes[key] || '—'}</td></tr>)}</tbody></table></div></details>
             {candidate?.missing.length ? <p>Не хватает данных: {candidate.missing.join(', ')}. Перед подтверждением сверь их в 1С и карточке 05.ru.</p> : null}<div className="monitor-v2__actions"><button disabled={Boolean(busy) || activeJob || matchLoading || !selected} onClick={() => void confirmItem(item)}>{busy === 'confirm' ? 'Проверяю и сохраняю…' : item.lastError || !item.lastSuccessAt ? 'Проверить цену и подтвердить' : 'Подтвердить выбранный товар'}</button>{item.product && <button disabled={Boolean(busy)} onClick={() => void action('unmatch', () => api.monitorUnmatch(item.id), 'Связь снята; ожидающие сообщения отменены.')}>Снять связь</button>}</div>
