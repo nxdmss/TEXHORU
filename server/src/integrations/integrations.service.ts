@@ -17,52 +17,33 @@ export class IntegrationsService {
         for (const category of dto.categories) {
           const incomingName = category.name.trim()
 
-          // In our test 1C configuration category IDs/slugs may accidentally be reused.
-          // The visible category name is therefore the strongest discriminator here.
-          const sameName = await tx.category.findFirst({
-            where: { name: incomingName },
-          })
-
-          const sameOneCId = await tx.category.findFirst({
-            where: { oneCId: category.oneCId },
-          })
-
-          const sameIncomingSlug = await tx.category.findFirst({
-            where: { slug: category.slug },
-          })
-
+          // The incoming category name is the full 1C hierarchy path.
+          // Always prefer the immutable 1C GUID, so a group rename does not duplicate it.
+          const sameOneCId = await tx.category.findFirst({ where: { oneCId: category.oneCId } })
+          const sameName = await tx.category.findFirst({ where: { name: incomingName } })
+          const sameIncomingSlug = await tx.category.findFirst({ where: { slug: category.slug } })
           let resolvedCategory
 
-          if (sameName) {
-            const canAttachOneCId = !sameOneCId || sameOneCId.id === sameName.id
+          if (sameOneCId) {
+            resolvedCategory = await tx.category.update({
+              where: { id: sameOneCId.id },
+              data: { name: incomingName, isActive: true },
+            })
+          } else if (sameName && !sameName.oneCId) {
             resolvedCategory = await tx.category.update({
               where: { id: sameName.id },
-              data: {
-                ...(canAttachOneCId ? { oneCId: category.oneCId } : {}),
-                isActive: true,
-              },
+              data: { oneCId: category.oneCId, isActive: true },
             })
           } else {
-            // Never reuse a slug that currently belongs to a category with another name.
-            // Otherwise "Смартфоны" can silently become "Игровые приставки" again.
-            const slugIsFree = !sameIncomingSlug
-            const fallbackSlugBase = `1c-${this.categoryNameKey(incomingName)}`
-            let resolvedSlug = slugIsFree ? category.slug : fallbackSlugBase
+            const fallbackSlugBase = `1c-${this.categoryNameKey(category.oneCId)}`
+            let resolvedSlug = !sameIncomingSlug ? category.slug : fallbackSlugBase
             let suffix = 2
-
             while (await tx.category.findFirst({ where: { slug: resolvedSlug } })) {
               resolvedSlug = `${fallbackSlugBase}-${suffix}`
               suffix += 1
             }
-
-            const canAttachOneCId = !sameOneCId
             resolvedCategory = await tx.category.create({
-              data: {
-                oneCId: canAttachOneCId ? category.oneCId : null,
-                name: incomingName,
-                slug: resolvedSlug,
-                isActive: true,
-              },
+              data: { oneCId: category.oneCId, name: incomingName, slug: resolvedSlug, isActive: true },
             })
           }
 
