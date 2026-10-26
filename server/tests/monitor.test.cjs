@@ -87,6 +87,11 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   const oneCId = randomUUID()
   const catalog = { categories: [{ oneCId: 'cat-test', name: 'Смартфоны', slug: 'phones-test' }], products: [{ oneCId, sku: 'TEST-IP17', slug: 'test-ip17', name: product.name, brand: 'Apple', categoryOneCId: 'cat-test', price: 99990, stockQty: 5, costPrice: 80000 }] }
   await integration.importCatalog(catalog)
+  const firstCategory = await prisma.category.findUnique({ where: { oneCId: 'cat-test' } })
+  await integration.importCatalog({ categories: [{ oneCId: 'cat-test', name: 'Электроника / Смартфоны', slug: 'phones-test' }], products: [] })
+  const nestedCategory = await prisma.category.findUnique({ where: { oneCId: 'cat-test' } })
+  assert.equal(nestedCategory.id, firstCategory.id)
+  assert.equal(nestedCategory.name, 'Электроника / Смартфоны')
   const ours = await prisma.product.findUnique({ where: { oneCId } })
   let link = await monitor.check({ url })
   assert.equal(link.matchStatus, 'SUGGESTED')
