@@ -1,3 +1,4 @@
+import { ALL_CATALOG, matchesCategoryPath, selectedCategoryPath } from './onec-category-tree'
 export type CatalogEntry = { name: string; categoryName?: string }
 export type CatalogBranch = { id: string; title: string; image: string; count: number; children: { id: string; title: string; count: number }[] }
 const sections = [
@@ -41,7 +42,9 @@ export function catalogPath(item: CatalogEntry): [string, string] {
 }
 export const leafKey = (section: string, sub: string) => `${section}/${sub}`
 export function inCatalogSection(item: CatalogEntry, selection: string): boolean {
-  if (!selection) return true
+  if (!selection || selection === ALL_CATALOG) return true
+  const path = selectedCategoryPath(selection)
+  if (path !== null) return matchesCategoryPath(item.categoryName || '', path)
   const [section, sub] = catalogPath(item)
   return selection === section || selection === leafKey(section, sub)
 }
