@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult } from './five-ru.parser'
 import { compareItems, fingerprint, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
@@ -115,7 +115,41 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return this.decorated(row)
     })
   }
-  async applyRecommended(_id: string) { throw new BadRequestException('Цены изменяются в 1С. Используй «Передать результаты в 1С».') }
+  // Explicitly approved site-only price change. Never sends data to 1C.
+  async applyRecommended(id: string, dto: ApplyRecommendedPriceDto) {
+    const updated = await this.prisma.$transaction(async tx => {
+      const link = await tx.competitorProduct.findUnique({ where: { id }, include: { product: true, source: true } })
+      if (!link || !link.product || link.product.status !== ProductStatus.ACTIVE) throw new NotFoundException('Подтверждённый товар не найден')
+      if (link.source.key !== '05ru' || link.matchStatus !== 'CONFIRMED'
+        || fingerprint(link.product) !== link.confirmedProductFingerprint
+        || fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint) {
+        throw new BadRequestException('Связь с 05.ru устарела: проверь и подтверди товар заново')
+      }
+      if (link.lastError || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000
+        || link.inStock !== true || !link.latestPrice || link.latestPrice <= 500) {
+        throw new BadRequestException('Нужна свежая проверка цены и подтверждённое наличие на 05.ru')
+      }
+      const product = link.product
+      const price = link.latestPrice - 500
+      if (dto.expectedCurrentPrice !== product.price || dto.expectedCompetitorPrice !== link.latestPrice || dto.targetPrice !== price) {
+        throw new ConflictException('Цена изменилась. Обнови мониторинг перед применением')
+      }
+      if (price < 1) throw new BadRequestException('Некорректная новая цена')
+      if (product.costPrice && price < product.costPrice) throw new BadRequestException('Цена ниже известной себестоимости')
+      if (!product.costPrice && !dto.acceptUnknownCost) throw new BadRequestException('Себестоимость неизвестна. Требуется явное подтверждение риска')
+      const largeChange = Math.abs(price - product.price) > product.price * 0.1
+      if (largeChange && !dto.acceptLargeChange) throw new BadRequestException('Изменение больше 10%. Требуется явное подтверждение')
+      const result = await tx.product.updateMany({ where: { id: product.id, price: dto.expectedCurrentPrice, status: ProductStatus.ACTIVE }, data: { price } })
+      if (result.count !== 1) throw new ConflictException('Цена товара изменилась. Обнови страницу')
+      await tx.auditLog.create({ data: {
+        action: 'APPLY_MONITOR_SITE_PRICE', entity: 'Product', entityId: String(product.id),
+        details: { monitorLinkId: id, previousPrice: product.price, competitorPrice: link.latestPrice,
+          newPrice: price, costUnknown: !product.costPrice, largeChange, siteOnly: true },
+      } })
+      return { ok: true, productId: product.id, previousPrice: product.price, newPrice: price, siteOnly: true }
+    })
+    return updated
+  }
 
   async settings() { return this.prisma.monitorSettings.upsert({ where: { id: '05ru' }, update: {}, create: { id: '05ru' } }) }
   async updateSettings(dto: MonitorSettingsDto) {
