@@ -108,7 +108,16 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal((await exchange.pending()).items.length, 0)
   assert.equal(await prisma.syncLog.count({ where: { entity: 'PRICE_MONITOR', status: 'SUCCESS' } }), 1)
   assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 99990)
-  await assert.rejects(() => monitor.applyRecommended(link.id))
+  const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 96990,
+    targetPrice: 96490, acceptUnknownCost: false, acceptLargeChange: false }
+  await assert.rejects(() => monitor.applyRecommended(link.id, { ...applyDto, expectedCurrentPrice: 90000 }))
+  const applied = await monitor.applyRecommended(link.id, applyDto)
+  assert.equal(applied.newPrice, 96490)
+  assert.equal(applied.siteOnly, true)
+  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 96490)
+  assert.equal(await prisma.auditLog.count({ where: { action: 'APPLY_MONITOR_SITE_PRICE', entityId: String(ours.id) } }), 1)
+  await prisma.product.update({ where: { id: ours.id }, data: { price: 99990 } }) // reset fixture
+
   failure = 'HTTP 403'
   await assert.rejects(() => monitor.check({ url }))
   link = (await monitor.list())[0]
