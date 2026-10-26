@@ -1,5 +1,6 @@
 import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
+import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, isFeaturedCatalogProduct } from './onec-category-tree'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_URL, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
@@ -719,6 +720,7 @@ function App() {
   const [accountTab, setAccountTab] = useState<AccountTab>('active')
   const [path, setPath] = useState(() => window.location.pathname)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPath, setMenuPath] = useState('')
   const [slideIndex, setSlideIndex] = useState(0)
   const [sliderDragOffset, setSliderDragOffset] = useState(0)
   const [sliderIsDragging, setSliderIsDragging] = useState(false)
@@ -743,8 +745,17 @@ function App() {
   const selectedProduct = productMatch ? catalogProducts.find((item) => item.id === Number(productMatch[1])) : undefined
   const isProductPage = Boolean(productMatch), isAccountPage = /^\/account\/?$/.test(path), isCheckoutPage = /^\/checkout\/?$/.test(path), isAdminPage = /^\/admin\/?$/.test(path)
   useEffect(() => { setStoreLimit(24) }, [storeSection, category, query])
-  const storeCategories = [...new Set(catalogProducts.map(p => p.category))]
-  const filtered = useMemo(() => { const q = query.trim().toLowerCase(); return catalogProducts.filter((product) => (category === 'Все' || product.category === category) && inCatalogSection({ name: product.name, categoryName: product.category }, storeSection) && (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))) }, [category, query, catalogProducts, storeSection])
+  const categoryRoots = useMemo(() => categoryTree(catalogProducts.map(p => p.category)), [catalogProducts])
+  const menuChildren = childrenAtPath(categoryRoots, menuPath)
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const featuredOnly = !storeSection && category === 'Все' && !q
+    return catalogProducts.filter(product =>
+      (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
+      inCatalogSection({ name: product.name, categoryName: product.category }, storeSection) &&
+      (!featuredOnly || isFeaturedCatalogProduct(product)) &&
+      (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q)))
+  }, [category, query, catalogProducts, storeSection])
   const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : defaultPromos, [promos, promosLoaded])
   useEffect(() => {
     if (path !== '/' || sliderItems.length < 2) return
@@ -761,6 +772,19 @@ function App() {
     setQuery('')
     setStoreSection('')
     setMenuOpen(false)
+    if (window.location.pathname !== '/') {
+      navigate('/')
+      window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+    } else {
+      window.requestAnimationFrame(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
+  }
+  const jumpToStoreSection = (nextSection: string) => {
+    setCategory('Все')
+    setQuery('')
+    setStoreSection(nextSection)
+    setMenuOpen(false)
+    setMenuPath('')
     if (window.location.pathname !== '/') {
       navigate('/')
       window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -828,7 +852,7 @@ function App() {
         </aside>
       </div>
     </section>}
-    <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>{query.trim() ? 'Результаты поиска' : 'Каталог'}</h2></div></div><CatalogSections items={catalogProducts.map(p => ({ name: p.name, categoryName: p.category }))} selection={storeSection} searching={Boolean(query.trim())} onSelect={value => { setStoreSection(value); setCategory('Все'); setQuery('') }} />{<><div className="catalog-result-count">Найдено: {filtered.length}</div><div className="product-grid">{filtered.slice(0, storeLimit).map(product => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length > storeLimit && <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}{filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}</>}</section>
+    <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>{query.trim() ? 'Результаты поиска' : !storeSection && category === 'Все' ? 'Популярные товары' : 'Каталог'}</h2></div></div><CatalogSections hierarchical items={catalogProducts.map(p => ({ name: p.name, categoryName: p.category }))} selection={storeSection} searching={Boolean(query.trim())} onSelect={value => { setStoreSection(value); setCategory('Все'); setQuery('') }} />{<><div className="catalog-result-count">Найдено: {filtered.length}</div><div className="product-grid">{filtered.slice(0, storeLimit).map(product => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length > storeLimit && <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}{filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}</>}</section>
   </>
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={product.image} alt={product.name} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
@@ -846,7 +870,15 @@ function App() {
   else content = renderHome()
 
   return <div className="app-shell"><header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog(category) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>
-  {menuOpen && <div className="menu-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMenuOpen(false) }}><aside className="category-drawer"><div className="category-drawer__head"><div><span>TEXHORU</span><strong>Категории</strong></div><button onClick={() => setMenuOpen(false)} aria-label="Закрыть меню"><Icon name="close" /></button></div><nav className="category-drawer__list">{['Все', ...storeCategories].map((item) => <button key={item} className={item === category ? 'active' : ''} onClick={() => jumpToCatalog(item)}><span>{item}</span><Icon name="arrow" /></button>)}</nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
+  {menuOpen && <div className="menu-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMenuOpen(false) }}><aside className="category-drawer"><div className="category-drawer__head"><div><span>TEXHORU</span><strong>Категории</strong></div><button onClick={() => setMenuOpen(false)} aria-label="Закрыть меню"><Icon name="close" /></button></div><nav className="category-drawer__list">
+    <button onClick={() => jumpToStoreSection('')}><span>Популярное</span><Icon name="arrow" /></button>
+    <button onClick={() => jumpToStoreSection(ALL_CATALOG)}><span>Все товары</span><Icon name="arrow" /></button>
+    {menuPath && <>
+      <button onClick={() => setMenuPath(categorySegments(menuPath).slice(0, -1).join(' / '))}><span>← Назад</span></button>
+      <button onClick={() => jumpToStoreSection(categorySelection(menuPath))}><span>Все: {categorySegments(menuPath).at(-1)}</span><Icon name="arrow" /></button>
+    </>}
+    {menuChildren.map(node => <button key={node.path} onClick={() => node.children.length ? setMenuPath(node.path) : jumpToStoreSection(categorySelection(node.path))}><span>{node.title} · {node.count}</span><Icon name="arrow" /></button>)}
+  </nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
   <main id="top">{content}</main><footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>
   {cartOpen && <div className="overlay" onMouseDown={(event) => { if (event.currentTarget === event.target) setCartOpen(false) }}><aside className="drawer"><div className="drawer-head"><div><p className="eyebrow">Заказ</p><h2>Корзина ({cartCount})</h2></div><button className="icon-button" onClick={() => setCartOpen(false)}><Icon name="close" /></button></div><div className="drawer-body cart-lines">{cart.length === 0 ? <div className="cart-empty">Корзина пока пуста.</div> : cart.map((item) => <div className="cart-line" key={item.product.id}><button className="cart-line__image" onClick={() => { setCartOpen(false); openProduct(item.product) }}><img src={item.product.image} alt={item.product.name} /></button><div className="cart-line-copy"><button className="cart-line__title" onClick={() => { setCartOpen(false); openProduct(item.product) }}>{item.product.name}</button><span>{item.product.shortSpec}</span><b>{money.format(item.product.price)} ₽</b><div className="qty"><button onClick={() => changeQuantity(item.product.id, -1)}><Icon name="minus" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.product.id, 1)}><Icon name="plus" /></button></div></div></div>)}</div><div className="drawer-bottom"><div className="total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><button className="checkout" disabled={!cart.length} onClick={() => { setCartOpen(false); navigate('/checkout') }}>Перейти к оформлению</button><small>{apiOnline ? 'Цена и остаток будут перепроверены сервером.' : 'Для создания заказа запустите backend.'}</small></div></aside></div>}
   </div>
