@@ -262,6 +262,9 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   assert.equal(pending.items[0].oneCId, ids[0])
   assert.equal(pending.items[0].expectedPrice, changedPrice)
   assert.equal(pending.items[0].targetPrice, 70400)
+  const failureReceipt = await sync.receipts({ items: [{ id: pending.items[0].id, error: '1C TEST temporarily unavailable' }] })
+  assert.equal(failureReceipt.results[0].status, 'PENDING')
+  assert.equal((await sync.pending()).items.length, 1) // safe retry, no lost update
   await assert.rejects(() => sync.configureScope({ oneCIds: ids.slice(0,2) }))
 
   // Site change must NOT get overwritten by 1C's stale snapshot while delivery is pending.
