@@ -3,9 +3,18 @@ import { ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult } from './five-ru.parser'
-import { compareItems, fingerprint, recommendation } from './product-matching'
+import { compareItems, fingerprint, identity, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
+
+// Storefront search often fails on 1C-only labels such as "(EAC)" and the
+// 1C memory format "12/512". Start with model + capacity, then the model alone.
+// All returned product cards still undergo strict variant comparison.
+export function oneCSearchQueries(product: { name: string; brand?: string | null }) {
+  const parsed = identity(product)
+  if (parsed.brand !== 'xiaomi' || !parsed.model?.startsWith('xiaomi ')) return [product.name]
+  return [...new Set([parsed.model + (parsed.storage ? ' ' + parsed.storage : ''), parsed.model])]
+}
 
 @Injectable()
 export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
@@ -237,13 +246,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))) {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
-              const results = await this.fiveRu.searchProducts(product.name, 8)
-              const ranked = results.map(result => ({
-                result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes }),
-              })).filter(row => row.check.score >= 55 && !row.check.conflicts.length
-                && (!row.check.ours.model || row.check.theirs.model === row.check.ours.model))
-                .sort((a,b) => b.check.score - a.check.score)
-              if (!ranked.length) throw new Error('05.ru: подтверждённое совпадение для ' + product.name + ' не найдено')
+              let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
+              for (const query of oneCSearchQueries(product)) {
+                const results = await this.fiveRu.searchProducts(query, 8)
+                ranked = results.map(result => ({
+                  result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes }),
+                })).filter(row => row.check.score >= 55 && !row.check.conflicts.length
+                  && (!row.check.ours.model || row.check.theirs.model === row.check.ours.model))
+                  .sort((a,b) => b.check.score - a.check.score)
+                if (ranked.length) break
+              }
+              if (!ranked.length) throw new Error('05.ru: точное совпадение модели, памяти и цвета для ' + product.name + ' не найдено. Проверь доступность товара и название в 05.ru.')
               // More than one plausible variant must be manually reviewed, never silently chosen.
               if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
                 // Keep plausible 05.ru cards in the monitor for manual review,
