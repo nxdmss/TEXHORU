@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
-import { ApplyRecommendedPriceDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
 
@@ -16,6 +16,7 @@ export class PriceMonitorController {
   @Get('jobs') jobs() { return this.monitor.jobs() }
   @Post('scan') scan(@Body() dto: ScanFiveRuDto) { return this.monitor.scan(dto) }
   @Post('check-all') checkAll() { return this.monitor.checkAll() }
+  @Post('auto-find-1c') autoFindOneC(@Body() dto: AutoFindOneCSectionDto) { return this.monitor.autoFindOneCSection(dto) }
   @Post('jobs/:id/cancel') cancel(@Param('id') id: string) { return this.monitor.cancelJob(id) }
   @Post('jobs/:id/retry') retry(@Param('id') id: string) { return this.monitor.retryJob(id) }
   @Get('settings') settings() { return this.monitor.settings() }
