@@ -10,6 +10,7 @@ const { extractFiveRu, fiveRuUrl, priceNumber } = require('../dist/price-monitor
 const { PriceMonitorService } = require('../dist/price-monitor/price-monitor.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
+const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/05ru-iphone17pro.json'), 'utf8'))
 const name = fixture.snapshot.h1
 const product = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
@@ -207,4 +208,78 @@ test('HTTP routes reject missing credentials and invalid input; admin and 1C rou
   } finally {
     if (child.exitCode === null) { child.kill(); await once(child,'exit') }
   }
+})
+
+test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price back to 1C with stale-import protection', async () => {
+  const sync = new OneCPriceSyncService(prisma)
+  const integration = new IntegrationsService(prisma, {})
+  const exchange = new MonitorExchangeService(prisma)
+  const ids = Array.from({ length: 10 }, () => randomUUID())
+  const categoryId = randomUUID()
+  const category = { oneCId: categoryId, name: 'Тестовые iPhone 13', slug: 'pilot-iphone13-'+categoryId }
+  const products = ids.map((id,i) => ({
+    oneCId: id, sku: 'PILOT-'+id, slug: 'pilot-'+id,
+    name: 'Apple iPhone 13 128GB Test-'+i, brand: 'Apple',
+    categoryOneCId: categoryId, price: 60000+i*100, stockQty: 2, costPrice: 45000,
+  }))
+  const imported = await integration.importCatalog({ categories: [category], products })
+  assert.equal(imported.products, 10)
+  await assert.rejects(() => sync.configureScope({ oneCIds: [...ids, randomUUID()] }))
+  assert.equal((await sync.configureScope({ oneCIds: ids })).count, 10)
+  assert.equal((await sync.scope()).length, 10)
+
+  const changedPrice = 72000
+  await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: changedPrice }] })
+  let ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })
+  assert.equal(ours.price, changedPrice) // 1C -> site
+
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  const monitorUrl = 'https://05.ru/cat/synthetic/p/iphone-13-128-test/'
+  const { fingerprint } = require('../dist/price-monitor/product-matching')
+  const competitorName = 'Apple iPhone 13 128GB Test-0'
+  const link = await prisma.competitorProduct.upsert({
+    where: { externalUrl: monitorUrl },
+    update: {}, create: {
+      sourceId: source.id, externalUrl: monitorUrl, productId: ours.id, matchStatus: 'CONFIRMED',
+      externalName: competitorName, attributes: {},
+      confirmedFingerprint: fingerprint({ name: competitorName, attributes: {} }),
+      confirmedProductFingerprint: fingerprint(ours),
+      lastSuccessAt: new Date(), lastCheckedAt: new Date(), latestPrice: 70900,
+      inStock: true, seller: '05.ru', region: 'Махачкала',
+    },
+  })
+  const monitor = new PriceMonitorService(prisma, { parse: async () => {} }, exchange)
+  const priceChange = await monitor.applyRecommended(link.id, {
+    expectedCurrentPrice: changedPrice, expectedCompetitorPrice: 70900,
+    targetPrice: 70400, acceptUnknownCost: false, acceptLargeChange: false,
+  })
+  assert.equal(priceChange.newPrice, 70400)
+  assert.equal(priceChange.oneCQueued, true)
+  const pending = await sync.pending()
+  assert.equal(pending.items.length, 1)
+  assert.equal(pending.items[0].oneCId, ids[0])
+  assert.equal(pending.items[0].expectedPrice, changedPrice)
+  assert.equal(pending.items[0].targetPrice, 70400)
+  await assert.rejects(() => sync.configureScope({ oneCIds: ids.slice(0,2) }))
+
+  // Site change must NOT get overwritten by 1C's stale snapshot while delivery is pending.
+  await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: changedPrice }] })
+  ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })
+  assert.equal(ours.price, 70400)
+  await assert.rejects(() => monitor.applyRecommended(link.id, {
+    expectedCurrentPrice: changedPrice, expectedCompetitorPrice: 70900,
+    targetPrice: 70400, acceptUnknownCost: false, acceptLargeChange: false,
+  }))
+  // A verified 1C write is acknowledged by stable delivery ID.
+  const acknowledgement = await sync.receipts({ items: [{ id: pending.items[0].id, appliedPrice: 70400 }] })
+  assert.equal(acknowledgement.results[0].status, 'DELIVERED')
+  assert.equal((await sync.pending()).items.length, 0)
+  await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: 70400 }] })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 70400)
+  // Another independent change in 1C is reflected on the site, no echo.
+  await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: 72500 }] })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 72500)
+  assert.equal((await sync.pending()).items.length, 0)
 })
