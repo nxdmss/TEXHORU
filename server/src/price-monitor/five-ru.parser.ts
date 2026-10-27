@@ -133,6 +133,50 @@ export class FiveRuParser {
       }
     })
   }
+  /**
+   * Searches the PUBLIC 05.ru storefront for a product name. This does not rely
+   * on a hidden API or guess undocumented search URL parameters: it uses the
+   * site's own search control. No anti-bot bypass, external navigation or
+   * third-party price source is allowed.
+   */
+  async searchProducts(query: string, limit = 8): Promise<FiveRuResult[]> {
+    const text = query.trim().slice(0, 160)
+    if (!text || limit < 1 || limit > 12) throw new BadRequestException('Неправильный поисковый запрос')
+    let browser: Browser | undefined
+    try {
+      browser = await this.browser()
+      const context = await this.context(browser)
+      const searchPage = await context.newPage()
+      const home = await searchPage.goto('https://05.ru/', { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      if (home && home.status() >= 400) throw new Error(`05.ru ответил HTTP ${home.status()}; обход защиты не выполняется`)
+      const input = searchPage.locator('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]').first()
+      await input.waitFor({ state: 'visible', timeout: 12_000 })
+      await input.fill(text)
+      await input.press('Enter')
+      await searchPage.waitForTimeout(1800)
+      if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
+      const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
+        [...new Set(nodes.map(node => (node as HTMLAnchorElement).href))]
+      )
+      const urls = links.flatMap(link => { try { return [fiveRuUrl(link, 'product')] } catch { return [] } }).slice(0, limit)
+      if (!urls.length) return []
+      const results: FiveRuResult[] = []
+      for (const url of urls) {
+        try {
+          const page = await this.open(context, url)
+          try { results.push(extractFiveRu(await this.snapshot(page), url)) } finally { await page.close() }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          if (/HTTP (403|429)|проверку доступа|timeout/i.test(msg)) throw error
+          // A malformed/unavailable individual card must not invalidate other results.
+        }
+      }
+      return results
+    } catch (error) {
+      throw new BadGatewayException(`Автопоиск 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`)
+    } finally { await browser?.close() }
+  }
+
   async parse(raw: string): Promise<FiveRuResult> {
     const url = fiveRuUrl(raw, 'product')
     let browser: Browser | undefined
