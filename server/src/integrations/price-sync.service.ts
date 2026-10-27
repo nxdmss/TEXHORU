@@ -94,7 +94,8 @@ export class OneCPriceSyncService {
         if (change.status !== 'PENDING') throw new ConflictException('Изменение цены уже закрыто')
         const failed = !!receipt.error || receipt.appliedPrice !== change.newPrice
         const errorMessage = receipt.error || (failed ? '1С не подтвердила точную новую цену' : null)
-        const status = failed ? 'FAILED' : 'DELIVERED'
+        // Failed writes remain pending so 1C can retry safely after a temporary error.
+        const status = failed ? 'PENDING' : 'DELIVERED'
         await tx.oneCPriceChange.update({
           where: { id: change.id }, data: {
             status, attempts: { increment: 1 }, lastError: errorMessage,
