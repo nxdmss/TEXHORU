@@ -3,6 +3,7 @@ import { StockState } from '@prisma/client'
 import { OrdersService } from '../orders/orders.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
+import { OneCPriceSyncService } from './price-sync.service'
 
 @Injectable()
 export class IntegrationsService {
@@ -82,6 +83,11 @@ export class IntegrationsService {
 
           const existing = byOneCId ?? bySku ?? bySlug
           const stockState: StockState = item.stockQty <= 0 ? StockState.OUT_OF_STOCK : item.stockQty <= 3 ? StockState.LOW : StockState.IN_STOCK
+          // The site may have just approved a new price that has not reached 1C yet.
+          // Do not undo it when the 1C poll pushes the previous catalog snapshot.
+          const incomingPrice = existing?.priceSyncEnabled
+            ? await OneCPriceSyncService.incomingPrice(tx, existing.id, existing.price, item.price)
+            : item.price
           const productData = {
             oneCId: item.oneCId,
             gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice,
@@ -91,7 +97,7 @@ export class IntegrationsService {
             name: item.name,
             brand: item.brand,
             categoryId: category.id,
-            price: item.price,
+            price: incomingPrice,
             oldPrice: item.oldPrice,
             stockQty: item.stockQty,
             stockState,
