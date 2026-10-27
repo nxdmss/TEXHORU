@@ -32,6 +32,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
+  const [oneCPath, setOneCPath] = useState('')
+  const [autoLimit, setAutoLimit] = useState(10)
   const [filter, setFilter] = useState('ALL')
   const [section, setSection] = useState('')
   const [limit, setLimit] = useState(24)
@@ -125,6 +127,13 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
     }, mode === 'catalog' ? 'Каталог из 1С загружен. Теперь можно искать совпадения на 05.ru.' : 'Подтверждения 1С приняты.')
   }
   const visible = items.filter(item => inCatalogSection({ name: item.externalName || '', categoryName: item.product?.category?.name }, section) && (filter === 'ALL' || (filter === 'ERROR' ? Boolean(item.lastError) : filter === 'REVIEW' ? item.matchStatus !== 'CONFIRMED' : item.matchStatus === filter)) && `${item.externalName} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase()))
+  const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.stockQty > 0 && p.status === 'ACTIVE')
+  const oneCPaths = [...new Set(oneCProducts.flatMap(p => {
+    const segments = (p.category?.name || '').split(' / ').map(s => s.trim()).filter(Boolean)
+    return segments.map((_, i) => segments.slice(0, i + 1).join(' / '))
+  }))].sort((a, b) => a.localeCompare(b, 'ru'))
+  const inScope = oneCProducts.filter(p => !oneCPath || p.category?.name === oneCPath || p.category?.name.startsWith(oneCPath + ' / ')).length
+  const lastAutoJob = jobs.find(j => j.kind === 'MATCH_1C')
   const matched = items.filter(item => item.matchStatus === 'CONFIRMED').length
   const activeJob = jobs.some(j => ['QUEUED', 'RUNNING'].includes(j.status))
 
@@ -147,6 +156,32 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       {!jobs.length && <p className="monitor-v2__muted">Задач ещё нет. Начни с одной карточки или одной страницы.</p>}
       <details className="monitor-settings-details"><summary>История проверок</summary>{jobs.slice(0, 5).map(job => <article className="monitor-v2__job" key={job.id}><div><b>{job.kind === 'CATALOG' ? 'Сбор раздела' : 'Обновление цен'} · {status[job.status]}</b><small>{date(job.createdAt)} · карточек проверено: {job.processed} · ошибок: {job.errors}{job.kind === 'CATALOG' ? ` · страниц: ${job.page}/${job.maxPages}` : ''}</small>{job.lastError && <details><summary>Ошибка прошлой задачи — {date(job.createdAt)}</summary><p>{friendlyError(job.lastError)}</p></details>}{job.status === 'COMPLETED' && job.url && <small>Достигнут лимит страниц. Для продолжения используй <a href={job.url} target="_blank" rel="noreferrer">следующую страницу раздела</a>.</small>}</div>{['QUEUED', 'RUNNING'].includes(job.status) ? <button disabled={Boolean(busy)} onClick={() => void action(job.id, () => api.monitorJobAction(job.id, 'cancel'))}>Остановить</button> : ['FAILED', 'CANCELLED'].includes(job.status) ? <button disabled={Boolean(busy)} onClick={() => void action(job.id, () => api.monitorJobAction(job.id, 'retry'))}>Продолжить</button> : null}</article>)}
       </details>
+    </section>}
+    {view === 'prices' && <section className="monitor-v2__section" aria-label="Автоматическое сопоставление 1С и 05.ru">
+      <div className="monitor-v2__section-head"><div>
+        <p className="eyebrow">1С → TEXHORU → 05.ru</p>
+        <h3>Найти совпадения автоматически</h3>
+        <p>Выбери любую группу или вложенную подгруппу, загруженную из 1С. Программа сама ищет товары на 05.ru и сверяет модель, память, цвет и другие характеристики.</p>
+      </div></div>
+      <div className="monitor-v2__schedule">
+        <label>Группа из 1С
+          <select value={oneCPath} onChange={e => setOneCPath(e.target.value)}>
+            <option value="">Все группы из 1С</option>
+            {oneCPaths.map(path => <option key={path} value={path}>{'· '.repeat(Math.max(0, path.split(' / ').length - 1))}{path}</option>)}
+          </select>
+        </label>
+        <label>Товаров за проверку
+          <select value={autoLimit} onChange={e => setAutoLimit(Number(e.target.value))}>
+            <option value={10}>10 (тест)</option><option value={30}>30</option><option value={100}>100</option>
+          </select>
+        </label>
+        <button disabled={Boolean(busy) || activeJob || !inScope} onClick={() => void action('auto-find', async () => {
+          const job = await api.monitorAutoFindOneC(oneCPath, autoLimit)
+          setNotice(`Запущен поиск по разделу: ${job.queued} из ${job.eligible} товаров. Результаты появятся здесь.`)
+        })}> {busy === 'auto-find' ? 'Подготовка…' : 'Найти совпадения с 05.ru'}</button>
+      </div>
+      <p className="monitor-v2__muted">В выбранной группе: {inScope} товаров с ценой и остатком. Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
+      {lastAutoJob && <p role="status">Последний поиск: {status[lastAutoJob.status] || lastAutoJob.status} · обработано {lastAutoJob.processed} · ошибок/несовпадений {lastAutoJob.errors}{lastAutoJob.lastError ? ' · ' + lastAutoJob.lastError : ''}</p>}
     </section>}
     {view === 'prices' && <section className="monitor-v2__section monitor-price-workspace">
       <div className="monitor-v2__section-head"><div><h3>Каталог</h3><p>{items.length} карточек · связано с твоими товарами: {matched}</p></div><div className="monitor-v2__filters"><input placeholder="Найти товар…" value={search} onChange={e => setSearch(e.target.value)} /><select value={filter} onChange={e => setFilter(e.target.value)}><option value="ALL">Все карточки</option><option value="REVIEW">Требуют проверки</option><option value="CONFIRMED">Подтверждены</option><option value="ERROR">Ошибки проверки</option></select></div></div>
