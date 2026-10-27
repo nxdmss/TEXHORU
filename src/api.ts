@@ -208,7 +208,7 @@ export const api = {
   adminCheckCompetitorPrice(input: { url: string; productId?: number }) { return request<PriceMonitorItem>('/admin/price-monitor/check', { method: 'POST', body: JSON.stringify(input) }) },
   adminImportFiveRuCatalog(input: { url: string; limit?: number }) { return request<FiveRuImportResult>('/admin/price-monitor/import-05ru', { method: 'POST', body: JSON.stringify(input) }) },
   adminApplyRecommendedPrice(id: string, input: { expectedCurrentPrice: number; expectedCompetitorPrice: number; targetPrice: number; acceptUnknownCost: boolean; acceptLargeChange: boolean }) {
-    return request<{ ok: boolean; productId: number; previousPrice: number; newPrice: number; siteOnly: boolean }>(`/admin/price-monitor/${id}/apply-recommended`, { method: 'POST', body: JSON.stringify(input) })
+    return request<{ ok: boolean; productId: number; previousPrice: number; newPrice: number; siteOnly: boolean; oneCQueued: boolean }>(`/admin/price-monitor/${id}/apply-recommended`, { method: 'POST', body: JSON.stringify(input) })
   },
   adminClearFiveRuTestImport() { return request<{ ok: boolean; deleted: number; archived: number; categoriesDeleted: number }>('/admin/price-monitor/test-import-05ru', { method: 'DELETE' }) },
   adminPromos() { return request<PromoBanner[]>('/admin/content/promos') },
