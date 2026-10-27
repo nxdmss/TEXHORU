@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common'
+import { BadGatewayException, BadRequestException, Injectable, OnModuleDestroy } from '@nestjs/common'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { identity, normalize, type Identity } from './product-matching'
 import { existsSync } from 'node:fs'
@@ -82,15 +82,59 @@ export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuRes
 }
 
 @Injectable()
-export class FiveRuParser {
+export class FiveRuParser implements OnModuleDestroy {
+  private sharedBrowser?: Promise<Browser>
+  private browserUsers = 0
+  private browserIdleTimer?: NodeJS.Timeout
+  private readonly queryCache = new Map<string, { expires: number; results: FiveRuResult[] }>()
+
+  // Browser startup dominates short searches: reuse one process, but keep
+  // isolated contexts so concurrent/admin requests cannot share page state.
+  private async withBrowser<T>(operation: (browser: Browser) => Promise<T>): Promise<T> {
+    if (this.browserIdleTimer) clearTimeout(this.browserIdleTimer)
+    this.browserUsers++
+    try {
+      const current = this.sharedBrowser && await this.sharedBrowser
+      if (!current?.isConnected()) {
+        const launch = this.browser().catch(error => {
+          if (this.sharedBrowser === launch) this.sharedBrowser = undefined
+          throw error
+        })
+        this.sharedBrowser = launch
+      }
+      return await operation(await this.sharedBrowser!)
+    } finally {
+      this.browserUsers--
+      if (this.browserUsers === 0) {
+        this.browserIdleTimer = setTimeout(() => {
+          if (this.browserUsers) return
+          const idle = this.sharedBrowser
+          this.sharedBrowser = undefined
+          if (idle) void idle.then(browser => browser.close()).catch(() => undefined)
+        }, 90_000)
+        this.browserIdleTimer.unref()
+      }
+    }
+  }
+
+  async onModuleDestroy() {
+    if (this.browserIdleTimer) clearTimeout(this.browserIdleTimer)
+    const running = this.sharedBrowser
+    this.sharedBrowser = undefined
+    if (running) await running.then(browser => browser.close()).catch(() => undefined)
+  }
+
   private async browser() {
     const channel = process.platform === 'win32' && !existsSync(chromium.executablePath()) ? 'msedge' : 'chromium'
     return chromium.launch({ channel, headless: process.env.FIVE_RU_HEADFUL !== 'true' })
   }
-  private async context(browser: Browser) {
+  private async context(browser: Browser, lightweight = false) {
     const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1440, height: 1000 } })
     await context.route('**/*', route => {
       const u = new URL(route.request().url())
+      // Product data is in HTML/JSON, not in images/fonts/videos; skipping them
+      // substantially reduces traffic in a multi-item search.
+      if (lightweight && ['image', 'font', 'media'].includes(route.request().resourceType())) return route.abort()
       return u.protocol === 'https:' && (u.hostname === '05.ru' || u.hostname.endsWith('.05.ru')) && (!u.port || u.port === '443') ? route.continue() : route.abort()
     })
     return context
@@ -101,13 +145,13 @@ export class FiveRuParser {
       const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
       if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Карточка перенаправила на другой сайт')
-      await page.locator('h1').first().waitFor({ timeout: 10_000 })
-      await page.waitForTimeout(1000)
+      await page.locator('h1').first().waitFor({ timeout: 8_000 })
+      await page.waitForTimeout(300)
       return page
     } catch (error) { await page.close(); throw error }
   }
   private async snapshot(page: Page): Promise<ProductSnapshot> {
-    await page.locator('.shop-info__link').first().waitFor({ timeout: 8000 }).catch(() => undefined)
+    await page.locator('.shop-info__link').first().waitFor({ timeout: 600 }).catch(() => undefined)
     return page.evaluate(() => {
       const main = document.querySelector('main') || document.body
       const text = (selector: string) => {
@@ -142,39 +186,70 @@ export class FiveRuParser {
   async searchProducts(query: string, limit = 8): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
     if (!text || limit < 1 || limit > 12) throw new BadRequestException('Неправильный поисковый запрос')
-    let browser: Browser | undefined
+    const cacheKey = normalize(text) + ':' + limit
+    const cached = this.queryCache.get(cacheKey)
+    if (cached && cached.expires > Date.now()) return cached.results
     try {
-      browser = await this.browser()
-      const context = await this.context(browser)
-      const searchPage = await context.newPage()
-      const home = await searchPage.goto('https://05.ru/', { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      if (home && home.status() >= 400) throw new Error(`05.ru ответил HTTP ${home.status()}; обход защиты не выполняется`)
-      const input = searchPage.locator('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]').first()
-      await input.waitFor({ state: 'visible', timeout: 12_000 })
-      await input.fill(text)
-      await input.press('Enter')
-      await searchPage.waitForTimeout(1800)
-      if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
-      const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
-        [...new Set(nodes.map(node => (node as HTMLAnchorElement).href))]
-      )
-      const urls = links.flatMap(link => { try { return [fiveRuUrl(link, 'product')] } catch { return [] } }).slice(0, limit)
-      if (!urls.length) return []
-      const results: FiveRuResult[] = []
-      for (const url of urls) {
+      return await this.withBrowser(async browser => {
+        const context = await this.context(browser, true)
         try {
-          const page = await this.open(context, url)
-          try { results.push(extractFiveRu(await this.snapshot(page), url)) } finally { await page.close() }
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error)
-          if (/HTTP (403|429)|проверку доступа|timeout/i.test(msg)) throw error
-          // A malformed/unavailable individual card must not invalidate other results.
+          const searchPage = await context.newPage()
+          let urls: string[]
+          try {
+            const home = await searchPage.goto('https://05.ru/', { waitUntil: 'domcontentloaded', timeout: 30_000 })
+            if (home && home.status() >= 400) throw new Error(`05.ru ответил HTTP ${home.status()}; обход защиты не выполняется`)
+            const input = searchPage.locator('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]').first()
+            await input.waitFor({ state: 'visible', timeout: 10_000 })
+            await input.fill(text)
+            await input.press('Enter')
+            await searchPage.waitForTimeout(900)
+            if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
+            // Allow a delayed client-side render, but don't impose a fixed
+            // multi-second delay after the result links are already present.
+            await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 7_000 }).catch(() => undefined)
+            const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
+              [...new Set(nodes.map(node => (node as HTMLAnchorElement).href))]
+            )
+            urls = links.flatMap(link => { try { return [fiveRuUrl(link, 'product')] } catch { return [] } }).slice(0, limit)
+          } finally {
+            await searchPage.close()
+          }
+          if (!urls.length) return []
+          const slots: Array<FiveRuResult | undefined> = new Array(urls.length)
+          let index = 0
+          // At most 3 product pages in flight: prevents serial 05.ru latency
+          // without generating an unbounded burst of requests.
+          const collect = async () => {
+            while (index < urls.length) {
+              const slot = index++
+              const url = urls[slot]
+              try {
+                const page = await this.open(context, url)
+                try { slots[slot] = extractFiveRu(await this.snapshot(page), url) }
+                finally { await page.close() }
+              } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error)
+                if (/HTTP (403|429)|проверку доступа|timeout/i.test(msg)) throw error
+                // An invalid individual card is excluded, not falsely matched.
+              }
+            }
+          }
+          const workers = await Promise.allSettled(Array.from({ length: Math.min(3, urls.length) }, () => collect()))
+          const failed = workers.find(worker => worker.status === 'rejected')
+          if (failed?.status === 'rejected') throw failed.reason
+          const results = slots.filter((result): result is FiveRuResult => Boolean(result))
+          if (results.length) {
+            if (this.queryCache.size >= 100) this.queryCache.delete(this.queryCache.keys().next().value!)
+            this.queryCache.set(cacheKey, { expires: Date.now() + 5 * 60_000, results })
+          }
+          return results
+        } finally {
+          await context.close()
         }
-      }
-      return results
+      })
     } catch (error) {
       throw new BadGatewayException(`Автопоиск 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`)
-    } finally { await browser?.close() }
+    }
   }
 
   async parse(raw: string): Promise<FiveRuResult> {
