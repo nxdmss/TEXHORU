@@ -354,6 +354,86 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   assert(['SUGGESTED', 'CONFIRMED'].includes(matched.matchStatus))
 })
 
+test('Reuses an existing 05.ru Xiaomi card, rechecks live price and does not change 1C price', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const itemName = 'Смартфон Xiaomi 15T Pro (EAC) 12/512 ГБ черный'
+  const listingName = 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный'
+  const listingUrl = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: 'Тест 05.ru / Xiaomi', slug: 'xiaomi-known-' + categoryId }],
+    products: [{ oneCId: id, sku: 'XIAOMI-'+id, slug: 'xiaomi-'+id,
+      name: itemName, brand: 'Xiaomi', categoryOneCId: categoryId, price: 68000, stockQty: 2 }],
+  })
+  const productRow = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  await prisma.competitorProduct.create({ data: {
+    sourceId: source.id, externalUrl: listingUrl, externalName: listingName,
+    attributes: identity({ name: listingName }), lastSuccessAt: new Date(), latestPrice: 55990, inStock: false,
+  } })
+  let rechecked = 0, searched = 0
+  const parser = {
+    searchProducts: async () => { searched++; return [] },
+    parse: async url => {
+      assert.equal(url, listingUrl)
+      rechecked++
+      return { name: listingName, price: 55990, oldPrice: null, inStock: false,
+        externalSku: '25708', categoryName: 'Смартфоны', brand: 'Xiaomi', url,
+        attributes: identity({ name: listingName }), seller: '05.ru',
+        region: 'Махачкала', priceSource: 'JSON-LD Offer' }
+    },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath: 'Тест 05.ru / Xiaomi', maxItems: 10 })
+  await monitor.tick()
+  const finished = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(finished.status, 'COMPLETED')
+  assert.equal(finished.processed, 1)
+  assert.equal(finished.errors, 0)
+  assert.equal(rechecked, 1)
+  assert(searched > 0)
+  const matched = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: listingUrl } })
+  assert.equal(matched.productId, productRow.id)
+  assert.equal(matched.latestPrice, 55990)
+  assert.equal(matched.inStock, false)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: productRow.id } })).price, 68000)
+})
+
+test('Reports 05.ru vendor title-versus-color conflict instead of approving a wrong Xiaomi variant', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const itemName = 'Смартфон Xiaomi 15T (EAC) 12/256 ГБ серый'
+  const listingName = 'Смартфон Xiaomi 15T 12 Гб/256 Гб серый'
+  const listingUrl = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-12-gb-256-gb-seryy-24005/'
+  await new IntegrationsService(prisma, {}).importCatalog({
+    categories: [{ oneCId: categoryId, name: 'Тест 05.ru / Конфликт', slug: 'xiaomi-conflict-' + categoryId }],
+    products: [{ oneCId: id, sku: 'GRAY-'+id, slug: 'gray-'+id,
+      name: itemName, brand: 'Xiaomi', categoryOneCId: categoryId, price: 49990, stockQty: 1 }],
+  })
+  const source = await prisma.competitorSource.findUniqueOrThrow({ where: { key: '05ru' } })
+  await prisma.competitorProduct.create({ data: {
+    sourceId: source.id, externalUrl: listingUrl, externalName: listingName,
+    attributes: { ...identity({ name: listingName }), color: 'black' },
+    lastSuccessAt: new Date(), latestPrice: 38990, inStock: false,
+  } })
+  const parsed = { name: listingName, price: 38990, oldPrice: null, inStock: false,
+    externalSku: '24005', categoryName: 'Смартфоны', brand: 'Xiaomi', url: listingUrl,
+    attributes: { ...identity({ name: listingName }), color: 'black' },
+    seller: '05.ru', region: 'Махачкала', priceSource: 'JSON-LD Offer' }
+  const parser = { searchProducts: async () => [], parse: async () => parsed }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath: 'Тест 05.ru / Конфликт', maxItems: 10 })
+  await monitor.tick()
+  const finished = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(finished.status, 'COMPLETED')
+  assert.equal(finished.errors, 1)
+  assert.match(finished.lastError, /Похожие товары обнаружены/)
+  assert.match(finished.lastError, /цвет/)
+  const link = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: listingUrl } })
+  assert.equal(link.productId, null)
+})
+
 test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
   const parser = new FiveRuParser()
   let launches = 0, closings = 0, contexts = 0, active = 0, maxActive = 0, cardOpens = 0
