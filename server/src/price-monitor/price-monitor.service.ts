@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ApplyRecommendedPriceDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult } from './five-ru.parser'
 import { compareItems, fingerprint, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
@@ -169,6 +169,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const url = fiveRuUrl(dto.url, 'catalog')
     return this.prisma.monitorJob.create({ data: { kind: 'CATALOG', url, maxPages: dto.maxPages || 1, perPage: 200 } })
   }
+  async autoFindOneCSection(dto: AutoFindOneCSectionDto) {
+    const path = (dto.categoryPath || '').trim()
+    const limit = dto.maxItems || 30
+    const imported = await this.prisma.product.findMany({
+      where: { oneCId: { not: null }, status: 'ACTIVE', stockQty: { gt: 0 }, price: { gt: 0 } },
+      include: { category: true }, orderBy: [{ id: 'asc' }],
+    })
+    const scoped = imported.filter(p => !path || p.category.name === path || p.category.name.startsWith(path + ' / '))
+    if (!scoped.length) throw new BadRequestException('В выбранном разделе нет импортированных из 1С товаров с ценой и остатком')
+    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+      throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
+    }
+    const selected = scoped.slice(0, limit)
+    const job = await this.prisma.monitorJob.create({
+      data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
+        pendingUrls: selected.map(p => 'product:' + p.id) },
+    })
+    return { ...job, eligible: scoped.length, queued: selected.length }
+  }
+
   async checkAll() {
     const links = await this.prisma.competitorProduct.findMany({ where: { source: { key: '05ru' } }, select: { externalUrl: true } })
     if (!links.length) throw new BadRequestException('Сначала добавь карточки или собери раздел каталога')
@@ -207,7 +227,41 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           pending = discovered.urls.filter(url => !visited.includes(url))
           await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { pendingUrls: pending, visitedUrls: [...visited, ...pending], page: { increment: 1 }, url: discovered.next, lastError: discovered.truncated ? `На странице ${discovered.discovered} карточек: лимит ${job.perPage}. Продолжение раздела остановлено, уменьшите раздел.` : null } })
         } else if (pending.length) {
-          try { await this.check({ url: pending[0] }) }
+          try {
+            if (job.kind === 'MATCH_1C') {
+              const foundId = /^product:(\d+)$/.exec(pending[0])
+              const product = foundId
+                ? await this.prisma.product.findUnique({ where: { id: Number(foundId[1]) }, include: { category: true } })
+                : null
+              if (!product?.oneCId || product.status !== 'ACTIVE' || product.stockQty <= 0 || product.price <= 0
+                || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))) {
+                throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
+              }
+              const results = await this.fiveRu.searchProducts(product.name, 8)
+              const ranked = results.map(result => ({
+                result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes }),
+              })).filter(row => row.check.score >= 55 && !row.check.conflicts.length
+                && (!row.check.ours.model || row.check.theirs.model === row.check.ours.model))
+                .sort((a,b) => b.check.score - a.check.score)
+              if (!ranked.length) throw new Error('05.ru: подтверждённое совпадение для ' + product.name + ' не найдено')
+              // More than one plausible variant must be manually reviewed, never silently chosen.
+              if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
+                // Keep plausible 05.ru cards in the monitor for manual review,
+                // but do NOT choose a winner or apply a price automatically.
+                const source = await this.source()
+                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id)
+                throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
+              }
+              const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
+              if (already?.productId && already.productId !== product.id) {
+                throw new Error('Карточка 05.ru уже связана с другим товаром: ' + product.name)
+              }
+              const source = await this.source()
+              await this.save(ranked[0].result, source.id, product.id)
+            } else {
+              await this.check({ url: pending[0] })
+            }
+          }
           catch (error) {
             const message = error instanceof Error ? error.message : 'Ошибка карточки'
             // Block/overload aborts the job with the cursor intact, for explicit retry later.
