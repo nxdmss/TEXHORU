@@ -286,3 +286,38 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 72500)
   assert.equal((await sync.pending()).items.length, 0)
 })
+
+test('Universal selection: parent group includes nested 1C category; 05.ru auto-match never changes site prices', async () => {
+  const id = randomUUID()
+  const catId = randomUUID()
+  const ours = { oneCId: id, sku: 'UNIVERSAL-'+id, slug: 'universal-'+id,
+    name: product.name, brand: 'Apple', categoryOneCId: catId,
+    price: 99990, stockQty: 2, costPrice: 80000 }
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: catId, name: 'Мобильная связь / Смартфоны / Apple', slug: 'universal-group-'+catId }],
+    products: [ours],
+  })
+  const sourceUrl = fixture.sourceUrl.replace('24007/', 'universal-'+id+'/')
+  let searches = 0
+  const parser = { searchProducts: async query => {
+    searches++
+    assert(query.includes('iPhone'))
+    return [{ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: sourceUrl }]
+  } }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  await assert.rejects(() => monitor.autoFindOneCSection({ categoryPath: 'Несуществующая группа', maxItems: 10 }))
+  const job = await monitor.autoFindOneCSection({ categoryPath: 'Мобильная связь / Смартфоны', maxItems: 10 })
+  assert.equal(job.eligible, 1)
+  assert.equal(job.queued, 1)
+  await monitor.tick()
+  const finished = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(finished.status, 'COMPLETED')
+  assert.equal(finished.processed, 1)
+  assert.equal(searches, 1)
+  const matched = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: sourceUrl } })
+  const original = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  assert.equal(matched.productId, original.id)
+  assert.equal(original.price, 99990)
+  assert(['SUGGESTED', 'CONFIRMED'].includes(matched.matchStatus))
+})
