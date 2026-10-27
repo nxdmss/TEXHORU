@@ -117,6 +117,8 @@ model Product {
   mpn          String?
   attributes   Json          @default("{}")
   costPrice    Int?
+  priceSyncEnabled Boolean @default(false)
+  oneCPriceChanges OneCPriceChange[]
   categoryId   String
   category     Category      @relation(fields: [categoryId], references: [id])
   createdAt    DateTime      @default(now())
@@ -334,4 +336,25 @@ model MonitorSettings {
   catalogUrl      String   @default("https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/")
   intervalMinutes Int      @default(0)
   nextRunAt       DateTime?
+}
+
+/**
+ * Opt-in site-to-1C retail-price delivery. No automatic writes outside the chosen demo scope.
+ * The receiving 1C agent checks the expected previous price and acknowledges by stable ID.
+ */
+model OneCPriceChange {
+  id          String   @id @default(cuid())
+  productId   Int
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  oneCId      String
+  oldPrice    Int
+  newPrice    Int
+  sourceLinkId String?
+  status      String   @default("PENDING")
+  lastError   String?
+  attempts    Int      @default(0)
+  createdAt   DateTime @default(now())
+  deliveredAt DateTime?
+  @@index([productId, status])
+  @@index([status, createdAt])
 }
