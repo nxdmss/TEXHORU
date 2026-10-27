@@ -43,6 +43,36 @@ test('Identifies Apple variants across Russian/English; flags memory, colour, SI
   assert.equal(identity({ name: 'Айфон 17 ПМ 256 оранж eSIM' }).model, 'iphone 17 pro max')
 })
 
+test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra or a different color', () => {
+  const ours = { name: 'Смартфон Xiaomi 15T Pro  (EAC) 12/512 ГБ черный', brand: 'Xiaomi' }
+  const fiveRu = { name: 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный', brand: 'Xiaomi',
+    specs: [
+      { label: 'Количество цветов экрана', value: '68 млрд цветов, голубой оттенок' },
+      { label: 'Цветовая температура', value: 'Blue' },
+      { label: 'Цвет', value: 'черный' },
+    ] }
+  assert.equal(identity(ours).model, 'xiaomi 15t pro')
+  assert.equal(identity(fiveRu).model, 'xiaomi 15t pro')
+  assert.equal(identity(ours).storage, '512')
+  assert.equal(identity(ours).ram, '12')
+  assert.equal(identity(fiveRu).color, 'black')
+  const matched = compareItems(ours, fiveRu)
+  assert.deepEqual(matched.conflicts, [])
+  assert(matched.score >= 55, JSON.stringify(matched))
+  for (const other of ['Xiaomi 15T 12 Гб/512 Гб черный',
+    'Xiaomi 15 Ultra 12 Гб/512 Гб черный',
+    'Xiaomi 15 12 Гб/512 Гб черный',
+    'Xiaomi 15T Pro 12 Гб/512 Гб серый',
+    'Xiaomi 15T Pro 12 Гб/256 Гб черный']) {
+    const checked = compareItems(ours, { name: other, brand: 'Xiaomi' })
+    assert(checked.conflicts.length, other + ': ' + JSON.stringify(checked))
+    assert.equal(checked.score, 0)
+  }
+  // An actual contradiction in a dedicated "Цвет" specification is still blocked.
+  assert(compareItems(ours, { ...fiveRu, specs: [{ label: 'Цвет', value: 'серый' }] }).conflicts.length > 0)
+  assert.equal(identity({ name: 'Xiaomi 15T Pro (EAC) 12/512' }).storage, '512')
+})
+
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
   assert(validGtin('4006381333931'))
   assert.equal(validGtin('4006381333932'), undefined)
