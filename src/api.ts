@@ -6,6 +6,7 @@ export type ApiCategory = { id: string; name: string; slug: string; sortOrder?: 
 export type ApiProduct = {
   id: number
   oneCId?: string | null
+  priceSyncEnabled?: boolean
   costPrice?: number | null
   gtin?: string | null
   mpn?: string | null
@@ -62,7 +63,7 @@ export type PriceMonitorItem = {
   matchStatus: string
   lastSuccessAt?: string | null
   source: { id: string; key: string; name: string; baseUrl: string }
-  product?: { id: number; oneCId?: string | null; sku: string; name: string; price: number; category?: ApiCategory } | null
+  product?: { id: number; oneCId?: string | null; sku: string; name: string; price: number; priceSyncEnabled?: boolean; category?: ApiCategory } | null
 }
 
 export type MonitorJob = {
@@ -75,6 +76,12 @@ export type MatchCandidate = {
   ours: Record<string, string>; theirs: Record<string, string>
 }
 export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
+
+export type OneCPriceSyncStatus = {
+  scope: Array<{ id: number; oneCId: string | null; name: string; price: number; stockQty: number }>
+  changes: Array<{ id: string; name: string; oneCId: string; oldPrice: number; newPrice: number;
+    status: string; error: string | null; createdAt: string; deliveredAt: string | null }>
+}
 
 export type FiveRuImportResult = {
   ok: boolean
@@ -180,6 +187,7 @@ export const api = {
   adminNotifications() { return request<any[]>('/admin/notifications') },
   adminMarkNotificationRead(id: string) { return request(`/admin/notifications/${id}/read`, { method: 'PATCH' }) },
   syncLogs() { return request<any[]>('/admin/integrations/1c/logs') },
+  priceSyncStatus() { return request<OneCPriceSyncStatus>('/admin/integrations/1c/price-sync') },
   auditLogs() { return request<any[]>('/admin/audit') },
   monitorCandidates(id: string) { return request<MatchCandidate[]>(`/admin/price-monitor/${id}/candidates`) },
   monitorConfirm(id: string, productId: number) { return request<PriceMonitorItem>(`/admin/price-monitor/${id}/confirm`, { method: 'POST', body: JSON.stringify({ productId }) }) },
@@ -200,7 +208,7 @@ export const api = {
   adminCheckCompetitorPrice(input: { url: string; productId?: number }) { return request<PriceMonitorItem>('/admin/price-monitor/check', { method: 'POST', body: JSON.stringify(input) }) },
   adminImportFiveRuCatalog(input: { url: string; limit?: number }) { return request<FiveRuImportResult>('/admin/price-monitor/import-05ru', { method: 'POST', body: JSON.stringify(input) }) },
   adminApplyRecommendedPrice(id: string, input: { expectedCurrentPrice: number; expectedCompetitorPrice: number; targetPrice: number; acceptUnknownCost: boolean; acceptLargeChange: boolean }) {
-    return request<{ ok: boolean; productId: number; previousPrice: number; newPrice: number; siteOnly: boolean }>(`/admin/price-monitor/${id}/apply-recommended`, { method: 'POST', body: JSON.stringify(input) })
+    return request<{ ok: boolean; productId: number; previousPrice: number; newPrice: number; siteOnly: boolean; oneCQueued: boolean }>(`/admin/price-monitor/${id}/apply-recommended`, { method: 'POST', body: JSON.stringify(input) })
   },
   adminClearFiveRuTestImport() { return request<{ ok: boolean; deleted: number; archived: number; categoriesDeleted: number }>('/admin/price-monitor/test-import-05ru', { method: 'DELETE' }) },
   adminPromos() { return request<PromoBanner[]>('/admin/content/promos') },

@@ -3,7 +3,7 @@ import { inCatalogSection } from './catalog-groups'
 import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, isFeaturedCatalogProduct } from './onec-category-tree'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, API_URL, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
+import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 import { activeOrders, orderHistory, products as fallbackProducts } from './data'
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -358,6 +358,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [orders, setOrders] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [logs, setLogs] = useState<any[]>([])
+  const [priceSync, setPriceSync] = useState<OneCPriceSyncStatus>({ scope: [], changes: [] })
   const [audit, setAudit] = useState<any[]>([])
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [apiCategories, setApiCategories] = useState<ApiCategory[]>([])
@@ -384,8 +385,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const [p, o, n, l, c, promosData, auditData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs()])
-      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData)
+      const [p, o, n, l, c, promosData, auditData, syncData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs(), api.priceSyncStatus()])
+      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData); setPriceSync(syncData)
       setProductDraft((value) => value.categoryId ? value : { ...value, categoryId: c[0]?.id ?? '' })
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось загрузить админку') } finally { setLoading(false) }
   }
@@ -700,7 +701,13 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'prices' && <PriceMonitorPanel products={products} onCatalogImported={load} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
-    {tab === 'sync' && <div className="admin-feed">{logs.length === 0 && <p>Обмен с 1С ещё не запускался.</p>}{logs.map((item) => <article key={item.id} className={item.status === 'FAILED' ? 'is-error' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.direction}</span><strong>{item.entity} · {item.status}</strong><p>{item.message || 'Без сообщения'}</p></article>)}</div>}
+    {tab === 'sync' && <div className="admin-feed">
+      <article><span>Тестовая 1С · двусторонний обмен</span><strong>Пилот: {priceSync.scope.length} из 10 iPhone 13</strong><p>В тестовой базе синхронизируются только подтверждённые товары. Цены конкурента попадают в 1С только после нажатия «Применить».</p><button onClick={() => void load()} disabled={loading}>Обновить статус</button></article>
+      {priceSync.scope.map(p => <article key={p.id}><span>1С · {p.oneCId}</span><strong>{p.name}</strong><p>Розница на сайте: {money.format(p.price)} ₽ · Остаток: {p.stockQty}</p></article>)}
+      {priceSync.changes.map(change => <article key={change.id} className={['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}><span>{new Date(change.createdAt).toLocaleString('ru-RU')} · {change.status === 'PENDING' ? 'Ожидает 1С' : change.status === 'DELIVERED' ? 'Применено в 1С' : change.status}</span><strong>{change.name}: {money.format(change.oldPrice)} → {money.format(change.newPrice)} ₽</strong><p>{change.error || 'Передача розничной цены'}</p></article>)}
+      {logs.length === 0 && <p>Обмен с 1С ещё не запускался.</p>}
+      {logs.slice(0,30).map((item) => <article key={item.id} className={item.status === 'FAILED' ? 'is-error' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.direction}</span><strong>{item.entity} · {item.status}</strong><p>{item.message || 'Без сообщения'}</p></article>)}
+    </div>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
   </section>

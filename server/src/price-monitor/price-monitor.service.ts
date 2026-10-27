@@ -5,6 +5,7 @@ import { ApplyRecommendedPriceDto, CheckCompetitorPriceDto, ImportFiveRuCatalogD
 import { FiveRuParser, fiveRuUrl, type FiveRuResult } from './five-ru.parser'
 import { compareItems, fingerprint, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
+import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
 @Injectable()
 export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
@@ -115,7 +116,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return this.decorated(row)
     })
   }
-  // Explicitly approved site-only price change. Never sends data to 1C.
+  // Explicitly approved price change. Only the ten opt-in 1C products enter the outbound queue.
   async applyRecommended(id: string, dto: ApplyRecommendedPriceDto) {
     const updated = await this.prisma.$transaction(async tx => {
       const link = await tx.competitorProduct.findUnique({ where: { id }, include: { product: true, source: true } })
@@ -139,14 +140,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (!product.costPrice && !dto.acceptUnknownCost) throw new BadRequestException('Себестоимость неизвестна. Требуется явное подтверждение риска')
       const largeChange = Math.abs(price - product.price) > product.price * 0.1
       if (largeChange && !dto.acceptLargeChange) throw new BadRequestException('Изменение больше 10%. Требуется явное подтверждение')
+      if (price === product.price) {
+        throw new BadRequestException('Цена уже установлена; повторная отправка не требуется')
+      }
+      const message = await OneCPriceSyncService.queue(tx, product, price, id)
       const result = await tx.product.updateMany({ where: { id: product.id, price: dto.expectedCurrentPrice, status: ProductStatus.ACTIVE }, data: { price } })
       if (result.count !== 1) throw new ConflictException('Цена товара изменилась. Обнови страницу')
       await tx.auditLog.create({ data: {
         action: 'APPLY_MONITOR_SITE_PRICE', entity: 'Product', entityId: String(product.id),
         details: { monitorLinkId: id, previousPrice: product.price, competitorPrice: link.latestPrice,
-          newPrice: price, costUnknown: !product.costPrice, largeChange, siteOnly: true },
+          newPrice: price, costUnknown: !product.costPrice, largeChange,
+          siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null },
       } })
-      return { ok: true, productId: product.id, previousPrice: product.price, newPrice: price, siteOnly: true }
+      return { ok: true, productId: product.id, previousPrice: product.price, newPrice: price,
+        siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null }
     })
     return updated
   }
