@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { compareItems, identity, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
-const { PriceMonitorService } = require('../dist/price-monitor/price-monitor.service')
+const { PriceMonitorService, oneCSearchQueries } = require('../dist/price-monitor/price-monitor.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
 const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
@@ -71,6 +71,8 @@ test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra o
   // An actual contradiction in a dedicated "Цвет" specification is still blocked.
   assert(compareItems(ours, { ...fiveRu, specs: [{ label: 'Цвет', value: 'серый' }] }).conflicts.length > 0)
   assert.equal(identity({ name: 'Xiaomi 15T Pro (EAC) 12/512' }).storage, '512')
+  assert.deepEqual(oneCSearchQueries(ours), ['xiaomi 15t pro 512', 'xiaomi 15t pro'])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 17 Pro 256 Гб' }), ['Смартфон Apple iPhone 17 Pro 256 Гб'])
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
