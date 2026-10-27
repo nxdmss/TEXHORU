@@ -247,16 +247,65 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
               let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
+              const rejected: string[] = []
+              let inspected = 0
+              const rank = (results: FiveRuResult[]) => results.map(result => {
+                inspected++
+                const check = compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes })
+                // A title match is useful evidence even when 05.ru's own
+                // specification contradicts its title (e.g. gray/black).
+                // Show the conflict, but never silently approve that variant.
+                const title = compareItems(product, { name: result.name, brand: result.brand })
+                if (title.score >= 55 && !title.conflicts.length
+                  && (!title.ours.model || title.theirs.model === title.ours.model)
+                  && check.conflicts.length) {
+                  rejected.push(result.name + ' — ' + check.conflicts.join(', '))
+                }
+                return { result, check }
+              }).filter(row => row.check.score >= 55 && !row.check.conflicts.length
+                && (!row.check.ours.model || row.check.theirs.model === row.check.ours.model))
+                .sort((a,b) => b.check.score - a.check.score)
+
               for (const query of oneCSearchQueries(product)) {
-                const results = await this.fiveRu.searchProducts(query, 8)
-                ranked = results.map(result => ({
-                  result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes }),
-                })).filter(row => row.check.score >= 55 && !row.check.conflicts.length
-                  && (!row.check.ours.model || row.check.theirs.model === row.check.ours.model))
-                  .sort((a,b) => b.check.score - a.check.score)
+                ranked = rank(await this.fiveRu.searchProducts(query, 12))
                 if (ranked.length) break
               }
-              if (!ranked.length) throw new Error('05.ru: точное совпадение модели, памяти и цвета для ' + product.name + ' не найдено. Проверь доступность товара и название в 05.ru.')
+
+              // User may already have a valid 05.ru card in the monitor.
+              // Recheck its actual URL before comparing; stale prices are
+              // NEVER treated as a new live observation.
+              if (!ranked.length) {
+                const saved = await this.prisma.competitorProduct.findMany({
+                  where: { source: { key: '05ru' }, externalName: { not: null },
+                    lastSuccessAt: { not: null }, lastError: null },
+                  select: { externalName: true, externalUrl: true, productId: true },
+                  orderBy: { lastSuccessAt: 'desc' }, take: 400,
+                })
+                const known = saved.filter(row => {
+                  if (row.productId && row.productId !== product.id) return false
+                  const title = compareItems(product, { name: row.externalName || '' })
+                  return title.score >= 55 && !title.conflicts.length
+                    && (!title.ours.model || title.theirs.model === title.ours.model)
+                }).slice(0, 4)
+                for (const card of known) {
+                  try {
+                    ranked = rank([await this.fiveRu.parse(card.externalUrl)])
+                    if (ranked.length) break
+                  } catch (error) {
+                    const msg = error instanceof Error ? error.message : String(error)
+                    if (/HTTP (403|429)|проверку доступа|timeout/i.test(msg)) throw error
+                    rejected.push((card.externalName || card.externalUrl) + ' — не удалось проверить ссылку: ' + msg.slice(0, 140))
+                  }
+                }
+              }
+              if (!ranked.length) {
+                const details = rejected.length
+                  ? 'Похожие товары обнаружены, но есть противоречия: ' + [...new Set(rejected)].slice(0, 2).join(' | ').slice(0, 650)
+                  : inspected > 0
+                    ? 'Проверено карточек: ' + inspected + '. Ни одна не прошла проверку модели, памяти и цвета.'
+                    : 'Поиск 05.ru не выдал пригодных карточек, включая ранее сохранённые.'
+                throw new Error('05.ru: ' + product.name + '. ' + details)
+              }
               // More than one plausible variant must be manually reviewed, never silently chosen.
               if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
                 // Keep plausible 05.ru cards in the monitor for manual review,
