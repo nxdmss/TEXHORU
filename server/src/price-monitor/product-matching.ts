@@ -21,21 +21,34 @@ export function identity(item: Item): Identity {
   const text = normalize(item.name.replace(/\b([sa]\d{1,3})\+/gi, '$1 plus')).replace(/айфон/g, 'iphone').replace(/(?:^|\s)пм(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про макс(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про(?=\s|$)/g, ' pro')
   const attrs = item.attributes && typeof item.attributes === 'object' ? item.attributes as Identity : {}
   const specs = Array.isArray(item.specs) ? item.specs as Array<{ label: string; value: string }> : []
-  const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label))?.value
+  const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label.trim()))?.value
   const units = (value: string) => {
     const m = value.match(/(\d+(?:[.,]\d+)?)\s*(tb|тб|gb|гб)/i)
     return m ? String(Math.round(Number(m[1].replace(',', '.')) * (/tb|тб/i.test(m[2]) ? 1024 : 1))) : undefined
   }
   const storageText = attrs.storage || spec(/встроенн|объем накоп|storage/i)
   const capacities = [...text.matchAll(/(\d+)\s*(gb|гб|tb|тб)/g)].map(m => units(m[0])!)
-  const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1024)\b/)?.[1] : undefined
+  // 1C frequently uses 12/512 without a unit after the storage value.
+  const compactMemory = text.match(/\b(?:4|6|8|12|16|18|24|32)\s+(128|256|512|1024)\b/)
+  const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1024)\b/)?.[1]
+    : /xiaomi|redmi|poco/.test(text) ? compactMemory?.[1] : undefined
   const storage = storageText ? units(storageText) || (/^\d+$/.test(storageText) ? storageText : undefined) : capacities.length ? capacities.at(-1) : bareStorage
   const ramText = attrs.ram || spec(/оперативн|ram/i)
-  const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined) : capacities.length > 1 ? capacities[0] : undefined
+  const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
+    : capacities.length > 1 ? capacities[0]
+    : compactMemory ? text.match(/\b(4|6|8|12|16|18|24|32)\s+(?:128|256|512|1024)\b/)?.[1] : undefined
   const model = attrs.model || text.match(/\biphone\s*\d{1,2}(?:\s*(?:pro max|pro|plus|mini|air|e))?\b/)?.[0]
     || text.match(/\b(?:galaxy\s*)?(?:s|a|z)\d{1,3}(?:\s*(?:ultra|plus|fe|fold|flip))?\b/)?.[0]
+    // Without these, Xiaomi 15, 15T, 15T Pro and 15 Ultra are all treated
+    // as model-less and can be incorrectly considered interchangeable.
+    || text.match(/\bxiaomi\s+\d{1,2}t?(?:\s+(?:pro(?:\s+max)?|ultra|lite|plus))?\b/)?.[0]
+    || text.match(/\b(?:xiaomi\s+)?redmi\s+(?:note\s+)?\d{1,2}(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
+    || text.match(/\bpoco\s+[a-z]\d{1,2}(?:\s+(?:pro|ultra|plus))?\b/)?.[0]
     || undefined
-  const colorText = attrs.color || spec(/цвет|color/i) || text
+  // A broad /цвет|color/ pattern also matches unrelated attributes like
+  // "Количество цветов экрана" or "Цветовая температура", leading to
+  // false variant mismatches. Only explicit body/phone colour is authoritative.
+  const colorText = attrs.color || spec(/^(?:цвет|цвет корпуса|основной цвет|цвет устройства|цвет телефона|color|body color)$/i) || text
   const color = colors.find(([re]) => re.test(colorText))?.[1] || (attrs.color ? normalize(attrs.color) : undefined)
   const simText = normalize(attrs.sim || spec(/тип sim|сим|sim карт/i) || text)
   const hasEsim = /e\s*sim|esim/.test(simText)
