@@ -229,7 +229,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         } else if (pending.length) {
           try {
             if (job.kind === 'MATCH_1C') {
-              const foundId = /^product:(\\d+)$/.exec(pending[0])
+              const foundId = /^product:(\d+)$/.exec(pending[0])
               const product = foundId
                 ? await this.prisma.product.findUnique({ where: { id: Number(foundId[1]) }, include: { category: true } })
                 : null
