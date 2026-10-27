@@ -93,8 +93,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
     const next = item.latestPrice - 500
     const old = item.product.price
     const large = Math.abs(next - old) > old * 0.1
+    const toOneC = item.product.priceSyncEnabled === true
     const confirmation = [
-      `Изменить цену ТОЛЬКО НА САЙТЕ TEXHORU?`,
+      toOneC ? 'Изменить цену на сайте и отправить её в тестовую 1С?' : 'Изменить цену ТОЛЬКО НА САЙТЕ TEXHORU?',
       `Товар: ${item.product.name}`,
       `Текущая: ${money.format(old)} ₽`,
       `05.ru: ${money.format(item.latestPrice)} ₽`,
@@ -102,17 +103,18 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       '',
       'ВНИМАНИЕ: себестоимость может быть не указана в 1С. Проверь маржу самостоятельно.',
       ...(large ? ['ВНИМАНИЕ: изменение больше 10%.'] : []),
-      'Цена в 1С НЕ изменится. Повторная выгрузка из 1С может перезаписать цену сайта.',
+      toOneC ? '1С получит изменение при следующем обмене. До подтверждения оно будет в очереди.' : 'Цена в 1С НЕ изменится. Повторная выгрузка из 1С может перезаписать цену сайта.',
       'Подтвердить изменение?',
     ].join('\n')
     if (!window.confirm(confirmation)) return
     await action(`apply-${item.id}`, async () => {
-      await api.adminApplyRecommendedPrice(item.id, {
+      const applied = await api.adminApplyRecommendedPrice(item.id, {
         expectedCurrentPrice: old, expectedCompetitorPrice: item.latestPrice!,
         targetPrice: next, acceptUnknownCost: true, acceptLargeChange: large,
       })
       await onCatalogImported()
-    }, `Цена товара на сайте изменена: ${money.format(old)} → ${money.format(next)} ₽. 1С не затронута.`)
+      return applied
+    }, `Новая цена: ${money.format(next)} ₽. ${toOneC ? 'Ожидает подтверждения обменом с 1С.' : 'Только на сайте; 1С не затронута.'}`)
   }
   async function upload(file: File | undefined, mode: 'catalog' | 'receipts') {
     if (!file) return
