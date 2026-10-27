@@ -4,13 +4,21 @@ import { AuthGuard } from '../common/auth.guard'
 import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 import { IntegrationsService } from './integrations.service'
 import { OneCGuard } from './onec.guard'
+import { OneCPriceSyncService } from './price-sync.service'
+import { PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
 
 @Controller()
 export class IntegrationsController {
-  constructor(private readonly integrations: IntegrationsService) {}
+  constructor(private readonly integrations: IntegrationsService, private readonly priceSync: OneCPriceSyncService) {}
 
   @Post('integrations/1c/catalog') @UseGuards(OneCGuard) catalog(@Body() dto: OneCCatalogDto) { return this.integrations.importCatalog(dto) }
   @Post('admin/integrations/1c/catalog') @UseGuards(AuthGuard, AdminGuard) manualCatalog(@Body() dto: OneCCatalogDto) { return this.integrations.importCatalog(dto) }
+  @Post('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) priceScope(@Body() dto: PriceSyncScopeDto) { return this.priceSync.configureScope(dto) }
+  @Get('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) getPriceScope() { return this.priceSync.scope() }
+  @Get('integrations/1c/price-sync/pending') @UseGuards(OneCGuard) pendingPrices() { return this.priceSync.pending() }
+  @Post('integrations/1c/price-sync/receipts') @UseGuards(OneCGuard) priceReceipts(@Body() dto: PriceSyncReceiptsDto) { return this.priceSync.receipts(dto) }
+  @Get('admin/integrations/1c/price-sync') @UseGuards(AuthGuard, AdminGuard) priceSyncDashboard() { return this.priceSync.dashboard() }
+
   @Get('integrations/1c/orders/pending') @UseGuards(OneCGuard) pendingOrders() { return this.integrations.pendingOrders() }
   @Post('integrations/1c/orders/:id/ack') @UseGuards(OneCGuard) ack(@Param('id') id: string, @Body('oneCId') oneCId: string) { return this.integrations.ackOrder(id, oneCId) }
   @Post('integrations/1c/orders/status') @UseGuards(OneCGuard) orderStatus(@Body() dto: OneCOrderStatusDto) { return this.integrations.orderStatus(dto) }
