@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { compareItems, identity, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
-const { extractFiveRu, fiveRuUrl, priceNumber } = require('../dist/price-monitor/five-ru.parser')
+const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService } = require('../dist/price-monitor/price-monitor.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
@@ -320,4 +320,53 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   assert.equal(matched.productId, original.id)
   assert.equal(original.price, 99990)
   assert(['SUGGESTED', 'CONFIRMED'].includes(matched.matchStatus))
+})
+
+test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
+  const parser = new FiveRuParser()
+  let launches = 0, closings = 0, contexts = 0, active = 0, maxActive = 0, cardOpens = 0
+  const links = Array.from({ length: 7 }, (_, i) => 'https://05.ru/cat/mc/p/iphone-variant-' + (i+1) + '/')
+  const fakeSearchPage = {
+    goto: async () => ({ status: () => 200 }),
+    locator: selector => selector.startsWith('input')
+      ? { first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => {} }) }
+      : { first: () => ({ waitFor: async () => {} }),
+          evaluateAll: async () => links },
+    waitForTimeout: async () => {},
+    url: () => 'https://05.ru/search/',
+    close: async () => {},
+  }
+  parser.browser = async () => {
+    launches++
+    return { isConnected: () => true, close: async () => { closings++ } }
+  }
+  parser.context = async () => {
+    contexts++
+    return { newPage: async () => fakeSearchPage, close: async () => {} }
+  }
+  parser.open = async (_, url) => {
+    cardOpens++
+    return { url, close: async () => {} }
+  }
+  parser.snapshot = async () => {
+    active++; maxActive = Math.max(maxActive, active)
+    await new Promise(resolve => setTimeout(resolve, 12))
+    active--
+    return fixture.snapshot
+  }
+  try {
+    const result = await parser.searchProducts('Xiaomi Redmi', 7)
+    assert.equal(result.length, 7)
+    assert.equal(launches, 1)
+    assert.equal(cardOpens, 7)
+    assert.equal(maxActive, 3)
+    const repeated = await parser.searchProducts('  Xiaomi Redmi ', 7)
+    assert.equal(repeated.length, 7)
+    assert.equal(cardOpens, 7) // identical query comes from short-lived result cache
+    const other = await parser.searchProducts('Xiaomi Redmi Note', 7)
+    assert.equal(other.length, 7)
+    assert.equal(launches, 1) // other products use the same browser
+    assert.equal(contexts, 2) // but a separate isolated context
+  } finally { await parser.onModuleDestroy() }
+  assert.equal(closings, 1)
 })

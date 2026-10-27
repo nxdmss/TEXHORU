@@ -16,7 +16,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (process.env.MONITOR_WORKER_DISABLED === 'true') return
-    this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 2000)
+    this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 1000)
     this.timer.unref()
   }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer) }
