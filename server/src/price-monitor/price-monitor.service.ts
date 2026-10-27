@@ -246,6 +246,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (!ranked.length) throw new Error('05.ru: подтверждённое совпадение для ' + product.name + ' не найдено')
               // More than one plausible variant must be manually reviewed, never silently chosen.
               if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
+                // Keep plausible 05.ru cards in the monitor for manual review,
+                // but do NOT choose a winner or apply a price automatically.
+                const source = await this.source()
+                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id)
                 throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
               }
               const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
