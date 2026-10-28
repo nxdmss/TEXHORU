@@ -900,6 +900,7 @@ function App() {
   }
 
   const renderHome = () => <>
+    <SmartphonePortal onOpen={openJourney}/>
     {sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
       <div className="storefront-carousel__layout">
         <div
@@ -931,7 +932,6 @@ function App() {
         </aside>
       </div>
     </section>}
-    <SmartphonePortal onOpen={openJourney}/>
     <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id="catalog">
       <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
         <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
