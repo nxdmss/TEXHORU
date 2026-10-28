@@ -844,6 +844,10 @@ test('Cached 05.ru Xiaomi title can be revalidated despite stale wrong-color att
     searchProducts: async () => { throw new Error('Should not need the broken 05.ru search route') },
   }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  // Earlier integration cases may leave a queued index job in this shared
+  // test database. Stop those fixtures before testing a new focused batch.
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
   const job = await monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 10 })
   await monitor.tick()
   const result = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
