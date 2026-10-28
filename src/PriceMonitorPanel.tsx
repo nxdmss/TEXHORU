@@ -1,263 +1,334 @@
-import { CatalogSections } from './CatalogSections'
-import { oneCPriceTemplate, parseManualPriceCsv } from './competitor-price-list'
-import { inCatalogSection } from './catalog-groups'
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { api, type ApiProduct, type MatchCandidate, type MonitorDelivery, type MonitorJob, type PriceMonitorItem } from './api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api, type ApiProduct, type MatchCandidate, type MonitorJob, type PriceMonitorItem } from './api'
+import './price-monitor-simple.css'
 
-const money = new Intl.NumberFormat('ru-RU')
-const status: Record<string, string> = { UNMATCHED: 'Не найден', SUGGESTED: 'Проверь совпадение', CONFIRMED: 'Связь подтверждена', REVIEW_REQUIRED: 'Характеристики изменились', QUEUED: 'В очереди', RUNNING: 'Проверяем', COMPLETED: 'Завершено', FAILED: 'Ошибка', CANCELLED: 'Остановлено', PENDING: 'Ожидает 1С', DELIVERED: 'Сохранено в 1С' }
-const labels: Record<string, string> = { brand: 'Бренд', model: 'Модель', storage: 'Память, ГБ', ram: 'ОЗУ, ГБ', color: 'Цвет', sim: 'SIM', gtin: 'GTIN', mpn: 'MPN' }
-const date = (value?: string | null) => value ? new Date(value).toLocaleString('ru-RU') : '—'
-function friendlyError(message: string) {
-  if (/Executable doesn't exist|executable.*does not exist|distribution.*not found/i.test(message)) return 'Браузер парсера не найден. Установи Microsoft Edge, затем перезапусти TEXHORU. Товары и база сохраняются.'
-  if (/Характеристики расходятся/.test(message)) return message
-  if (/403|429/.test(message)) return '05.ru ограничил запросы. Попробуй проверить одну карточку позже.'
-  return message
-}
-function download(name: string, data: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-  const a = document.createElement('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url)
+const rub = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽'
+const prettyDate = (s?: string | null) => s ? new Date(s).toLocaleString('ru-RU') : '—'
+const phoneCategory = (value: string) => /(?:смартфон|smartphone)/i.test(value)
+const pathSegments = (value: string) => value.split(' / ').map(s => s.trim()).filter(Boolean)
+const inPath = (category: string, path: string) => !path || category === path || category.startsWith(path + ' / ')
+const cleanName = (name: string) => name.replace(/^Фотография товара\s*/i, '').trim()
+
+function childrenAt(products: ApiProduct[], path: string) {
+  const folders = new Map<string, number>()
+  for (const product of products) {
+    const category = product.category?.name || ''
+    if (!inPath(category, path) || category === path) continue
+    const rest = path ? category.slice(path.length + 3) : category
+    const next = rest.split(' / ')[0]
+    if (!next) continue
+    folders.set(next, (folders.get(next) || 0) + 1)
+  }
+  return [...folders].sort((a, b) => a[0].localeCompare(b[0], 'ru'))
 }
 
-export function PriceMonitorPanel({ products, onCatalogImported }: { products: ApiProduct[]; onCatalogImported: () => Promise<void> }) {
-  const [view, setView] = useState<'prices' | 'add' | 'settings'>('prices')
-  const [addMode, setAddMode] = useState<'card' | 'catalog'>('card')
+const isFresh = (item: PriceMonitorItem) => Boolean(
+  item.lastSuccessAt && !item.lastError && item.priceSource !== 'USER_FILE'
+  && Date.now() - new Date(item.lastSuccessAt).getTime() <= 24 * 3600_000
+)
+
+export function PriceMonitorPanel({ products, onCatalogImported }: {
+  products: ApiProduct[]
+  onCatalogImported: () => Promise<void>
+}) {
+  const [stock, setStock] = useState<ApiProduct[]>(products)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
-  const [deliveries, setDeliveries] = useState<MonitorDelivery[]>([])
-  const [url, setUrl] = useState('https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-e-sim-bez-rustore-24007/')
-  const [catalog, setCatalog] = useState('https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/')
-  const [pages, setPages] = useState(1)
-  const [interval, setIntervalMinutes] = useState(0)
+  const [path, setPath] = useState('')
+  const [search, setSearch] = useState('')
+  const [opened, setOpened] = useState<string | null>(null)
+  const [matches, setMatches] = useState<MatchCandidate[]>([])
+  const [selected, setSelected] = useState('')
+  const [history, setHistory] = useState<Array<{ id: string; price: number; checkedAt: string }>>([])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [search, setSearch] = useState('')
-  const [oneCPath, setOneCPath] = useState('')
-  const [autoLimit, setAutoLimit] = useState(10)
-  const [filter, setFilter] = useState('ALL')
-  const [section, setSection] = useState('')
-  const [limit, setLimit] = useState(24)
-  useEffect(() => { setLimit(24); setOpened(null) }, [section, search, filter])
-  const [opened, setOpened] = useState<string | null>(null)
-  const [candidates, setCandidates] = useState<MatchCandidate[]>([])
-  const [selected, setSelected] = useState('')
-  const [history, setHistory] = useState<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>([])
-  const pollBusy = useRef(false)
-  const matchRequest = useRef(0)
+  const [advanced, setAdvanced] = useState(false)
+  const [manualUrl, setManualUrl] = useState('')
+  const polling = useRef(false)
+  const loadingMatch = useRef(0)
   const [matchLoading, setMatchLoading] = useState(false)
-  const refresh = useCallback(async () => {
-    const [rows, tasks, messages] = await Promise.all([api.adminPriceMonitor(), api.monitorJobs(), api.monitorDeliveries()])
-    setItems(rows); setJobs(tasks); setDeliveries(messages)
+
+  useEffect(() => { setStock(products) }, [products])
+  const refresh = useCallback(async (includeProducts = false) => {
+    const [list, tasks, inventory] = await Promise.all([
+      api.adminPriceMonitor(), api.monitorJobs(),
+      includeProducts ? api.adminProducts() : Promise.resolve(null),
+    ])
+    setItems(list); setJobs(tasks)
+    if (inventory) setStock(inventory)
   }, [])
   useEffect(() => {
-    let active = true
-    void refresh().catch(e => { if (active) setError(e.message) })
-    void api.monitorSettings().then(s => { if (active) { setCatalog(s.catalogUrl); setIntervalMinutes(s.intervalMinutes) } }).catch(e => { if (active) setError(e.message) })
+    let mounted = true
+    void refresh(true).catch(e => { if (mounted) setError(e.message) })
+    let ticks = 0
     const timer = window.setInterval(() => {
-      if (pollBusy.current) return
-      pollBusy.current = true
-      void refresh().catch(e => { if (active) setError(e.message) }).finally(() => { pollBusy.current = false })
+      if (polling.current) return
+      polling.current = true
+      void refresh(++ticks % 3 === 0).catch(e => { if (mounted) setError(e.message) })
+        .finally(() => { polling.current = false })
     }, 7000)
-    return () => { active = false; window.clearInterval(timer) }
+    return () => { mounted = false; window.clearInterval(timer) }
   }, [refresh])
-  async function action(key: string, fn: () => Promise<unknown>, message?: string) {
+
+  async function run(key: string, action: () => Promise<unknown>, done?: string) {
     setBusy(key); setError(''); setNotice('')
-    try { await fn(); await refresh(); if (message) setNotice(message) }
-    catch (e) { setError(friendlyError(e instanceof Error ? e.message : 'Ошибка')); await refresh().catch(() => undefined) }
-    finally { setBusy('') }
-  }
-  async function openMatch(item: PriceMonitorItem) {
-    const request = ++matchRequest.current
-    if (opened === item.id) { setOpened(null); setMatchLoading(false); return }
-    setOpened(item.id); setError(''); setSelected(products.some(p => p.id === item.product?.id && p.status === 'ACTIVE') ? String(item.product?.id) : ''); setCandidates([]); setHistory([]); setMatchLoading(true)
     try {
-      const [possible, past] = await Promise.all([api.monitorCandidates(item.id), api.monitorHistory(item.id)])
-      if (matchRequest.current !== request) return
-      setCandidates(possible); setHistory(past)
-      if (!products.some(p => p.id === item.product?.id && p.status === 'ACTIVE') && possible.length) setSelected(String(possible[0].product.id))
-    } catch (e) { if (matchRequest.current === request) setError(friendlyError(e instanceof Error ? e.message : 'Не удалось получить совпадения')) }
-    finally { if (matchRequest.current === request) setMatchLoading(false) }
+      await action()
+      await refresh(true)
+      if (done) setNotice(done)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка операции')
+      await refresh().catch(() => undefined)
+    } finally { setBusy('') }
   }
-  async function confirmItem(item: PriceMonitorItem) {
-    if (!selected) { setError('Выбери свой товар в списке под карточкой.'); return }
-    await action('confirm', async () => {
-      if (item.lastError || !item.lastSuccessAt) await api.adminCheckCompetitorPrice({ url: item.externalUrl })
-      await api.monitorConfirm(item.id, Number(selected))
-    }, 'Готово: карточка 05.ru связана с твоим товаром. Цена магазина не изменена.')
-  }
-  async function applySitePrice(item: PriceMonitorItem) {
-    if (item.matchStatus !== 'CONFIRMED' || !item.product || !item.latestPrice || item.latestPrice <= 500
-      || item.inStock !== true || item.lastError || !item.lastSuccessAt
-      || Date.now() - new Date(item.lastSuccessAt).getTime() > 24 * 3600_000) {
-      setError('Подтверди соответствие товара и обнови цену 05.ru перед применением.')
-      return
+
+  const phones = useMemo(() => stock.filter(product =>
+    Boolean(product.oneCId) && product.status === 'ACTIVE'
+    && product.stockQty > 0 && phoneCategory(product.category?.name || '')
+  ), [stock])
+  const scopedPhones = useMemo(() => phones.filter(product =>
+    inPath(product.category?.name || '', path)
+  ), [phones, path])
+  const folders = useMemo(() => childrenAt(phones, path), [phones, path])
+  const visiblePhones = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase('ru')
+    return phones.filter(product => (
+      q ? (product.name + ' ' + product.sku + ' ' + product.category?.name).toLocaleLowerCase('ru').includes(q)
+        : (product.category?.name || '') === path
+    )).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  }, [phones, path, search])
+  const byProduct = useMemo(() => {
+    const grouped = new Map<number, PriceMonitorItem[]>()
+    for (const item of items) {
+      if (!item.product?.id) continue
+      const current = grouped.get(item.product.id) || []
+      current.push(item)
+      grouped.set(item.product.id, current)
     }
-    const next = item.latestPrice - 500
-    const old = item.product.price
-    const large = Math.abs(next - old) > old * 0.1
-    const toOneC = item.product.priceSyncEnabled === true
-    const confirmation = [
-      toOneC ? 'Изменить цену на сайте и отправить её в тестовую 1С?' : 'Изменить цену ТОЛЬКО НА САЙТЕ TEXHORU?',
-      `Товар: ${item.product.name}`,
-      `Текущая: ${money.format(old)} ₽`,
-      `05.ru: ${money.format(item.latestPrice)} ₽`,
-      `Новая: ${money.format(next)} ₽ (на 500 ₽ ниже 05.ru)`,
-      '',
-      'ВНИМАНИЕ: себестоимость может быть не указана в 1С. Проверь маржу самостоятельно.',
-      ...(large ? ['ВНИМАНИЕ: изменение больше 10%.'] : []),
-      toOneC ? '1С получит изменение при следующем обмене. До подтверждения оно будет в очереди.' : 'Цена в 1С НЕ изменится. Повторная выгрузка из 1С может перезаписать цену сайта.',
-      'Подтвердить изменение?',
-    ].join('\n')
-    if (!window.confirm(confirmation)) return
-    await action(`apply-${item.id}`, async () => {
-      const applied = await api.adminApplyRecommendedPrice(item.id, {
-        expectedCurrentPrice: old, expectedCompetitorPrice: item.latestPrice!,
-        targetPrice: next, acceptUnknownCost: true, acceptLargeChange: large,
+    for (const group of grouped.values()) group.sort((a, b) => {
+      const score = (x: PriceMonitorItem) =>
+        (x.matchStatus === 'CONFIRMED' ? 1000 : 0) +
+        (isFresh(x) ? 100 : 0) + (x.lastSuccessAt ? new Date(x.lastSuccessAt).getTime() / 1e13 : 0)
+      return score(b) - score(a)
+    })
+    return grouped
+  }, [items])
+  const confirmed = phones.filter(p => byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
+  const active = jobs.find(j => j.status === 'RUNNING' || j.status === 'QUEUED')
+  const last = jobs.find(j => j.kind === 'MATCH_1C')
+  const unlinked = items.filter(i => !i.product?.oneCId || !phones.some(p => p.id === i.product?.id))
+  const level = pathSegments(path)
+  const displayPath = search.trim() ? '' : path
+  const scopeCount = search.trim() ? phones.length : scopedPhones.length
+
+  async function searchMatches() {
+    if (active) { setError('Дождись завершения предыдущей проверки'); return }
+    await run('match', async () => {
+      const number = Math.min(5000, scopeCount)
+      if (!number) throw new Error('В этом разделе нет смартфонов в наличии из 1С')
+      const job = await api.monitorAutoFindOneC(displayPath, number, false, true)
+      setNotice('Поиск ' + job.queued + ' смартфонов запущен.')
+    }, 'Поиск запущен. Найденные связи и цены появятся в карточках.')
+  }
+
+  async function updateAllPrices() {
+    if (active) { setError('Сначала заверши поиск и проверку цен'); return }
+    setBusy('preview'); setError(''); setNotice('')
+    try {
+      const preview = await api.monitorBulkPreview(displayPath)
+      if (!preview.count) {
+        setNotice('Нет цен для обновления: нужны свежие проверки 05.ru и точные подтверждённые совпадения.')
+        return
+      }
+      const text = [
+        'ПРИМЕНИТЬ ЦЕНЫ НА САЙТЕ TEXHORU?',
+        '',
+        'Товаров: ' + preview.count,
+        'Пропущено: ' + preview.skipped,
+        'Правило: на 500 ₽ ниже подтверждённой цены 05.ru.',
+        'Только цены, проверенные за последние 24 часа.',
+        preview.unknownCost ? 'Без известной себестоимости: ' + preview.unknownCost : '',
+        preview.largeChanges ? 'Изменение цены более 10%: ' + preview.largeChanges : '',
+        preview.oneCQueued ? 'Очередь обмена с 1С получит изменения по ' + preview.oneCQueued + ' товарам.' : 'В 1С цены не изменятся.',
+        '',
+        'Ошибочные, старые и спорные совпадения не применяются.',
+        'Подтвердить?',
+      ].filter(Boolean).join('\n')
+      if (!window.confirm(text)) return
+      const result = await api.monitorBulkApply({
+        categoryPath: displayPath, token: preview.token,
+        acceptUnknownCost: preview.unknownCost > 0, acceptLargeChange: preview.largeChanges > 0,
       })
       await onCatalogImported()
-      return applied
-    }, `Новая цена: ${money.format(next)} ₽. ${toOneC ? 'Ожидает подтверждения обменом с 1С.' : 'Только на сайте; 1С не затронута.'}`)
-  }
-  async function upload(file: File | undefined, mode: 'catalog' | 'receipts') {
-    if (!file) return
-    await action(mode, async () => {
-      const value = JSON.parse((await file.text()).replace(/^\uFEFF/, ''))
-      if (mode === 'catalog') { await api.adminImportOneC(value); await onCatalogImported() }
-      else await api.monitorReceipts(value)
-    }, mode === 'catalog' ? 'Каталог 1С загружен. Скачай шаблон CSV, заполни цены и импортируй их без поиска 05.ru.' : 'Подтверждения 1С приняты.')
+      await refresh(true)
+      setNotice('Обновлено цен: ' + result.applied + '. Пропущено: ' + result.skipped + '.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось применить цены')
+    } finally { setBusy('') }
   }
 
-  async function uploadManualPrices(file: File | undefined) {
-    if (!file) return
-    await action('manual-prices', async () => {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      let content: string
-      try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
-      catch { content = new TextDecoder('windows-1251').decode(bytes) }
-      const rows = parseManualPriceCsv(content)
-      const result = await api.importManualCompetitorPrices(rows)
-      setNotice(`Импортировано ${result.imported} строк, новых ${result.created}, обновлено ${result.updated}, связано с 1С: ${result.associated}. Цены НЕ проверены на 05.ru; цены 1С и магазина не изменены.`)
-    })
+  async function expand(item: PriceMonitorItem) {
+    const call = ++loadingMatch.current
+    if (opened === item.id) { setOpened(null); return }
+    setOpened(item.id); setSelected(item.product ? String(item.product.id) : '')
+    setMatchLoading(true); setMatches([]); setHistory([])
+    try {
+      const [candidates, history] = await Promise.all([
+        api.monitorCandidates(item.id), api.monitorHistory(item.id),
+      ])
+      if (loadingMatch.current !== call) return
+      setMatches(candidates); setHistory(history)
+      if (!item.product && candidates.length) setSelected(String(candidates[0].product.id))
+    } catch (e) {
+      if (loadingMatch.current === call) setError(e instanceof Error ? e.message : 'Не удалось получить совпадения')
+    } finally { if (loadingMatch.current === call) setMatchLoading(false) }
   }
-  function downloadTemplate() {
-    const contents = oneCPriceTemplate(products.filter(p => p.oneCId && p.status === 'ACTIVE'))
-    const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' })
-    const address = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = address; anchor.download = 'texhoru-prices-template.csv'; anchor.click()
-    URL.revokeObjectURL(address)
-  }
-  const visible = items.filter(item => inCatalogSection({ name: item.externalName || '', categoryName: item.product?.category?.name }, section) && (filter === 'ALL' || (filter === 'ERROR' ? Boolean(item.lastError) : filter === 'REVIEW' ? item.matchStatus !== 'CONFIRMED' : item.matchStatus === filter)) && `${item.externalName} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase()))
-  const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.status === 'ACTIVE')
-  const oneCPaths = [...new Set(oneCProducts.flatMap(p => {
-    const segments = (p.category?.name || '').split(' / ').map(s => s.trim()).filter(Boolean)
-    return segments.map((_, i) => segments.slice(0, i + 1).join(' / '))
-  }))].sort((a, b) => a.localeCompare(b, 'ru'))
-  const inScope = oneCProducts.filter(p => !oneCPath || p.category?.name === oneCPath || p.category?.name.startsWith(oneCPath + ' / ')).length
-  const lastAutoJob = jobs.find(j => j.kind === 'MATCH_1C')
-  const matched = items.filter(item => item.matchStatus === 'CONFIRMED').length
-  const activeJob = jobs.some(j => ['QUEUED', 'RUNNING'].includes(j.status))
 
-  return <div className="monitor-v2">
-    <header className="monitor-simple-head"><div><h2>Цены конкурента</h2><p>Сравнивай свои товары с 05.ru.</p></div>{view === 'prices' && <button className="monitor-primary" disabled={Boolean(busy) || activeJob || !items.length} onClick={() => void action('all', () => api.monitorCheckAll(), 'Проверка запущена.')}>{activeJob ? 'Проверка идёт…' : 'Обновить цены'}</button>}</header>
-    <nav className="monitor-simple-tabs" aria-label="Мониторинг цен">{([['prices', 'Мои товары'], ['add', 'Добавить ссылку'], ['settings', 'Настройки']] as const).map(([id, title]) => <button key={id} aria-pressed={view === id} className={view === id ? 'active' : ''} onClick={() => { setView(id); setError(''); setNotice('') }}>{title}</button>)}</nav>
-    {activeJob && <div className="monitor-live" role="status">{jobs.filter(j => ['QUEUED', 'RUNNING'].includes(j.status)).map(j => <div key={j.id}><span>{j.kind === 'INDEX_05RU' ? `Индекс 05.ru · страница ${j.page}/${j.maxPages} · ${j.processed} ссылок` : `${j.status === 'QUEUED' ? 'Ожидает запуска' : 'Проверяем'} · ${j.processed} карточек · ошибок: ${j.errors}`}</span><button disabled={Boolean(busy)} onClick={() => void action(j.id, () => api.monitorJobAction(j.id, 'cancel'))}>Остановить</button></div>)}</div>}
-    {error && <div role="alert" className="form-error">{error}</div>}{notice && <p className="price-monitor__notice" role="status">{notice}</p>}
-    {view === 'add' && <><div className="monitor-add-head"><h3>Что добавить?</h3><div className="monitor-simple-tabs"><button className={addMode === 'card' ? 'active' : ''} onClick={() => setAddMode('card')}>Один товар</button><button className={addMode === 'catalog' ? 'active' : ''} onClick={() => setAddMode('catalog')}>Раздел каталога</button></div></div><div className="monitor-v2__forms monitor-single-form">
-      {addMode === 'card' && <form onSubmit={(e: FormEvent) => { e.preventDefault(); void action('check', () => api.adminCheckCompetitorPrice({ url }), 'Карточка добавлена. Открой «Мои товары», выбери раздел и свой товар.') }}>
-        <h3>Вставь ссылку на товар 05.ru</h3><label>Ссылка на карточку<input required type="url" value={url} onChange={e => setUrl(e.target.value)} /></label><button disabled={Boolean(busy) || activeJob}>{busy === 'check' ? 'Проверяем…' : 'Проверить цену'}</button><small>Неизвестное наличие останется неизвестным. Ошибка не заменит последнюю успешную цену.</small>
-      </form>}
-      {addMode === 'catalog' && <form onSubmit={e => { e.preventDefault(); void action('scan', () => api.monitorScan(catalog, pages), 'Сбор запущен. Прогресс появится ниже; страницу можно закрыть.') }}>
-        <h3>Собрать товары из раздела 05.ru</h3><label>Раздел 05.ru<input required type="url" value={catalog} onChange={e => setCatalog(e.target.value)} /></label><label>До скольких страниц пройти<select value={pages} onChange={e => setPages(Number(e.target.value))}><option value={1}>1 — первый тест</option><option value={5}>5 страниц</option><option value={20}>20 страниц</option><option value={100}>100 страниц</option></select></label><button disabled={Boolean(busy) || activeJob}>Начать сбор</button><small>Добавляет данные конкурента в мониторинг. Переходит по найденной ссылке следующей страницы. Полнота каталога зависит от разметки 05.ru.</small>
-      </form>}
-    </div></>}
-    {view === 'settings' && <section className="monitor-v2__section">
-      <div className="monitor-v2__section-head"><div><p className="eyebrow">ПРОВЕРКИ</p><h3>Задачи и расписание</h3></div><button disabled={Boolean(busy) || activeJob || !items.length} onClick={() => void action('all', () => api.monitorCheckAll(), 'Проверка сохранённых ссылок поставлена в очередь.')}>Проверить все цены</button></div>
-      <div className="monitor-v2__schedule"><label>Проверять сохранённые карточки<select value={interval} onChange={e => setIntervalMinutes(Number(e.target.value))}><option value={0}>Только вручную</option><option value={120}>Каждые 2 часа</option><option value={360}>Каждые 6 часов</option><option value={1440}>Раз в сутки</option></select></label><button disabled={Boolean(busy)} onClick={() => void action('settings', () => api.monitorSaveSettings(catalog, interval), 'Расписание сохранено. Проверки выполняются, пока TEXHORU запущен.')}>Сохранить расписание</button></div>
-      {!jobs.length && <p className="monitor-v2__muted">Задач ещё нет. Начни с одной карточки или одной страницы.</p>}
-      <details className="monitor-settings-details"><summary>История проверок</summary>{jobs.slice(0, 5).map(job => <article className="monitor-v2__job" key={job.id}><div><b>{job.kind === 'CATALOG' ? 'Сбор раздела' : 'Обновление цен'} · {status[job.status]}</b><small>{date(job.createdAt)} · карточек проверено: {job.processed} · ошибок: {job.errors}{job.kind === 'CATALOG' ? ` · страниц: ${job.page}/${job.maxPages}` : ''}</small>{job.lastError && <details><summary>Ошибка прошлой задачи — {date(job.createdAt)}</summary><p>{friendlyError(job.lastError)}</p></details>}{job.status === 'COMPLETED' && job.url && <small>Достигнут лимит страниц. Для продолжения используй <a href={job.url} target="_blank" rel="noreferrer">следующую страницу раздела</a>.</small>}</div>{['QUEUED', 'RUNNING'].includes(job.status) ? <button disabled={Boolean(busy)} onClick={() => void action(job.id, () => api.monitorJobAction(job.id, 'cancel'))}>Остановить</button> : ['FAILED', 'CANCELLED'].includes(job.status) ? <button disabled={Boolean(busy)} onClick={() => void action(job.id, () => api.monitorJobAction(job.id, 'retry'))}>Продолжить</button> : null}</article>)}
-      </details>
-    </section>}
-    {view === 'prices' && <section className="monitor-v2__section" aria-label="Подключить свой бизнес">
-      <div className="monitor-v2__section-head"><div>
-        <p className="eyebrow">МОЙ БИЗНЕС</p>
-        <h3>Подключить товары 1С и цены конкурента</h3>
-        <p>Сначала загрузи каталог из 1С в JSON или используй настроенный прямой обмен. Потом заполни шаблон прайса в Excel: ссылка на товар 05.ru, цена, дата наблюдения. Неработающий поиск 05.ru не нужен.</p>
-      </div></div>
-      <div className="monitor-v2__files">
-        <label>1. Каталог из 1С (.json)<input type="file" accept=".json" disabled={Boolean(busy) || activeJob} onChange={e => { void upload(e.target.files?.[0], 'catalog'); e.target.value = '' }} /></label>
-        <button disabled={!products.some(p => p.oneCId)} onClick={downloadTemplate}>2. Скачать шаблон CSV для Excel</button>
-        <label>3. Заполненный прайс (.csv / .tsv)<input type="file" accept=".csv,.tsv,.txt" disabled={Boolean(busy) || activeJob} onChange={e => { void uploadManualPrices(e.target.files?.[0]); e.target.value = '' }} /></label>
+  async function confirm(item: PriceMonitorItem) {
+    if (!selected) { setError('Выбери правильный товар'); return }
+    await run('confirm', async () => {
+      if (!isFresh(item)) await api.adminCheckCompetitorPrice({ url: item.externalUrl })
+      await api.monitorConfirm(item.id, Number(selected))
+    }, 'Совпадение подтверждено. Цена твоего товара не изменена.')
+  }
+
+  function itemStatus(item?: PriceMonitorItem) {
+    if (!item) return { label: 'Ищем', className: 'missing' }
+    if (item.matchStatus === 'CONFIRMED' && isFresh(item)) return { label: 'Совпало', className: 'ready' }
+    if (item.matchStatus === 'CONFIRMED') return { label: 'Обновить', className: 'pending' }
+    if (item.matchStatus === 'SUGGESTED' || item.matchStatus === 'REVIEW_REQUIRED') return { label: 'Проверить', className: 'pending' }
+    return { label: 'Без связи', className: 'missing' }
+  }
+
+  function renderPhone(p: ApiProduct) {
+    const linked = byProduct.get(p.id)?.[0]
+    const state = itemStatus(linked)
+    return <article className="mp-tile" key={p.id}>
+      <div className="mp-tile-head">
+        <span className={'mp-pill ' + state.className}>{state.label}</span>
+        <small>{p.stockQty} шт. · 1С</small>
       </div>
-      <p className="monitor-v2__muted">Товаров с ID 1С: {products.filter(p => p.oneCId).length}. Цена из файла будет помечена как неподтверждённая и не попадёт в автоматическое изменение цен или очередь 1С. Если источник даёт официальный API или прайс-фид, его можно подключить отдельно.</p>
-    </section>}
-    {view === 'prices' && <section className="monitor-v2__section" aria-label="Автоматическое сопоставление 1С и 05.ru">
-      <div className="monitor-v2__section-head"><div>
-        <p className="eyebrow">1С → TEXHORU → 05.ru</p>
-        <h3>Найти совпадения автоматически</h3>
-        <p>Выбери любую группу или вложенную подгруппу, загруженную из 1С. TEXHORU ищет товары напрямую по поисковой выдаче 05.ru, проверяет модель, память и цвет, затем открывает карточки для получения свежих цен. Прогресс сохраняется между перезапусками.</p>
-      </div></div>
-      <div className="monitor-v2__schedule">
-        <label>Группа из 1С
-          <select value={oneCPath} onChange={e => setOneCPath(e.target.value)}>
-            <option value="">Все группы из 1С</option>
-            {oneCPaths.map(path => <option key={path} value={path}>{'· '.repeat(Math.max(0, path.split(' / ').length - 1))}{path}</option>)}
-          </select>
-        </label>
-        <label>Товаров за проверку
-          <select value={autoLimit} onChange={e => setAutoLimit(Number(e.target.value))}>
-            <option value={10}>10 (тест)</option><option value={100}>100</option><option value={500}>500</option><option value={2000}>2 000</option><option value={5000}>До 5 000</option>
-          </select>
-        </label>
-        <button disabled={Boolean(busy) || activeJob || !inScope} onClick={() => void action('auto-find', async () => {
-          const job = await api.monitorAutoFindOneC(oneCPath, autoLimit)
-          setNotice(`В очереди: ${job.queued} из ${job.eligible} товаров 1С. TEXHORU будет проверять товары через прямой поиск 05.ru — без ручных ссылок и предварительной индексации.`)
-        })}> {busy === 'auto-find' ? 'Подготовка…' : 'Найти совпадения с 05.ru'}</button>
+      <strong className="mp-product-name">{p.name}</strong>
+      <div className="mp-prices">
+        <div><small>Наш сайт</small><b>{rub(p.price)}</b></div>
+        <div><small>05.ru</small><b>{linked?.latestPrice && isFresh(linked) ? rub(linked.latestPrice) : '—'}</b></div>
       </div>
-      <p className="monitor-v2__muted">В выбранной группе: {inScope} активных товаров с ценой (включая нулевые остатки). Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
-      {lastAutoJob && <div role="status" className="monitor-v2__search-diagnostics">
-        <p>Последний поиск: {lastAutoJob.status === 'COMPLETED' && lastAutoJob.errors
-          ? 'Завершено с несовпадениями' : status[lastAutoJob.status] || lastAutoJob.status}
-          {' · '}проверено {lastAutoJob.processed} из {lastAutoJob.perPage || lastAutoJob.processed}
-          {' · '}без совпадения / ошибок: {lastAutoJob.errors}</p>
-        {lastAutoJob.lastError && <details className="monitor-settings-details">
-          <summary>Почему не найдено совпадение? Показать диагностику</summary>
-          <p className="monitor-v2__muted" style={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{lastAutoJob.lastError}</p>
-        </details>}
+      {linked
+        ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
+            {opened === linked.id ? 'Скрыть детали' : linked.matchStatus === 'CONFIRMED' ? 'Детали' : 'Проверить'}
+          </button>
+        : <span className="mp-no-match">Совпадение ещё не найдено</span>}
+      {linked && opened === linked.id && <div className="mp-expanded">
+        <p><a href={linked.externalUrl} target="_blank" rel="noreferrer">Карточка 05.ru ↗</a> · {prettyDate(linked.lastSuccessAt)}</p>
+        {linked.lastError && <p className="form-error">{linked.lastError}</p>}
+        {matchLoading ? <p>Проверяем варианты…</p> : <>
+          {linked.matchStatus !== 'CONFIRMED' && <>
+            <label>Выбери соответствие
+              <select value={selected} onChange={e => setSelected(e.target.value)}>
+                <option value="">Выбрать товар</option>
+                {matches.map(c => <option key={c.product.id} value={c.product.id}>{c.product.name}</option>)}
+              </select>
+            </label>
+            <button disabled={Boolean(busy) || !selected || Boolean(active)}
+              onClick={() => void confirm(linked)}>Подтвердить совпадение</button>
+          </>}
+          <button className="mp-link-button" disabled={Boolean(busy) || Boolean(active)}
+            onClick={() => void run('check', () => api.adminCheckCompetitorPrice({ url: linked.externalUrl }), 'Цена 05.ru обновлена.')}>Проверить цену сейчас</button>
+          <details><summary>История цен</summary>
+            {history.slice(0, 6).map(row => <p key={row.id}>{prettyDate(row.checkedAt)} · {rub(row.price)}</p>)}
+          </details>
+        </>}
       </div>}
-    </section>}
-    {view === 'prices' && <section className="monitor-v2__section monitor-price-workspace">
-      <div className="monitor-v2__section-head"><div><h3>Каталог</h3><p>{items.length} карточек · связано с твоими товарами: {matched}</p></div><div className="monitor-v2__filters"><input placeholder="Найти товар…" value={search} onChange={e => setSearch(e.target.value)} /><select value={filter} onChange={e => setFilter(e.target.value)}><option value="ALL">Все карточки</option><option value="REVIEW">Требуют проверки</option><option value="CONFIRMED">Подтверждены</option><option value="ERROR">Ошибки проверки</option></select></div></div>
-      {!items.length && <div className="monitor-empty"><h3>Добавь первый товар</h3><p>Вставь ссылку с 05.ru, чтобы получить цену и выбрать свой товар.</p><button onClick={() => setView('add')}>Добавить ссылку</button></div>}
-      <CatalogSections items={items.map(item => ({ name: item.externalName || '', categoryName: item.product?.category?.name }))} selection={section} searching={Boolean(search.trim()) || filter !== 'ALL'} onSelect={value => { setSection(value); setSearch(''); setFilter('ALL'); ++matchRequest.current }} />
-      {<>
-      <div className="catalog-result-count">Найдено: {visible.length}</div>
-      {!visible.length && <p className="monitor-v2__muted">Карточек пока нет или они не подходят под фильтр.</p>}
-      {visible.slice(0, limit).map(item => {
-        const candidate = candidates.find(c => c.product.id === Number(selected))
-        return <article className="monitor-v2__product" key={item.id}>
-          <div className="monitor-v2__product-row"><div><span className={`monitor-v2__tag ${item.matchStatus === 'CONFIRMED' ? 'is-ok' : ''}`}>{status[item.matchStatus]}</span><h4>{(item.externalName || 'Карточка без результата').replace(/^Фотография товара\s*/i, '')}</h4><a href={item.externalUrl} target="_blank" rel="noreferrer">Открыть на 05.ru ↗</a><small>{item.priceSource === 'USER_FILE' ? `Из файла: ${date(item.lastCheckedAt)} · не проверено на 05.ru` : item.lastSuccessAt ? `Проверено: ${date(item.lastSuccessAt)}` : 'Цена ещё не проверена'}</small></div><div><span>05.ru</span><strong>{item.latestPrice ? `${money.format(item.latestPrice)} ₽` : '—'}</strong><small>{item.inStock === true ? 'В наличии' : item.inStock === false ? 'Нет в наличии / под заказ' : 'Наличие неизвестно'}</small></div><div><span>Наш товар</span><b>{item.product?.name || 'Не сопоставлен'}</b><small>{item.product ? `${money.format(item.product.price)} ₽` : 'Нажми «Выбрать мой товар»'}</small></div><button disabled={Boolean(busy)} onClick={() => void openMatch(item)}>{opened === item.id ? 'Закрыть' : item.matchStatus === 'CONFIRMED' ? 'Подробнее' : 'Выбрать мой товар'}</button></div>
-          <div className="monitor-price-summary"><span>{item.priceSource === 'USER_FILE' ? 'Цена из CSV · не подтверждена 05.ru' : item.lastError ? 'Не удалось обновить цену' : !item.lastSuccessAt ? 'Нужна первая проверка' : 'Цена проверена'}</span><span>{item.recommendedPrice ? `Рекомендация: ${money.format(item.recommendedPrice)} ₽` : item.priceSource !== 'USER_FILE' && item.matchStatus === 'CONFIRMED' && item.latestPrice && item.latestPrice > 500 ? `Расчётная цена: ${money.format(item.latestPrice - 500)} ₽ (проверь себестоимость)` : 'Рекомендация пока недоступна'}</span></div>{item.matchStatus === 'CONFIRMED' && item.product && item.latestPrice && item.latestPrice > 500
-            && item.inStock === true && !item.lastError && item.lastSuccessAt
-            && Date.now() - new Date(item.lastSuccessAt).getTime() <= 24 * 3600_000
-            ? <div className="monitor-v2__actions"><button disabled={Boolean(busy) || activeJob} onClick={() => void applySitePrice(item)}>
-                {busy === `apply-${item.id}` ? 'Применяем…' : `Применить цену ${money.format(item.latestPrice - 500)} ₽`}
-              </button><small>Только цена на сайте. Перед применением будет подтверждение.</small></div>
-            : null}
-          {opened === item.id && <div className="monitor-v2__match"><h4>Выбери свой товар</h4>{(item.lastError || !item.lastSuccessAt) && <div className="form-error"><p>{item.lastError ? friendlyError(item.lastError) : 'Цена ещё не проверена.'}</p><button disabled={Boolean(busy) || activeJob} onClick={() => void action('check', () => api.adminCheckCompetitorPrice({ url: item.externalUrl }), 'Цена обновлена.')}>Повторить проверку</button></div>}<p>Сверь модель, память и цвет. Если прошлая проверка не удалась, кнопка подтверждения сначала повторит её.</p>{matchLoading && <p role="status">Загружаю список товаров…</p>}{!products.some(p => p.status === 'ACTIVE') && <p className="form-error">Нет активных товаров. В разделе «Товары» добавь товар или измени его статус на «Активный».</p>}<div className="monitor-v2__candidate-list">{candidates.map(c => <button className={selected === String(c.product.id) ? 'selected' : ''} key={c.product.id} onClick={() => setSelected(String(c.product.id))}><b>{c.product.name}</b><small>Возможное совпадение — сверь характеристики ниже</small></button>)}</div><label>Или выбери товар вручную<select value={selected} onChange={e => setSelected(e.target.value)}><option value="">Выбрать товар</option>{products.filter(p => p.status === 'ACTIVE').map(p => <option value={p.id} key={p.id}>{p.name} · {p.sku}</option>)}</select></label>
-            <details className="monitor-settings-details"><summary>Сравнить характеристики</summary><div className="monitor-v2__table-wrap"><table><thead><tr><th>Характеристика</th><th>Наш товар</th><th>05.ru</th></tr></thead><tbody>{Object.entries(labels).map(([key, label]) => <tr key={key}><td>{label}</td><td>{candidate?.ours[key] || '—'}</td><td>{item.attributes[key] || '—'}</td></tr>)}</tbody></table></div></details>
-            {candidate?.missing.length ? <p>Не хватает данных: {candidate.missing.join(', ')}. Перед подтверждением сверь их в 1С и карточке 05.ru.</p> : null}<div className="monitor-v2__actions"><button disabled={Boolean(busy) || activeJob || matchLoading || !selected} onClick={() => void confirmItem(item)}>{busy === 'confirm' ? 'Проверяю и сохраняю…' : item.lastError || !item.lastSuccessAt ? 'Проверить цену и подтвердить' : 'Подтвердить выбранный товар'}</button>{item.product && <button disabled={Boolean(busy)} onClick={() => void action('unmatch', () => api.monitorUnmatch(item.id), 'Связь снята; ожидающие сообщения отменены.')}>Снять связь</button>}</div>
-            <div role="status">{error && <p className="form-error">{error}</p>}{notice && <p>{notice}</p>}{!selected && <p>Сначала выбери товар в списке выше.</p>}{activeJob && <p>Дождись завершения текущей проверки или останови её выше.</p>}</div><details className="monitor-settings-details"><summary>История цен и данные источника</summary><p>Продавец: {item.seller || 'не определён'} · регион: {item.region || 'не определён'}</p><p>{item.recommendationReasons.join('; ')}</p><div className="monitor-v2__table-wrap"><table><thead><tr><th>Когда</th><th>Цена</th><th>Наличие</th></tr></thead><tbody>{history.slice(0, 10).map(row => <tr key={row.id}><td>{date(row.checkedAt)}</td><td>{money.format(row.price)} ₽</td><td>{row.inStock === true ? 'Есть' : row.inStock === false ? 'Нет / под заказ' : 'Неизвестно'}</td></tr>)}</tbody></table></div></details>
-          </div>}
-        </article>
-      })}
-      {visible.length > limit && <button className="catalog-more" onClick={() => setLimit(n => n + 24)}>Показать ещё 24</button>}</>}
-    </section>}
-    {view === 'settings' && <section className="monitor-v2__section"><details className="monitor-settings-details"><summary>Обмен с 1С</summary>
-      <div className="monitor-v2__section-head"><div><p className="eyebrow">ОБМЕН С 1С</p><h3>Передать результаты</h3><p>Цены конкурента сохраняются отдельно. Подтверждённые свежие результаты попадают в очередь автоматически.</p></div><button disabled={Boolean(busy)} onClick={() => void action('queue', () => api.monitorQueue(), 'Очередь обновлена. В 1С нажми «Получить мониторинг».')}>Подготовить очередь для 1С</button></div>
-      <div className="monitor-v2__files"><label>1. Загрузить каталог из 1С<input type="file" accept=".json" disabled={Boolean(busy)} onChange={e => { void upload(e.target.files?.[0], 'catalog'); e.target.value = '' }} /></label><button disabled={Boolean(busy)} onClick={() => void action('export', async () => download('monitoring.json', await api.monitorExport()), 'Файл monitoring.json готов. Загрузите его в 1С.')}>2. Скачать результаты JSON</button><label>3. Загрузить подтверждения 1С<input type="file" accept=".json" disabled={Boolean(busy)} onChange={e => { void upload(e.target.files?.[0], 'receipts'); e.target.value = '' }} /></label></div><small>Файловый обмен подходит для первого теста учебной базы. Прямой HTTP-обмен использует тот же формат и ключ из настроек TEXHORU.</small>
-      <div className="monitor-v2__table-wrap"><table><thead><tr><th>Создано</th><th>Товар 1С</th><th>Цена конкурента</th><th>Доставка</th></tr></thead><tbody>{deliveries.slice(0, 15).map(d => <tr key={d.id}><td>{date(d.createdAt)}</td><td>{String(d.payload.ourName || '')}</td><td>{money.format(Number(d.payload.price || 0))} ₽</td><td>{status[d.status]}{d.lastError && <small>{d.lastError}</small>}</td></tr>)}</tbody></table></div>
-    </details></section>}
+    </article>
+  }
+
+  return <div className="mp-shell">
+    <header className="mp-top">
+      <div><h2>Мониторинг цен</h2><p>Смартфоны из 1С → 05.ru → цены сайта</p></div>
+      <div className="mp-top-count"><b>{phones.length}</b><span>в наличии из 1С</span></div>
+    </header>
+
+    <div className="mp-summary">
+      <span><b>{confirmed}</b> совпадений</span>
+      <span><b>{items.filter(i => i.lastSuccessAt && isFresh(i)).length}</b> свежих цен</span>
+      <span><b>{phones.length - confirmed}</b> без подтверждения</span>
+    </div>
+
+    <div className="mp-toolbar">
+      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !scopeCount}
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти совпадения'}</button>
+      <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
+        onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить актуальные цены'}</button>
+      <input aria-label="Поиск смартфона" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
+    </div>
+    {active && <div className="mp-progress" role="status">
+      <span>{active.kind === 'MATCH_1C' ? 'Поиск совпадений' : 'Проверка 05.ru'} · {active.processed} / {active.perPage || '…'}</span>
+      <button disabled={Boolean(busy)} onClick={() => void run('stop', () => api.monitorJobAction(active.id, 'cancel'))}>Остановить</button>
+    </div>}
+    {last && !active && <div className="mp-last">
+      Последний поиск: {last.processed} / {last.perPage || last.processed} · ошибок: {last.errors}
+      {last.lastError && <details><summary>Причины ошибок</summary><p>{last.lastError}</p></details>}
+    </div>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {notice && <p className="price-monitor__notice" role="status">{notice}</p>}
+
+    <section className="mp-browser">
+      <nav className="mp-breadcrumbs" aria-label="Категории 1С">
+        <button onClick={() => { setPath(''); setSearch(''); setOpened(null) }}>Все смартфоны</button>
+        {level.map((segment, index) =>
+          <span key={level.slice(0, index + 1).join('/')}>
+            <span aria-hidden="true">/</span>
+            <button onClick={() => { setPath(level.slice(0, index + 1).join(' / ')); setSearch(''); setOpened(null) }}>{segment}</button>
+          </span>
+        )}
+      </nav>
+      {!search && folders.length > 0 && <div className="mp-folder-grid">
+        {folders.map(([name, count]) => {
+          const child = path ? path + ' / ' + name : name
+          return <button className="mp-folder" key={child} onClick={() => { setPath(child); setOpened(null) }}>
+            <span className="mp-folder-icon" aria-hidden="true">▣</span>
+            <b>{name}</b>
+            <small>{count} товаров</small>
+            <span className="mp-folder-arrow" aria-hidden="true">›</span>
+          </button>
+        })}
+      </div>}
+      {visiblePhones.length > 0 && <>
+        <div className="mp-group-title"><h3>Смартфоны</h3><span>{visiblePhones.length}</span></div>
+        <div className="mp-card-grid">{visiblePhones.map(renderPhone)}</div>
+      </>}
+      {!visiblePhones.length && !folders.length &&
+        <p className="mp-empty">{phones.length ? 'В этом разделе нет смартфонов в наличии.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
+    </section>
+
+    {unlinked.length > 0 && <details className="mp-extra"><summary>Не разобрано: {unlinked.length} карточек 05.ru</summary>
+      <div className="mp-extra-grid">{unlinked.map(item => <div key={item.id} className="mp-extra-card">
+        <b>{cleanName(item.externalName || 'Без названия')}</b>
+        <p>{item.latestPrice ? rub(item.latestPrice) : 'Цена неизвестна'} · {item.matchStatus === 'CONFIRMED' ? 'связано' : 'не сопоставлено'}</p>
+        <button onClick={() => void expand(item)}>{opened === item.id ? 'Скрыть' : 'Сопоставить'}</button>
+        {opened === item.id && <div className="mp-expanded">
+          {matchLoading ? 'Загрузка…' : <>
+            <select value={selected} onChange={e => setSelected(e.target.value)}>
+              <option value="">Выбери товар из 1С</option>
+              {matches.map(c => <option key={c.product.id} value={c.product.id}>{c.product.name}</option>)}
+            </select>
+            <button disabled={!selected || Boolean(busy) || Boolean(active)} onClick={() => void confirm(item)}>Подтвердить</button>
+          </>}
+        </div>}
+      </div>)}</div>
+    </details>}
+
+    <details className="mp-extra" open={advanced} onToggle={e => setAdvanced(e.currentTarget.open)}>
+      <summary>Дополнительно</summary>
+      <p>Товары поступают автоматически при настроенном обмене 1С → TEXHORU. Импорт файлов для ежедневного мониторинга не нужен.</p>
+      <div className="mp-advanced">
+        <label>Проверить одну ссылку 05.ru
+          <input value={manualUrl} onChange={e => setManualUrl(e.target.value)} placeholder="https://05.ru/cat/…/p/…"/>
+        </label>
+        <button disabled={Boolean(busy) || Boolean(active) || !manualUrl.trim()}
+          onClick={() => void run('manual', () => api.adminCheckCompetitorPrice({ url: manualUrl }), 'Карточка проверена.')}>Проверить</button>
+      </div>
+    </details>
   </div>
 }
