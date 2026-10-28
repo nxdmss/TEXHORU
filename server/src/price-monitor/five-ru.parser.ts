@@ -11,7 +11,7 @@ export type FiveRuResult = {
   attributes: Identity; seller: string | null; region: string | null; priceSource: string
 }
 export type FiveRuSearchTrace = {
-  query: string; linksFound: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean; pageUrl?: string
+  query: string; linksFound: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean; pageUrl?: string; searchMode?: string
 }
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
@@ -211,35 +211,66 @@ export class FiveRuParser implements OnModuleDestroy {
             if (home && home.status() >= 400) throw new Error(`05.ru ответил HTTP ${home.status()}; обход защиты не выполняется`)
             const input = searchPage.locator('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]').first()
             await input.waitFor({ state: 'visible', timeout: 10_000 })
+            // The shop may serve product suggestions without navigating to a new URL.
+            // Capture those *before* Enter, which can close the suggestion popup.
+            const readLinks = async () => {
+              const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
+                nodes.map(node => ({
+                  url: (node as HTMLAnchorElement).href,
+                  title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+                    node.querySelector('img')?.getAttribute('alt') ||
+                    (node as HTMLElement).innerText?.trim() ||
+                    node.closest('.product-card')?.textContent?.trim() || '').slice(0, 180),
+                }))
+              )
+              return (links as Array<string | { url: string; title: string }>).flatMap(link => {
+                const candidate = typeof link === 'string' ? { url: link, title: '' } : link
+                try { return [{ url: fiveRuUrl(candidate.url, 'product'), title: candidate.title }] }
+                catch { return [] }
+              })
+            }
             await input.fill(text)
+            await searchPage.waitForTimeout(1_200)
+            const suggestions = await readLinks()
             await input.press('Enter')
             await searchPage.waitForTimeout(900)
             if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
-            // Allow a delayed client-side render, but don't impose a fixed
-            // multi-second delay after the result links are already present.
-            await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 7_000 }).catch(() => undefined)
-            const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
-              nodes.map(node => ({
-                url: (node as HTMLAnchorElement).href,
-                title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
-                  node.querySelector('img')?.getAttribute('alt') ||
-                  (node as HTMLElement).innerText?.trim() ||
-                  node.closest('.product-card')?.textContent?.trim() || '').slice(0, 180),
-              }))
-            )
-            const valid = (links as Array<string | { url: string; title: string }>).flatMap(link => {
-              const candidate = typeof link === 'string' ? { url: link, title: '' } : link
-              try { return [{ url: fiveRuUrl(candidate.url, 'product'), title: candidate.title }] }
-              catch { return [] }
-            })
-            if (trace) {
-              trace.linksFound = new Set(valid.map(link => link.url)).size
-              trace.pageUrl = searchPage.url()
+            // Wait for links when the shop renders the full search page asynchronously.
+            await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 5_000 }).catch(() => undefined)
+            let valid = await readLinks()
+            let searchMode = 'enter'
+            // Enter alone can be swallowed by SPA search widgets. Use the
+            // site's *visible* form submit action, never an undocumented API.
+            if (!rankSearchLinks([...valid, ...suggestions], text, 1).length
+              && new URL(searchPage.url()).pathname === '/') {
+              const submitted = await searchPage.evaluate(() => {
+                const input = document.querySelector('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]')
+                if (!(input instanceof HTMLInputElement)) return false
+                const form = input.closest('form')
+                const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
+                  || input.parentElement?.parentElement?.querySelector<HTMLButtonElement>('button[aria-label*="Поиск"], button[title*="Поиск"]')
+                if (button) { button.click(); return true }
+                if (form) { form.requestSubmit(); return true }
+                return false
+              })
+              if (submitted) {
+                searchMode = 'form-submit'
+                await searchPage.waitForTimeout(1_200)
+                await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 5_000 }).catch(() => undefined)
+                valid = await readLinks()
+              }
             }
-            urls = rankSearchLinks(valid, text, limit)
+            if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
+            const combined = [...valid, ...suggestions]
+            if (trace) {
+              trace.linksFound = new Set(combined.map(link => link.url)).size
+              trace.pageUrl = searchPage.url()
+              trace.searchMode = valid.length ? searchMode : suggestions.length ? 'suggestions' : searchMode
+            }
+            urls = rankSearchLinks(combined, text, limit)
             if (!urls.length && new URL(searchPage.url()).pathname === '/') {
-              throw new Error('Поиск 05.ru остался на главной странице после Enter и не открыл выдачу. ' +
-                'Возможно, изменился интерфейс сайта. Это не означает, что товара нет.')
+              throw new Error('05.ru не отдал карточки через подсказки, Enter и отправку формы поиска. ' +
+                'Возможно, изменился интерфейс сайта или доступ ограничен. Это не означает, что товара нет.')
             }
           } finally {
             await searchPage.close()

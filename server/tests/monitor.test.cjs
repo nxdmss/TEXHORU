@@ -87,7 +87,11 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
   }))
   const candidates = [...noise, { url: target, title: 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный' }]
   assert.equal(rankSearchLinks(candidates, 'xiaomi 15t pro 512', 8)[0], target)
-  assert.equal(rankSearchLinks([...candidates, candidates.at(-1)], 'xiaomi 15t pro', 20).length, 16)
+  assert.equal(rankSearchLinks([...candidates, candidates.at(-1)], 'xiaomi 15t pro', 20).length, 1)
+  assert.deepEqual(rankSearchLinks([
+    { url: 'https://05.ru/cat/x/p/chehol-dlya-iphone-17-pro-256-123/', title: 'Чехол iPhone 17 Pro 256' },
+    { url: 'https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/', title: 'Смартфон Apple iPhone 17 Pro 256 Гб оранжевый' },
+  ], 'iphone 17 pro 256', 10), ['https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/'])
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
@@ -458,14 +462,17 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
   const parser = new FiveRuParser()
   let launches = 0, closings = 0, contexts = 0, active = 0, maxActive = 0, cardOpens = 0
   const links = Array.from({ length: 7 }, (_, i) => 'https://05.ru/cat/mc/p/iphone-variant-' + (i+1) + '/')
+  let hideOnEnter = false, submitAddsCard = false, submitClicks = 0
+  const iphoneUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-e-sim-bez-rustore-24007/'
   const fakeSearchPage = {
     goto: async () => ({ status: () => 200 }),
     locator: selector => selector.startsWith('input')
-      ? { first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => {} }) }
+      ? { first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => { if (hideOnEnter) links.length = 0 } }) }
       : { first: () => ({ waitFor: async () => {} }),
           evaluateAll: async () => links },
     waitForTimeout: async () => {},
     url: () => 'https://05.ru/search/',
+    evaluate: async () => { submitClicks++; if (submitAddsCard) links.push(iphoneUrl); return submitAddsCard },
     close: async () => {},
   }
   parser.browser = async () => {
@@ -515,7 +522,27 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     links.length = 0
     fakeSearchPage.url = () => 'https://05.ru/'
     await assert.rejects(() => parser.searchProducts('iphone 17 pro 512', 7),
-      /не открыл выдачу/)
+      /не отдал карточки/)
+    assert.equal(submitClicks, 1)
+
+    // Autocomplete can contain the product and disappear as soon as Enter is pressed.
+    parser.snapshot = async () => fixture.snapshot
+    links.push(iphoneUrl)
+    hideOnEnter = true
+    const suggestedTrace = {}
+    const suggestionResult = await parser.searchProducts('iphone 17 pro 256', 7, suggestedTrace)
+    assert.equal(suggestionResult.length, 1)
+    assert.equal(suggestedTrace.searchMode, 'suggestions')
+    assert.equal(submitClicks, 1)
+
+    // Clicking the site's own search form should be attempted when Enter does nothing.
+    hideOnEnter = false
+    submitAddsCard = true
+    const formTrace = {}
+    const formResult = await parser.searchProducts('Apple iPhone 17 Pro 256', 7, formTrace)
+    assert.equal(formResult.length, 1)
+    assert.equal(formTrace.searchMode, 'form-submit')
+    assert.equal(submitClicks, 2)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
 })

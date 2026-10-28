@@ -22,14 +22,20 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
         .replace(/-\d+\/?$/, '').replace(/[-_]/g, ' ')
     } catch { /* Reject malformed URLs at the caller's 05.ru URL validator. */ }
     const title = candidate.title || slug
-    const parsed = identity({ name: title + ' ' + slug })
-    const words = new Set(normalize(title + ' ' + slug).split(' '))
+    const combined = normalize(title + ' ' + slug)
+    const parsed = identity({ name: combined })
+    // Do not spend the limited card-read budget on unrelated models or phone accessories.
+    if (requested.model && parsed.model !== requested.model) return null
+    if (requested.model && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)
+      && !/(?:^|\s)(?:чехол|стекло|пленка|case|cover)(?=\s|$)/.test(normalize(query))) return null
+    const words = new Set(combined.split(' '))
     let score = 0
     if (requested.model && parsed.model) score += requested.model === parsed.model ? 100 : -100
     if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 35 : -35
     if (requested.color && parsed.color) score += requested.color === parsed.color ? 20 : -20
     for (const word of queryWords) if (words.has(word)) score += 5
     return { ...candidate, score }
-  }).sort((a, b) => b.score - a.score || a.index - b.index)
+  }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, Math.max(0, limit)).map(candidate => candidate.url)
 }
