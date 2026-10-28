@@ -421,6 +421,11 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     assert.equal(other.length, 7)
     assert.equal(launches, 1) // other products use the same browser
     assert.equal(contexts, 2) // but a separate isolated context
+    parser.snapshot = async () => ({ ...fixture.snapshot, h1: '', scripts: [], metaPrice: null, domPrice: null })
+    const failedTrace = {}
+    await assert.rejects(() => parser.searchProducts('Broken product', 7, failedTrace), /карточки не прочитаны/)
+    assert.equal(failedTrace.cardsParsed, 0)
+    assert(failedTrace.rejectedCards.length > 0)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
 })
