@@ -22,7 +22,7 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
         .replace(/-\d+\/?$/, '').replace(/[-_]/g, ' ')
     } catch { /* Reject malformed URLs at the caller's 05.ru URL validator. */ }
     const title = candidate.title || slug
-    const parsed = identity({ name: title })
+    const parsed = identity({ name: title + ' ' + slug })
     const words = new Set(normalize(title + ' ' + slug).split(' '))
     let score = 0
     if (requested.model && parsed.model) score += requested.model === parsed.model ? 100 : -100
