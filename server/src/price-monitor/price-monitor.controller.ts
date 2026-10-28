@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
-import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto } from './price-monitor.dto'
 import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
 
@@ -14,6 +14,9 @@ export class PriceMonitorController {
   list() { return this.monitor.list() }
 
   @Post('import-manual-prices') importManualPrices(@Body() dto: ImportManualCompetitorPricesDto) { return this.monitor.importManualPrices(dto) }
+
+  @Post('bulk-price-preview') previewBulkPrices(@Body() dto: BulkPriceScopeDto) { return this.monitor.previewBulkPrices(dto) }
+  @Post('bulk-price-apply') applyBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.applyBulkPrices(dto) }
 
   @Get('jobs') jobs() { return this.monitor.jobs() }
   @Post('scan') scan(@Body() dto: ScanFiveRuDto) { return this.monitor.scan(dto) }

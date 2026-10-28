@@ -30,6 +30,7 @@ export class AutoFindOneCSectionDto {
   @IsOptional() @IsString() @MaxLength(600) categoryPath?: string
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(5000) maxItems?: number
   @IsOptional() @IsBoolean() indexCatalog?: boolean
+  @IsOptional() @IsBoolean() onlyInStockSmartphones?: boolean
 }
 
 // Site-only manual price update, guarded by current values and explicit risk acknowledgements.
@@ -68,4 +69,14 @@ export class ImportManualCompetitorPricesDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500)
   @ValidateNested({ each: true }) @Type(() => ManualCompetitorPriceRowDto)
   rows!: ManualCompetitorPriceRowDto[]
+}
+
+/** Category scope and preview token make a bulk change an explicit, reviewable action. */
+export class BulkPriceScopeDto {
+  @IsOptional() @IsString() @MaxLength(300) categoryPath?: string
+}
+export class BulkApplyPricesDto extends BulkPriceScopeDto {
+  @IsString() @MaxLength(64) token!: string
+  @IsBoolean() acceptUnknownCost!: boolean
+  @IsBoolean() acceptLargeChange!: boolean
 }

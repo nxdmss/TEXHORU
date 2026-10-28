@@ -10,7 +10,9 @@ export class ProductsService {
 
   async list() {
     const rows = await this.prisma.product.findMany({ where: { status: ProductStatus.ACTIVE }, include: { category: true }, orderBy: [{ category: { sortOrder: 'asc' } }, { id: 'asc' }] })
-    return rows.map((item) => {
+    return rows.filter(item => !item.oneCId
+      || !/(?:смартфон|smartphone)/i.test(item.category.name)
+      || item.stockQty > item.reservedQty).map((item) => {
       const available = Math.max(0, item.stockQty - item.reservedQty)
       const stockState = item.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
       return { ...item, stockQty: available, stockState }
@@ -19,7 +21,8 @@ export class ProductsService {
 
   async get(id: number) {
     const product = await this.prisma.product.findFirst({ where: { id, status: ProductStatus.ACTIVE }, include: { category: true } })
-    if (!product) throw new NotFoundException('Товар не найден')
+    if (!product || (product.oneCId && /(?:смартфон|smartphone)/i.test(product.category.name)
+      && product.stockQty <= product.reservedQty)) throw new NotFoundException('Товар не найден')
     const available = Math.max(0, product.stockQty - product.reservedQty)
     const stockState = product.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
     return { ...product, stockQty: available, stockState }

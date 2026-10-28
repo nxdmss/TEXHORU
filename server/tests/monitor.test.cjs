@@ -8,6 +8,7 @@ const { PrismaClient } = require('@prisma/client')
 const { compareItems, identity, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries } = require('../dist/price-monitor/price-monitor.service')
+const { ProductsService } = require('../dist/products/products.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
 const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
@@ -761,4 +762,123 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   assert.equal(direct.queued, size)
   assert.deepEqual(direct.visitedUrls, [])
   assert.equal(await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } }), indexedCount)
+})
+
+
+test('1C smartphones appear on the storefront only with available stock, and batch pricing is confirmed, atomic and fresh', async () => {
+  // Previous test scenarios leave queued jobs; isolate these admin operations.
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
+  const catId = randomUUID(), batch = randomUUID()
+  const categoryPath = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Смартфоны Apple ' + batch
+  const oneCId = 'BULK-ONEC-' + batch, zeroId = 'EMPTY-ONEC-' + batch, unmatchedId = 'UNMATCHED-ONEC-' + batch
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: catId, name: categoryPath, slug: 'stock-test-' + batch }],
+    products: [
+      { oneCId, name: product.name, brand: 'Apple', sku: 'STOCK-' + batch,
+        slug: 'stock-' + batch, categoryOneCId: catId, stockQty: 3, price: 91000, costPrice: 70000 },
+      { oneCId: zeroId, name: 'Apple iPhone 17 Pro Max 256 Гб синий',
+        brand: 'Apple', sku: 'EMPTY-' + batch, slug: 'empty-' + batch,
+        categoryOneCId: catId, stockQty: 0, price: 95000, costPrice: 70000 },
+      { oneCId: unmatchedId, name: 'Apple iPhone 17 Pro 512 Гб белый',
+        brand: 'Apple', sku: 'UNMATCHED-' + batch, slug: 'unmatched-' + batch,
+        categoryOneCId: catId, stockQty: 2, price: 96000, costPrice: 70000 },
+    ],
+  })
+  const site = new ProductsService(prisma, { log: async () => {} })
+  let storefront = await site.list()
+  assert(storefront.some(row => row.oneCId === oneCId))
+  assert(!storefront.some(row => row.oneCId === zeroId))
+  const before = await prisma.product.findUniqueOrThrow({ where: { oneCId } })
+  const link = 'https://05.ru/cat/396f7486/p/smartfon-iphone-17-pro-256-orange-' + batch.replace(/-/g, '') + '/'
+  const parser = { parse: async (url) => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }) }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const observation = await monitor.check({ url: link, productId: before.id })
+  assert.equal(observation.latestPrice, 96990)
+  await monitor.confirm(observation.id, before.id)
+  const scope = { categoryPath }
+  const preview = await monitor.previewBulkPrices(scope)
+  assert.equal(preview.count, 1)
+  assert.equal(preview.totalScope, 2)
+  assert.equal(preview.skipped, 1)
+  assert.equal(preview.items[0].newPrice, 96490)
+  assert.equal(preview.items[0].oldPrice, 91000)
+  await assert.rejects(
+    () => monitor.applyBulkPrices({ ...scope, token: 'incorrect', acceptUnknownCost: false, acceptLargeChange: false }),
+    /Обнови предварительный просмотр/
+  )
+  const applied = await monitor.applyBulkPrices({
+    ...scope, token: preview.token, acceptUnknownCost: false, acceptLargeChange: false,
+  })
+  assert.equal(applied.applied, 1)
+  assert.equal(applied.siteOnly, 1)
+  assert.equal(applied.oneCQueued, 0)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } })).price, 96490)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: zeroId } })).price, 95000)
+  await assert.rejects(() => monitor.applyBulkPrices({
+    ...scope, token: preview.token, acceptUnknownCost: false, acceptLargeChange: false,
+  }), /Обнови предварительный просмотр/)
+  const completedPreview = await monitor.previewBulkPrices(scope)
+  assert.equal(completedPreview.count, 0)
+
+  await prisma.product.update({ where: { id: before.id }, data: { price: 91000 } })
+  await prisma.competitorProduct.update({ where: { id: observation.id },
+    data: { lastSuccessAt: new Date(Date.now() - 48 * 3600_000) } })
+  assert.equal((await monitor.previewBulkPrices(scope)).count, 0)
+  // 1C stock import updates a product by immutable GUID; stock arriving later
+  // activates its existing URL again, without creating duplicates.
+  await integration.importCatalog({
+    categories: [],
+    products: [{ oneCId: zeroId, name: 'Apple iPhone 17 Pro Max 256 Гб синий',
+      brand: 'Apple', sku: 'EMPTY-' + batch, slug: 'empty-' + batch,
+      categoryOneCId: catId, stockQty: 4, price: 95000, costPrice: 70000 }],
+  })
+  storefront = await site.list()
+  assert(storefront.some(row => row.oneCId === zeroId))
+  assert.equal(await prisma.product.count({ where: { oneCId: zeroId } }), 1)
+})
+
+test('In-stock smartphone-only auto matching excludes other 1C categories and zero-stock phone SKUs', async () => {
+  // Previous test scenarios leave queued jobs; isolate these admin operations.
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
+  const base = randomUUID(), catId = randomUUID(), otherId = randomUUID()
+  const categoryName = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / iPhone ' + base
+  const integration = new IntegrationsService(prisma, {})
+  const all = [
+    { oneCId: 'ACTIVE-' + base, sku: 'A-' + base, slug: 'a-' + base,
+      name: 'iPhone 17 Pro 256 Гб оранжевый', brand: 'Apple', categoryOneCId: catId,
+      price: 92000, stockQty: 1 },
+    { oneCId: 'ZERO-' + base, sku: 'Z-' + base, slug: 'z-' + base,
+      name: 'iPhone 17 Pro 512 Гб синий', brand: 'Apple', categoryOneCId: catId,
+      price: 93000, stockQty: 0 },
+    { oneCId: 'CASE-' + base, sku: 'C-' + base, slug: 'c-' + base,
+      name: 'Чехол iPhone 17 Pro', brand: 'Apple', categoryOneCId: otherId,
+      price: 2000, stockQty: 10 },
+  ]
+  await integration.importCatalog({
+    categories: [
+      { oneCId: catId, name: categoryName, slug: 'iph-' + base },
+      { oneCId: otherId, name: 'Аксессуары ' + base, slug: 'accessories-' + base },
+    ], products: all,
+  })
+  const monitor = new PriceMonitorService(prisma, {
+    searchProducts: async () => [], parse: async () => { throw new Error('Not needed') },
+  }, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({
+    categoryPath: '', maxItems: 5000, onlyInStockSmartphones: true,
+  })
+  // Older tests may have imported other 1C smartphones. Scope to this one category
+  // in a separate invocation after cancelling the all-scope job.
+  assert(job.queued >= 1)
+  assert(job.visitedUrls.includes('STOCKED_SMARTPHONES'))
+  await monitor.cancelJob(job.id)
+  const local = await monitor.autoFindOneCSection({
+    categoryPath: categoryName, maxItems: 5000, onlyInStockSmartphones: true,
+  })
+  assert.equal(local.queued, 1)
+  const active = await prisma.product.findUniqueOrThrow({ where: { oneCId: 'ACTIVE-' + base } })
+  assert.deepEqual(local.pendingUrls, ['product:' + active.id])
+  await monitor.cancelJob(local.id)
 })

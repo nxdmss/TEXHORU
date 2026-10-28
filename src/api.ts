@@ -21,6 +21,7 @@ export type ApiProduct = {
   price: number
   oldPrice?: number | null
   stockQty: number
+  reservedQty?: number
   stockState: 'IN_STOCK' | 'LOW' | 'PREORDER' | 'OUT_OF_STOCK'
   status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED'
   badge?: string | null
@@ -198,9 +199,9 @@ export const api = {
   monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
   monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
-  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false) {
+  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false) {
     return request<MonitorJob & { eligible: number; queued: number }>('/admin/price-monitor/auto-find-1c',
-      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog }) })
+      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones }) })
   },
   monitorScan(url: string, maxPages: number) { return request<MonitorJob>('/admin/price-monitor/scan', { method: 'POST', body: JSON.stringify({ url, maxPages }) }) },
   monitorCheckAll() { return request<MonitorJob>('/admin/price-monitor/check-all', { method: 'POST' }) },
@@ -212,6 +213,15 @@ export const api = {
   monitorExport() { return request<{ schemaVersion: number; items: Array<Record<string, unknown>> }>('/admin/price-monitor/export-1c') },
   monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
   adminImportOneC(data: unknown) { return request('/admin/integrations/1c/catalog', { method: 'POST', body: JSON.stringify(data) }) },
+  monitorBulkPreview(categoryPath: string) {
+    return request<{ token: string; count: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
+      items: Array<{ id: string; productId: number; productName: string; oldPrice: number; competitorPrice: number; newPrice: number }> }>(
+      '/admin/price-monitor/bulk-price-preview', { method: 'POST', body: JSON.stringify({ categoryPath }) })
+  },
+  monitorBulkApply(input: { categoryPath: string; token: string; acceptUnknownCost: boolean; acceptLargeChange: boolean }) {
+    return request<{ ok: boolean; applied: number; skipped: number; oneCQueued: number; siteOnly: number }>(
+      '/admin/price-monitor/bulk-price-apply', { method: 'POST', body: JSON.stringify(input) })
+  },
   adminPriceMonitor() { return request<PriceMonitorItem[]>('/admin/price-monitor') },
   adminCheckCompetitorPrice(input: { url: string; productId?: number }) { return request<PriceMonitorItem>('/admin/price-monitor/check', { method: 'POST', body: JSON.stringify(input) }) },
   adminImportFiveRuCatalog(input: { url: string; limit?: number }) { return request<FiveRuImportResult>('/admin/price-monitor/import-05ru', { method: 'POST', body: JSON.stringify(input) }) },
