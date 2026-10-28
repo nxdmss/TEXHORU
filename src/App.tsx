@@ -3,7 +3,7 @@ import { inCatalogSection } from './catalog-groups'
 import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { AdminCategoryTree } from './AdminCategoryTree'
-import { storefrontPath, featuredIphones, featuredPhoneImage } from './catalog-navigation'
+import { storefrontPath, featuredIphones, featuredPhoneImage, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 import { activeOrders, orderHistory, products as fallbackProducts } from './data'
@@ -628,7 +628,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </aside>
 
       <div className="admin-catalog-workspace" key={adminPath || 'all'}>
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? adminPath.split(' / ').at(-1) : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
         {adminPath && <nav className="admin-category-context" aria-label="Путь категории">
           <button type="button" onClick={() => {setAdminSection('');setProductSearch('')}}>Все разделы</button>
           {categorySegments(adminPath).map((part,index,parts) => <span key={index}><span aria-hidden="true">/</span>
@@ -647,13 +647,13 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         {!productSearch.trim() && adminFolders.length > 0 &&
           <div className="admin-folder-cards">{adminFolders.map(child =>
             <button key={child.path} className="admin-folder-card" onClick={() => { setAdminCategory('ALL'); setAdminSection(categorySelection(child.path)) }}>
-              <b>▣ {child.title}</b>
+              <b>▣ {browseLabel(child.title)}</b>
               <span>{products.filter(p => (showDuplicateRows || !p.duplicateOf) && (storefrontPath(p.category?.name || '', p.name) === child.path || storefrontPath(p.category?.name || '', p.name).startsWith(child.path + ' / '))).length} товаров</span>
             </button>)}
           </div>}
         {<>{(productGroups.length > 0 || productSearch.trim()) && <div className="catalog-result-count">{productGroups.reduce((n, g) => n + g.items.length, 0)} товаров · показано до {adminLimit}</div>}
         <div className="admin-product-groups">{productGroups.filter((_, i) => productGroups.slice(0, i).reduce((n, g) => n + g.items.length, 0) < adminLimit).map((group) => <section className="admin-product-group" key={group.category.id}>
-          <div className="admin-product-group__head"><div><h3>{adminPath.split(' / ').at(-1) || group.category.name.split(' / ').at(-1)}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
+          <div className="admin-product-group__head"><div><h3>{browseLabel(adminPath.split(' / ').at(-1) || group.category.name.split(' / ').at(-1) || '')}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
           {group.items.length ? <div className="admin-product-grid">{group.items.slice(0, Math.max(0, adminLimit - productGroups.slice(0, productGroups.indexOf(group)).reduce((n, g) => n + g.items.length, 0))).map((item) => <article className={item.status === 'ARCHIVED' ? 'admin-product-tile is-archived' : 'admin-product-tile'} key={item.id}>
             <button className="admin-product-tile__main" onClick={() => openEditProduct(item)}>
               <div className="admin-product-tile__image"><img src={/iphone\s*\d+/i.test(item.name) ? featuredPhoneImage(item.name,item.image) : (item.image || '/products/phone.svg')} alt="" onError={(e) => { e.currentTarget.src = '/products/phone.svg' }} />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
@@ -899,7 +899,7 @@ function App() {
     </section>}
     <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id="catalog">
       <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
-        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные iPhone' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
+        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
       </div></div>
       <CatalogSections hierarchical items={catalogProducts.map(p => ({ name:p.name, categoryName:storefrontPath(p.category,p.name) }))}
         selection={storeSection} searching={Boolean(query.trim())}
