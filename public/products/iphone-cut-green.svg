@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="680" viewBox="0 0 620 680" role="img" aria-label="Смартфон iPhone, green, вид спереди и сзади">
+<defs>
+<linearGradient id="shell" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#c9e0b2"/><stop offset=".48" stop-color="#7f9b74"/><stop offset="1" stop-color="#56775d"/></linearGradient>
+<linearGradient id="rim" x1="0" x2="1"><stop stop-color="#c9e0b2"/><stop offset=".16" stop-color="#7f9b74"/><stop offset=".92" stop-color="#56775d"/><stop offset="1" stop-color="#c9e0b2"/></linearGradient>
+<linearGradient id="glass" x1="0" x2=".9" y1=".9" y2="0"><stop stop-color="#152723"/><stop offset=".5" stop-color="#080a0f"/><stop offset="1" stop-color="#152723"/></linearGradient>
+<radialGradient id="lens"><stop stop-color="#254559"/><stop offset=".34" stop-color="#10151e"/><stop offset=".63" stop-color="#060a10"/><stop offset=".82" stop-color="#2d3540"/><stop offset="1" stop-color="#070b0e"/></radialGradient>
+<linearGradient id="screenArt" x1="0" x2="1" y1="1" y2="0"><stop stop-color="#9eae88"/><stop offset=".42" stop-color="#09090e"/><stop offset=".83" stop-color="#7f9b74"/><stop offset="1" stop-color="#09090d"/></linearGradient>
+<filter id="shadow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="14"/></filter>
+<filter id="innerGlow"><feGaussianBlur stdDeviation="2.2"/></filter>
+<clipPath id="screenClip"><rect x="280" y="78" width="244" height="512" rx="31"/></clipPath>
+</defs>
+<ellipse cx="316" cy="625" rx="204" ry="17" fill="#000" opacity=".17" filter="url(#shadow)"/>
+<rect x="264" y="65" width="274" height="538" rx="46" fill="#141219" stroke="#7f9b74" stroke-width="10"/>
+<rect x="278" y="77" width="246" height="514" rx="31" fill="url(#glass)"/>
+<g clip-path="url(#screenClip)">
+<rect x="278" y="78" width="246" height="512" fill="url(#screenArt)"/>
+<path d="M332 89 C470 105 540 125 493 219 C450 303 308 276 318 360 C330 452 524 396 538 522" fill="none" stroke="#9eae88" stroke-width="35" opacity=".85" filter="url(#innerGlow)"/>
+<path d="M322 106 C445 118 521 142 483 216 C436 288 308 281 324 360 C341 444 514 403 533 515" fill="none" stroke="#f8e9cf" stroke-width="3.6" opacity=".85"/>
+<path d="M543 115 C430 140 404 213 477 268 C525 305 537 347 444 376 C346 415 374 523 447 584" fill="none" stroke="#c9e0b2" stroke-width="28" opacity=".7"/>
+</g>
+<rect x="359" y="90" width="91" height="26" rx="13" fill="#07070a"/><circle cx="437" cy="103" r="5" fill="#1a1b25"/>
+<rect x="88" y="54" width="286" height="555" rx="46" fill="url(#rim)" stroke="#56775d" stroke-width="3"/>
+<rect x="96" y="62" width="270" height="539" rx="40" fill="url(#shell)"/>
+<path d="M103 140 L103 542 Q105 589 149 594" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="4"/>
+<rect x="105" y="80" width="162" height="164" rx="34" fill="#56775d" opacity=".4"/>
+<rect x="109" y="83" width="159" height="158" rx="32" fill="url(#shell)" stroke="#c9e0b2" stroke-width="3"/>
+<g>
+<circle cx="152" cy="127" r="29" fill="#7f9b74" stroke="#c9e0b2" stroke-width="5"/><circle cx="152" cy="127" r="23" fill="#101319"/><circle cx="152" cy="127" r="18" fill="url(#lens)"/><circle cx="143" cy="118" r="5" fill="#9dc7d4" opacity=".32"/>
+<circle cx="228" cy="174" r="29" fill="#7f9b74" stroke="#c9e0b2" stroke-width="5"/><circle cx="228" cy="174" r="23" fill="#101319"/><circle cx="228" cy="174" r="18" fill="url(#lens)"/><circle cx="219" cy="165" r="5" fill="#9dc7d4" opacity=".32"/>
+<circle cx="152" cy="207" r="29" fill="#7f9b74" stroke="#c9e0b2" stroke-width="5"/><circle cx="152" cy="207" r="23" fill="#101319"/><circle cx="152" cy="207" r="18" fill="url(#lens)"/><circle cx="143" cy="198" r="5" fill="#9dc7d4" opacity=".32"/>
+<circle cx="225" cy="115" r="11" fill="#fff1db" stroke="#7f9b74" stroke-width="3"/><circle cx="225" cy="209" r="8" fill="#101318"/>
+</g>
+<path d="M220 334 C216 326 217 316 226 309 C220 306 215 300 214 294 C223 295 234 301 238 308 C245 300 256 299 265 302 C253 309 246 319 249 334 C250 348 264 350 264 350 C259 367 250 373 242 371 C236 369 233 370 227 371 C215 375 206 352 209 338 C210 333 215 329 220 334Z" fill="#56775d" opacity=".19"/>
+<path d="M102 268 L102 558" stroke="#fff" stroke-opacity=".15" stroke-width="2"/>
+<rect x="366" y="225" width="5" height="62" rx="2" fill="#56775d" opacity=".8"/>
+</svg>
