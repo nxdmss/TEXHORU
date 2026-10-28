@@ -1,4 +1,5 @@
 import { CatalogSections } from './CatalogSections'
+import { oneCPriceTemplate, parseManualPriceCsv } from './competitor-price-list'
 import { inCatalogSection } from './catalog-groups'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, type ApiProduct, type MatchCandidate, type MonitorDelivery, type MonitorJob, type PriceMonitorItem } from './api'
@@ -124,7 +125,28 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       const value = JSON.parse((await file.text()).replace(/^\uFEFF/, ''))
       if (mode === 'catalog') { await api.adminImportOneC(value); await onCatalogImported() }
       else await api.monitorReceipts(value)
-    }, mode === 'catalog' ? 'Каталог из 1С загружен. Теперь можно искать совпадения на 05.ru.' : 'Подтверждения 1С приняты.')
+    }, mode === 'catalog' ? 'Каталог 1С загружен. Скачай шаблон CSV, заполни цены и импортируй их без поиска 05.ru.' : 'Подтверждения 1С приняты.')
+  }
+
+  async function uploadManualPrices(file: File | undefined) {
+    if (!file) return
+    await action('manual-prices', async () => {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      let content: string
+      try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+      catch { content = new TextDecoder('windows-1251').decode(bytes) }
+      const rows = parseManualPriceCsv(content)
+      const result = await api.importManualCompetitorPrices(rows)
+      setNotice(`Импортировано ${result.imported} строк, новых ${result.created}, обновлено ${result.updated}, связано с 1С: ${result.associated}. Цены НЕ проверены на 05.ru; цены 1С и магазина не изменены.`)
+    })
+  }
+  function downloadTemplate() {
+    const contents = oneCPriceTemplate(products.filter(p => p.oneCId && p.status === 'ACTIVE'))
+    const blob = new Blob([contents], { type: 'text/csv;charset=utf-8' })
+    const address = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = address; anchor.download = 'texhoru-prices-template.csv'; anchor.click()
+    URL.revokeObjectURL(address)
   }
   const visible = items.filter(item => inCatalogSection({ name: item.externalName || '', categoryName: item.product?.category?.name }, section) && (filter === 'ALL' || (filter === 'ERROR' ? Boolean(item.lastError) : filter === 'REVIEW' ? item.matchStatus !== 'CONFIRMED' : item.matchStatus === filter)) && `${item.externalName} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase()))
   const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.stockQty > 0 && p.status === 'ACTIVE')
@@ -156,6 +178,19 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       {!jobs.length && <p className="monitor-v2__muted">Задач ещё нет. Начни с одной карточки или одной страницы.</p>}
       <details className="monitor-settings-details"><summary>История проверок</summary>{jobs.slice(0, 5).map(job => <article className="monitor-v2__job" key={job.id}><div><b>{job.kind === 'CATALOG' ? 'Сбор раздела' : 'Обновление цен'} · {status[job.status]}</b><small>{date(job.createdAt)} · карточек проверено: {job.processed} · ошибок: {job.errors}{job.kind === 'CATALOG' ? ` · страниц: ${job.page}/${job.maxPages}` : ''}</small>{job.lastError && <details><summary>Ошибка прошлой задачи — {date(job.createdAt)}</summary><p>{friendlyError(job.lastError)}</p></details>}{job.status === 'COMPLETED' && job.url && <small>Достигнут лимит страниц. Для продолжения используй <a href={job.url} target="_blank" rel="noreferrer">следующую страницу раздела</a>.</small>}</div>{['QUEUED', 'RUNNING'].includes(job.status) ? <button disabled={Boolean(busy)} onClick={() => void action(job.id, () => api.monitorJobAction(job.id, 'cancel'))}>Остановить</button> : ['FAILED', 'CANCELLED'].includes(job.status) ? <button disabled={Boolean(busy)} onClick={() => void action(job.id, () => api.monitorJobAction(job.id, 'retry'))}>Продолжить</button> : null}</article>)}
       </details>
+    </section>}
+    {view === 'prices' && <section className="monitor-v2__section" aria-label="Подключить свой бизнес">
+      <div className="monitor-v2__section-head"><div>
+        <p className="eyebrow">МОЙ БИЗНЕС</p>
+        <h3>Подключить товары 1С и цены конкурента</h3>
+        <p>Сначала загрузи каталог из 1С в JSON или используй настроенный прямой обмен. Потом заполни шаблон прайса в Excel: ссылка на товар 05.ru, цена, дата наблюдения. Неработающий поиск 05.ru не нужен.</p>
+      </div></div>
+      <div className="monitor-v2__files">
+        <label>1. Каталог из 1С (.json)<input type="file" accept=".json" disabled={Boolean(busy) || activeJob} onChange={e => { void upload(e.target.files?.[0], 'catalog'); e.target.value = '' }} /></label>
+        <button disabled={!products.some(p => p.oneCId)} onClick={downloadTemplate}>2. Скачать шаблон CSV для Excel</button>
+        <label>3. Заполненный прайс (.csv / .tsv)<input type="file" accept=".csv,.tsv,.txt" disabled={Boolean(busy) || activeJob} onChange={e => { void uploadManualPrices(e.target.files?.[0]); e.target.value = '' }} /></label>
+      </div>
+      <p className="monitor-v2__muted">Товаров с ID 1С: {products.filter(p => p.oneCId).length}. Цена из файла будет помечена как неподтверждённая и не попадёт в автоматическое изменение цен или очередь 1С. Если источник даёт официальный API или прайс-фид, его можно подключить отдельно.</p>
     </section>}
     {view === 'prices' && <section className="monitor-v2__section" aria-label="Автоматическое сопоставление 1С и 05.ru">
       <div className="monitor-v2__section-head"><div>
@@ -202,8 +237,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       {visible.slice(0, limit).map(item => {
         const candidate = candidates.find(c => c.product.id === Number(selected))
         return <article className="monitor-v2__product" key={item.id}>
-          <div className="monitor-v2__product-row"><div><span className={`monitor-v2__tag ${item.matchStatus === 'CONFIRMED' ? 'is-ok' : ''}`}>{status[item.matchStatus]}</span><h4>{(item.externalName || 'Карточка без результата').replace(/^Фотография товара\s*/i, '')}</h4><a href={item.externalUrl} target="_blank" rel="noreferrer">Открыть на 05.ru ↗</a><small>{item.lastSuccessAt ? `Проверено: ${date(item.lastSuccessAt)}` : 'Цена ещё не проверена'}</small></div><div><span>05.ru</span><strong>{item.latestPrice ? `${money.format(item.latestPrice)} ₽` : '—'}</strong><small>{item.inStock === true ? 'В наличии' : item.inStock === false ? 'Нет в наличии / под заказ' : 'Наличие неизвестно'}</small></div><div><span>Наш товар</span><b>{item.product?.name || 'Не сопоставлен'}</b><small>{item.product ? `${money.format(item.product.price)} ₽` : 'Нажми «Выбрать мой товар»'}</small></div><button disabled={Boolean(busy)} onClick={() => void openMatch(item)}>{opened === item.id ? 'Закрыть' : item.matchStatus === 'CONFIRMED' ? 'Подробнее' : 'Выбрать мой товар'}</button></div>
-          <div className="monitor-price-summary"><span>{item.lastError ? 'Не удалось обновить цену' : !item.lastSuccessAt ? 'Нужна первая проверка' : 'Цена проверена'}</span><span>{item.recommendedPrice ? `Рекомендация: ${money.format(item.recommendedPrice)} ₽` : item.matchStatus === 'CONFIRMED' && item.latestPrice && item.latestPrice > 500 ? `Расчётная цена: ${money.format(item.latestPrice - 500)} ₽ (проверь себестоимость)` : 'Рекомендация пока недоступна'}</span></div>{item.matchStatus === 'CONFIRMED' && item.product && item.latestPrice && item.latestPrice > 500
+          <div className="monitor-v2__product-row"><div><span className={`monitor-v2__tag ${item.matchStatus === 'CONFIRMED' ? 'is-ok' : ''}`}>{status[item.matchStatus]}</span><h4>{(item.externalName || 'Карточка без результата').replace(/^Фотография товара\s*/i, '')}</h4><a href={item.externalUrl} target="_blank" rel="noreferrer">Открыть на 05.ru ↗</a><small>{item.priceSource === 'USER_FILE' ? `Из файла: ${date(item.lastCheckedAt)} · не проверено на 05.ru` : item.lastSuccessAt ? `Проверено: ${date(item.lastSuccessAt)}` : 'Цена ещё не проверена'}</small></div><div><span>05.ru</span><strong>{item.latestPrice ? `${money.format(item.latestPrice)} ₽` : '—'}</strong><small>{item.inStock === true ? 'В наличии' : item.inStock === false ? 'Нет в наличии / под заказ' : 'Наличие неизвестно'}</small></div><div><span>Наш товар</span><b>{item.product?.name || 'Не сопоставлен'}</b><small>{item.product ? `${money.format(item.product.price)} ₽` : 'Нажми «Выбрать мой товар»'}</small></div><button disabled={Boolean(busy)} onClick={() => void openMatch(item)}>{opened === item.id ? 'Закрыть' : item.matchStatus === 'CONFIRMED' ? 'Подробнее' : 'Выбрать мой товар'}</button></div>
+          <div className="monitor-price-summary"><span>{item.priceSource === 'USER_FILE' ? 'Цена из CSV · не подтверждена 05.ru' : item.lastError ? 'Не удалось обновить цену' : !item.lastSuccessAt ? 'Нужна первая проверка' : 'Цена проверена'}</span><span>{item.recommendedPrice ? `Рекомендация: ${money.format(item.recommendedPrice)} ₽` : item.priceSource !== 'USER_FILE' && item.matchStatus === 'CONFIRMED' && item.latestPrice && item.latestPrice > 500 ? `Расчётная цена: ${money.format(item.latestPrice - 500)} ₽ (проверь себестоимость)` : 'Рекомендация пока недоступна'}</span></div>{item.matchStatus === 'CONFIRMED' && item.product && item.latestPrice && item.latestPrice > 500
             && item.inStock === true && !item.lastError && item.lastSuccessAt
             && Date.now() - new Date(item.lastSuccessAt).getTime() <= 24 * 3600_000
             ? <div className="monitor-v2__actions"><button disabled={Boolean(busy) || activeJob} onClick={() => void applySitePrice(item)}>

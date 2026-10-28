@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer'
-import { IsArray, ArrayMaxSize, IsBoolean, IsInt, IsOptional, IsUrl, Max, Min, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { IsArray, ArrayMaxSize, IsBoolean, IsInt, IsOptional, IsUrl, Max, Min, IsString, MaxLength, ValidateNested, IsISO8601, ArrayMinSize } from 'class-validator'
 
 export class IdentityDto {
   @IsOptional() @IsString() @MaxLength(100) brand?: string
@@ -52,4 +52,19 @@ export class MonitorReceiptDto {
 }
 export class MonitorReceiptsDto {
   @IsArray() @ArrayMaxSize(1000) @ValidateNested({ each: true }) @Type(() => MonitorReceiptDto) items!: MonitorReceiptDto[]
+}
+
+/** Manually supplied observations; never presented as verified website prices. */
+export class ManualCompetitorPriceRowDto {
+  @IsUrl({ protocols: ['https'], require_protocol: true }) url!: string
+  @IsString() @MaxLength(300) name!: string
+  @Type(() => Number) @IsInt() @Min(1) @Max(5000000) price!: number
+  @IsISO8601({ strict: true }) observedAt!: string
+  @IsOptional() @IsString() @MaxLength(100) oneCId?: string
+  @IsOptional() @IsBoolean() inStock?: boolean
+}
+export class ImportManualCompetitorPricesDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500)
+  @ValidateNested({ each: true }) @Type(() => ManualCompetitorPriceRowDto)
+  rows!: ManualCompetitorPriceRowDto[]
 }

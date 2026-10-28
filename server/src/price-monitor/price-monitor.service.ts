@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
 import { compareItems, fingerprint, identity, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
@@ -176,6 +176,116 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const source = await this.source()
     await this.save(fresh, source.id, product.id)
     return true
+  }
+
+  /**
+   * A real business can import its own supplier/monitoring price file without
+   * depending on 05.ru navigation. Imported prices are NOT verified 05.ru
+   * observations and must never enter automatic price changes or 1C deliveries.
+   * All rows are checked before any change is committed.
+   */
+  async importManualPrices(dto: ImportManualCompetitorPricesDto) {
+    if (this.parsing || await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+      throw new ConflictException('Мониторинг занят. Повтори импорт после окончания задания.')
+    }
+    if (!dto.rows?.length || dto.rows.length > 500) throw new BadRequestException('Нужно передать от 1 до 500 строк прайса.')
+    const now = Date.now()
+    const seenUrls = new Set<string>()
+    const seenOneC = new Set<string>()
+    const entries = dto.rows.map((row, index) => {
+      const line = index + 2
+      const url = fiveRuUrl(row.url, 'product')
+      const name = row.name.trim()
+      const observedAt = new Date(row.observedAt)
+      const oneCId = row.oneCId?.trim() || undefined
+      if (!name || name.length > 300) throw new BadRequestException('Строка ' + line + ': название товара обязательно.')
+      if (!Number.isSafeInteger(row.price) || row.price < 1 || row.price > 5_000_000) throw new BadRequestException('Строка ' + line + ': цена должна быть целым числом рублей.')
+      if (!Number.isFinite(observedAt.getTime()) || observedAt.getTime() > now + 5 * 60_000 || observedAt.getTime() < now - 30 * 86400_000) {
+        throw new BadRequestException('Строка ' + line + ': дата прайса должна быть за последние 30 дней, не из будущего.')
+      }
+      if (seenUrls.has(url)) throw new BadRequestException('Повторная ссылка в файле: ' + url)
+      seenUrls.add(url)
+      if (oneCId) {
+        if (seenOneC.has(oneCId)) throw new BadRequestException('Один товар 1С повторяется в файле: ' + oneCId)
+        seenOneC.add(oneCId)
+      }
+      return { url, name, price: row.price, observedAt, oneCId, inStock: row.inStock ?? null, line }
+    })
+    const source = await this.source()
+    return this.prisma.$transaction(async tx => {
+      let created = 0, updated = 0, associated = 0
+      for (const entry of entries) {
+        const old = await tx.competitorProduct.findUnique({ where: { externalUrl: entry.url }, include: { product: true } })
+        if (old && old.sourceId !== source.id) throw new BadRequestException('Ссылка уже относится к другому источнику: ' + entry.url)
+        const product = entry.oneCId ? await tx.product.findUnique({ where: { oneCId: entry.oneCId } }) : old?.product
+        if (entry.oneCId && (!product || product.status !== 'ACTIVE')) throw new BadRequestException('Строка ' + entry.line + ': товар 1С не найден или неактивен: ' + entry.oneCId)
+        if (old?.productId && entry.oneCId && old.productId !== product?.id) {
+          throw new BadRequestException('Строка ' + entry.line + ': карточка уже связана с другим товаром 1С.')
+        }
+        if (product) {
+          const match = compareItems(product, { name: entry.name })
+          // The file can contain an incorrect URL paired with a copied 1C name.
+          // Compare model/storage encoded in the 05.ru slug too, when parseable.
+          const slug = decodeURIComponent(new URL(entry.url).pathname.split('/p/')[1] || '').replace(/-\d+\/$/, '').replace(/-/g, ' ')
+          const slugVariant = identity({ name: slug })
+          if ((slugVariant.model && slugVariant.model !== match.ours.model)
+            || (slugVariant.storage && match.ours.storage && slugVariant.storage !== match.ours.storage)
+            || (slugVariant.color && match.ours.color && slugVariant.color !== match.ours.color)) {
+            throw new BadRequestException('Строка ' + entry.line + ': ссылка 05.ru указывает на другую модель, память или цвет.')
+          }
+          // Require the relevant variant information, not just overlapping words.
+          if (!match.ours.model || !match.theirs.model || match.ours.model !== match.theirs.model
+            || (match.ours.storage && match.ours.storage !== match.theirs.storage)
+            || (match.ours.color && match.ours.color !== match.theirs.color)
+            || match.conflicts.length) {
+            throw new BadRequestException('Строка ' + entry.line + ': модель, память или цвет не совпадают с товаром 1С «' + product.name + '».')
+          }
+        }
+        if (old?.lastCheckedAt && old.lastCheckedAt.getTime() > entry.observedAt.getTime()) {
+          throw new BadRequestException('Строка ' + entry.line + ': в TEXHORU уже есть более свежая проверка этой карточки.')
+        }
+        if (old?.matchStatus === 'CONFIRMED' && fingerprint({ name: entry.name }) !== fingerprint({ name: old.externalName || '' })) {
+          // Never erase an existing verified confirmed identity with untrusted text.
+          const original = identity({ name: old.externalName || '' })
+          const incoming = identity({ name: entry.name })
+          if (original.model !== incoming.model || original.storage !== incoming.storage || original.color !== incoming.color) {
+            throw new BadRequestException('Строка ' + entry.line + ': импорт противоречит ранее подтверждённой карточке.')
+          }
+        }
+        // USER_FILE is intentionally distinguishable from a verified 05.ru price.
+        // lastSuccessAt=null and lastError prevent applying prices or queueing 1C updates.
+        const data = {
+          sourceId: source.id, externalName: entry.name, latestPrice: entry.price,
+          inStock: entry.inStock, priceSource: 'USER_FILE',
+          lastCheckedAt: entry.observedAt, lastSuccessAt: null,
+          lastError: 'Цена из импортированного файла, не проверена на 05.ru.',
+          ...(!old && product ? { productId: product.id, matchStatus: 'SUGGESTED' } : {}),
+        }
+        const record = await tx.competitorProduct.upsert({
+          where: { externalUrl: entry.url },
+          create: { externalUrl: entry.url, ...data },
+          update: data,
+        })
+        if (old) updated++; else created++
+        if (product) associated++
+        await tx.monitorDelivery.updateMany({
+          where: { linkId: record.id, status: 'PENDING' },
+          data: { status: 'CANCELLED', lastError: 'Наблюдение заменено импортом из файла, источник не проверен' },
+        })
+        // Do not fabricate a website verification time: this is the date from the file.
+        const duplicate = await tx.competitorPriceHistory.findFirst({
+          where: { competitorProductId: record.id, checkedAt: entry.observedAt, price: entry.price, inStock: entry.inStock },
+        })
+        if (!duplicate) await tx.competitorPriceHistory.create({
+          data: { competitorProductId: record.id, price: entry.price, inStock: entry.inStock, checkedAt: entry.observedAt },
+        })
+      }
+      await tx.auditLog.create({
+        data: { action: 'IMPORT_MANUAL_COMPETITOR_PRICES', entity: 'CompetitorSource', entityId: source.id,
+          details: { created, updated, associated, rows: entries.length, verifiedOn05Ru: false } },
+      })
+      return { ok: true, created, updated, associated, imported: entries.length, verifiedOn05Ru: false }
+    })
   }
 
   // Explicitly approved price change. Only the ten opt-in 1C products enter the outbound queue.
