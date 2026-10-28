@@ -185,7 +185,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
    * All rows are checked before any change is committed.
    */
   async importManualPrices(dto: ImportManualCompetitorPricesDto) {
-    if (this.working || this.parsing) throw new ConflictException('Мониторинг занят. Повтори импорт после окончания задания.')
+    if (this.parsing || await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+      throw new ConflictException('Мониторинг занят. Повтори импорт после окончания задания.')
+    }
     if (!dto.rows?.length || dto.rows.length > 500) throw new BadRequestException('Нужно передать от 1 до 500 строк прайса.')
     const now = Date.now()
     const seenUrls = new Set<string>()
