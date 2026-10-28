@@ -189,6 +189,10 @@ export const api = {
   syncLogs() { return request<any[]>('/admin/integrations/1c/logs') },
   priceSyncStatus() { return request<OneCPriceSyncStatus>('/admin/integrations/1c/price-sync') },
   auditLogs() { return request<any[]>('/admin/audit') },
+  importManualCompetitorPrices(rows: Array<{ oneCId?: string; url: string; name: string; price: number; observedAt: string; inStock?: boolean }>) {
+    return request<{ ok: boolean; imported: number; created: number; updated: number; associated: number; verifiedOn05Ru: false }>(
+      '/admin/price-monitor/import-manual-prices', { method: 'POST', body: JSON.stringify({ rows }) })
+  },
   monitorCandidates(id: string) { return request<MatchCandidate[]>(`/admin/price-monitor/${id}/candidates`) },
   monitorConfirm(id: string, productId: number) { return request<PriceMonitorItem>(`/admin/price-monitor/${id}/confirm`, { method: 'POST', body: JSON.stringify({ productId }) }) },
   monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
