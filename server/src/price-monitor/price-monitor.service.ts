@@ -377,6 +377,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       include: { source: true, product: { include: { category: true } } },
       take: 10000,
     })
+    const stockProducts = await db.product.findMany({
+      where: { oneCId: { not: null }, status: ProductStatus.ACTIVE, stockQty: { gt: 0 } },
+      select: { stockQty: true, reservedQty: true, category: { select: { name: true } } },
+    })
+    const totalScope = stockProducts.filter(product =>
+      product.stockQty > product.reservedQty
+      && /(?:смартфон|smartphone)/i.test(product.category.name)
+      && (!path || product.category.name === path || product.category.name.startsWith(path + ' / '))
+    ).length
     const now = Date.now()
     const counted = new Map<number, number>()
     const eligible: Array<{
@@ -384,7 +393,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       competitorPrice: number; newPrice: number; lastSuccessAt: string;
       unknownCost: boolean; largeChange: boolean; oneCQueued: boolean;
     }> = []
-    let skipped = 0
     for (const link of links) {
       const product = link.product
       if (!product?.oneCId || product.status !== 'ACTIVE'
@@ -403,7 +411,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         && fingerprint({ name: link.externalName || '', attributes: link.attributes }) === link.confirmedFingerprint
         && (!product.costPrice || newPrice >= product.costPrice)
         && newPrice !== product.price
-      if (!valid) { skipped++; continue }
+      if (!valid) continue
       eligible.push({
         id: link.id, productId: product.id, productName: product.name,
         oldPrice: product.price, competitorPrice: link.latestPrice!,
@@ -416,10 +424,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // Never choose between multiple competing cards linked to one 1C product.
     const unique = eligible.filter(row => counted.get(row.productId) === 1)
       .sort((a, b) => a.productId - b.productId || a.id.localeCompare(b.id))
-    skipped += eligible.length - unique.length
+    // Include in-stock 1C smartphones with no 05.ru match in the skipped count.
+    const skipped = Math.max(0, totalScope - unique.length)
     const token = createHash('sha256').update(JSON.stringify({ path, rows: unique })).digest('hex')
     return {
-      token, count: unique.length, skipped,
+      token, count: unique.length, totalScope, skipped,
       unknownCost: unique.filter(row => row.unknownCost).length,
       largeChanges: unique.filter(row => row.largeChange).length,
       oneCQueued: unique.filter(row => row.oneCQueued).length,
