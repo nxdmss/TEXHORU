@@ -337,8 +337,13 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
 test('Universal selection: parent group includes nested 1C category; 05.ru auto-match never changes site prices', async () => {
   const id = randomUUID()
   const catId = randomUUID()
+  const uniqueName = 'Apple iPhone 18 Pro 12GB/256GB Cosmic Orange eSIM'
+  const uniqueSnapshot = { ...fixture.snapshot,
+    h1: fixture.snapshot.h1.replace('iPhone 17 Pro', 'iPhone 18 Pro'),
+    scripts: fixture.snapshot.scripts.map(text => text.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
+  }
   const ours = { oneCId: id, sku: 'UNIVERSAL-'+id, slug: 'universal-'+id,
-    name: product.name, brand: 'Apple', categoryOneCId: catId,
+    name: uniqueName, brand: 'Apple', categoryOneCId: catId,
     price: 99990, stockQty: 2, costPrice: 80000 }
   const integration = new IntegrationsService(prisma, {})
   await integration.importCatalog({
@@ -350,7 +355,7 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const parser = { searchProducts: async query => {
     searches++
     assert(/iphone/i.test(query))
-    return [{ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: sourceUrl }]
+    return [{ ...extractFiveRu(uniqueSnapshot, fixture.sourceUrl), url: sourceUrl }]
   } }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   await assert.rejects(() => monitor.autoFindOneCSection({ categoryPath: 'Несуществующая группа', maxItems: 10 }))
