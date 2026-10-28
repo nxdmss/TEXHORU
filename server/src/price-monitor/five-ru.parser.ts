@@ -403,6 +403,60 @@ export class FiveRuParser implements OnModuleDestroy {
       throw new BadGatewayException(`Не удалось проверить 05.ru: ${details}`)
     }
   }
+  /**
+   * Crawl the site's own public seller listing with its observed ?page=N
+   * pagination. Unlike a search widget, this works for every 1C category.
+   * One page per worker tick: jobs survive application restarts. No bulk
+   * price claims are made from search snippets or catalog cards.
+   */
+  async indexCatalogPage(pageNumber: number): Promise<Array<{ url: string; title: string }>> {
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 2200) {
+      throw new BadRequestException('Страница публичного каталога вне допустимого диапазона')
+    }
+    const target = new URL('https://05.ru/cat/seller/05-ru-133/')
+    if (pageNumber > 1) target.searchParams.set('page', String(pageNumber))
+    try {
+      return await this.withBrowser(async browser => {
+        const context = await this.context(browser, true)
+        try {
+          const page = await context.newPage()
+          try {
+            const response = await page.goto(target.toString(), { waitUntil: 'commit', timeout: 20_000 })
+            if (response && response.status() >= 400) {
+              throw new Error('05.ru вернул HTTP ' + response.status() + ' при индексации. Ограничения доступа не обходим.')
+            }
+            if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
+              throw new Error('Публичный каталог 05.ru перенаправил на другой сайт')
+            }
+            await page.locator('a[href*="/p/"]').first().waitFor({ timeout: 12_000 }).catch(() => undefined)
+            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+            await page.waitForTimeout(400)
+            const links = await page.locator('a[href*="/p/"]').evaluateAll(nodes =>
+              nodes.map(node => ({
+                url: (node as HTMLAnchorElement).href,
+                title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+                  node.querySelector('img')?.getAttribute('alt') ||
+                  node.closest('.product-card')?.textContent?.trim() ||
+                  (node as HTMLElement).innerText?.trim() || '').slice(0, 250),
+              }))
+            )
+            const unique = new Map<string, { url: string; title: string }>()
+            for (const link of links) {
+              try {
+                const url = fiveRuUrl(link.url, 'product')
+                if (!unique.has(url)) unique.set(url, { url, title: link.title })
+              } catch { /* Ignore navigation outside a valid 05.ru product card. */ }
+            }
+            return [...unique.values()]
+          } finally { await page.close() }
+        } finally { await context.close() }
+      })
+    } catch (error) {
+      throw new BadGatewayException('Индекс 05.ru, страница ' + pageNumber + ': ' +
+        (error instanceof Error ? error.message : String(error)))
+    }
+  }
+
   async discover(raw: string, limit = 100) {
     const url = fiveRuUrl(raw, 'catalog')
     let browser: Browser | undefined
