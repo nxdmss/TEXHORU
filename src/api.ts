@@ -21,6 +21,7 @@ export type ApiProduct = {
   price: number
   oldPrice?: number | null
   stockQty: number
+  reservedQty?: number
   stockState: 'IN_STOCK' | 'LOW' | 'PREORDER' | 'OUT_OF_STOCK'
   status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED'
   badge?: string | null
