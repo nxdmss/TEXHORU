@@ -181,7 +181,16 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
         })}> {busy === 'auto-find' ? 'Подготовка…' : 'Найти совпадения с 05.ru'}</button>
       </div>
       <p className="monitor-v2__muted">В выбранной группе: {inScope} товаров с ценой и остатком. Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
-      {lastAutoJob && <p role="status">Последний поиск: {status[lastAutoJob.status] || lastAutoJob.status} · обработано {lastAutoJob.processed} · ошибок/несовпадений {lastAutoJob.errors}{lastAutoJob.lastError ? ' · ' + lastAutoJob.lastError : ''}</p>}
+      {lastAutoJob && <div role="status" className="monitor-v2__search-diagnostics">
+        <p>Последний поиск: {lastAutoJob.status === 'COMPLETED' && lastAutoJob.errors
+          ? 'Завершено с несовпадениями' : status[lastAutoJob.status] || lastAutoJob.status}
+          {' · '}проверено {lastAutoJob.processed} из {lastAutoJob.perPage || lastAutoJob.processed}
+          {' · '}без совпадения / ошибок: {lastAutoJob.errors}</p>
+        {lastAutoJob.lastError && <details className="monitor-settings-details">
+          <summary>Почему не найдено совпадение? Показать диагностику</summary>
+          <p className="monitor-v2__muted" style={{ overflowWrap: 'anywhere' }}>{lastAutoJob.lastError}</p>
+        </details>}
+      </div>}
     </section>}
     {view === 'prices' && <section className="monitor-v2__section monitor-price-workspace">
       <div className="monitor-v2__section-head"><div><h3>Каталог</h3><p>{items.length} карточек · связано с твоими товарами: {matched}</p></div><div className="monitor-v2__filters"><input placeholder="Найти товар…" value={search} onChange={e => setSearch(e.target.value)} /><select value={filter} onChange={e => setFilter(e.target.value)}><option value="ALL">Все карточки</option><option value="REVIEW">Требуют проверки</option><option value="CONFIRMED">Подтверждены</option><option value="ERROR">Ошибки проверки</option></select></div></div>
