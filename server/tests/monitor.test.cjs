@@ -766,6 +766,9 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
 
 
 test('1C smartphones appear on the storefront only with available stock, and batch pricing is confirmed, atomic and fresh', async () => {
+  // Previous test scenarios leave queued jobs; isolate these admin operations.
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
   const catId = randomUUID(), batch = randomUUID()
   const categoryPath = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Смартфоны Apple ' + batch
   const oneCId = 'BULK-ONEC-' + batch, zeroId = 'EMPTY-ONEC-' + batch
@@ -832,6 +835,9 @@ test('1C smartphones appear on the storefront only with available stock, and bat
 })
 
 test('In-stock smartphone-only auto matching excludes other 1C categories and zero-stock phone SKUs', async () => {
+  // Previous test scenarios leave queued jobs; isolate these admin operations.
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
   const base = randomUUID(), catId = randomUUID(), otherId = randomUUID()
   const categoryName = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / iPhone ' + base
   const integration = new IntegrationsService(prisma, {})
