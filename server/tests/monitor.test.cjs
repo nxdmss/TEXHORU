@@ -882,3 +882,80 @@ test('In-stock smartphone-only auto matching excludes other 1C categories and ze
   assert.deepEqual(local.pendingUrls, ['product:' + active.id])
   await monitor.cancelJob(local.id)
 })
+
+
+test('1C import skips duplicate iPhone variants with different GUIDs; updates same GUID and keeps real colour/storage/SIM variants', async () => {
+  const batch = randomUUID()
+  const categoryId = randomUUID()
+  const categoryName = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Смартфоны Apple ' + batch
+  const importer = new IntegrationsService(prisma, {})
+  const common = { brand: 'Apple', categoryOneCId: categoryId, price: 91900, stockQty: 2 }
+  const base = { ...common, name: 'Смартфон Apple iPhone 17 Pro 256 Гб eSIM синий' }
+  const rows = [
+    { ...base, oneCId: 'ROOT-'+batch, sku:'ROOT-'+batch, slug:'root-'+batch },
+    { ...base, oneCId: 'CLONE-'+batch, sku:'CLONE-'+batch, slug:'clone-'+batch },
+    { ...base, name:'Смартфон Apple iPhone 17 Pro 512 Гб eSIM синий', oneCId:'MEM-'+batch, sku:'MEM-'+batch, slug:'mem-'+batch },
+    { ...base, name:'Смартфон Apple iPhone 17 Pro 256 Гб eSIM белый', oneCId:'WHITE-'+batch, sku:'WHITE-'+batch, slug:'white-'+batch },
+    { ...base, name:'Смартфон Apple iPhone 17 Pro 256 Гб nano SIM синий', oneCId:'SIM-'+batch, sku:'SIM-'+batch, slug:'sim-'+batch },
+  ]
+  const first = await importer.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryName, slug: 'tree-'+batch }],
+    products: rows,
+  })
+  assert.equal(first.products, 4)
+  assert.equal(first.skippedDuplicates, 1)
+  assert(first.duplicateExamples.includes(base.name))
+  assert.equal(await prisma.product.count({ where: { oneCId: 'CLONE-'+batch } }), 0)
+  assert.equal(await prisma.product.count({ where: { oneCId: { in: rows.map(p => p.oneCId) } } }), 4)
+  const primary = await prisma.product.findUniqueOrThrow({ where: { oneCId: 'ROOT-'+batch } })
+  const next = await importer.importCatalog({
+    categories: [],
+    products: [{ ...rows[0], price: 88900, stockQty: 5 }],
+  })
+  assert.equal(next.skippedDuplicates, 0)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: 'ROOT-'+batch } })).id, primary.id)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: 'ROOT-'+batch } })).stockQty, 5)
+
+  // A changed SKU may belong to another physical variant: it must NEVER
+  // silently take ownership of an existing 1C GUID.
+  await assert.rejects(
+    () => importer.importCatalog({
+      categories: [],
+      products: [{ ...rows[0], name: 'Смартфон Apple iPhone 17 Pro 1 Тб eSIM оранжевый',
+        oneCId: 'CONFLICT-'+batch, price: 100000 }],
+    }), /Конфликт идентификаторов 1С/
+  )
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: primary.id } })).oneCId, 'ROOT-'+batch)
+})
+
+test('Legacy duplicate 1C records show as one public phone, remain accessible to admin and are never deleted', async () => {
+  const batch = randomUUID()
+  const categoryId = randomUUID()
+  const importer = new IntegrationsService(prisma, {})
+  const name = 'Смартфон Apple iPhone 17 Pro Max 512 Гб eSIM белый'
+  const path = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Смартфоны Apple ' + batch
+  await importer.importCatalog({
+    categories: [{ oneCId: categoryId, name: path, slug:'old-dupes-'+batch }],
+    products: [{ oneCId:'KEEP-'+batch, sku:'KEEP-'+batch, slug:'keep-'+batch,
+      name, brand:'Apple', categoryOneCId:categoryId, price: 120000, stockQty: 3 }],
+  })
+  const c = await prisma.category.findFirstOrThrow({ where: { oneCId: categoryId } })
+  const legacy = await prisma.product.create({ data: {
+    oneCId:'LEGACY-'+batch, sku:'LEGACY-'+batch, slug:'legacy-'+batch,
+    name, brand:'Apple', categoryId:c.id, price: 121000, stockQty: 2, status:'ACTIVE',
+  } })
+  const service = new ProductsService(prisma, { log: async () => {} })
+  const site = await service.list()
+  assert.equal(site.filter(p => p.category.id === c.id).length, 1)
+  const admin = await service.adminList()
+  const oldRows = admin.filter(p => p.category.id === c.id)
+  assert.equal(oldRows.length, 2)
+  assert.equal(oldRows.filter(p => p.duplicateOf !== null).length, 1)
+  assert.equal(await prisma.product.count({ where: { id: legacy.id } }), 1)
+  const reimport = await importer.importCatalog({ categories: [], products: [{
+    oneCId:'LEGACY-'+batch, sku:'LEGACY-'+batch, slug:'legacy-'+batch,
+    name, brand:'Apple', categoryOneCId:categoryId, price: 121000, stockQty: 2,
+  }] })
+  assert.equal(reimport.skippedDuplicates, 1)
+  assert.equal(await prisma.product.count({ where: { categoryId: c.id } }), 2)
+})
