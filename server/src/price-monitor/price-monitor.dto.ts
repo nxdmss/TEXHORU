@@ -29,6 +29,7 @@ export class AutoFindOneCSectionDto {
   // hierarchy path, including every nested subcategory.
   @IsOptional() @IsString() @MaxLength(600) categoryPath?: string
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(5000) maxItems?: number
+  @IsOptional() @IsBoolean() indexCatalog?: boolean
 }
 
 // Site-only manual price update, guarded by current values and explicit risk acknowledgements.
