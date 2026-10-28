@@ -95,7 +95,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const visiblePhones = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ru')
     return phones.filter(product => (
-      q ? (product.name + ' ' + product.sku + ' ' + product.category?.name).toLocaleLowerCase('ru').includes(q)
+      q ? inPath(product.category?.name || '', path) && (product.name + ' ' + product.sku + ' ' + product.category?.name).toLocaleLowerCase('ru').includes(q)
         : (product.category?.name || '') === path
     )).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   }, [phones, path, search])
@@ -209,7 +209,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     return <article className="mp-tile" key={p.id}>
       <div className="mp-tile-head">
         <span className={'mp-pill ' + state.className}>{state.label}</span>
-        <small>{p.stockQty} шт. · 1С</small>
+        <small>{p.stockQty - (p.reservedQty || 0)} шт. · 1С</small>
       </div>
       <strong className="mp-product-name">{p.name}</strong>
       <div className="mp-prices">
