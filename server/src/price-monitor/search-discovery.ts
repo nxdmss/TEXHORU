@@ -26,8 +26,8 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     const parsed = identity({ name: combined })
     // Do not spend the limited card-read budget on unrelated models or phone accessories.
     if (requested.model && parsed.model !== requested.model) return null
-    if (requested.model && /\b(чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)\b/.test(combined)
-      && !/\b(чехол|стекло|пленка|case|cover)\b/.test(normalize(query))) return null
+    if (requested.model && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)
+      && !/(?:^|\s)(?:чехол|стекло|пленка|case|cover)(?=\s|$)/.test(normalize(query))) return null
     const words = new Set(combined.split(' '))
     let score = 0
     if (requested.model && parsed.model) score += requested.model === parsed.model ? 100 : -100
