@@ -67,7 +67,7 @@ export type PriceMonitorItem = {
 }
 
 export type MonitorJob = {
-  id: string; kind: string; status: string; page: number; maxPages: number; processed: number; errors: number
+  id: string; kind: string; status: string; page: number; maxPages: number; perPage?: number; processed: number; errors: number
   lastError?: string | null; url?: string | null; createdAt: string; pendingUrls: string[]
 }
 export type MatchCandidate = {
