@@ -417,6 +417,21 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal(row.matchStatus, 'CONFIRMED')
   assert.equal(row.latestPrice, 94990)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: own.id } })).price, 91900)
+
+  // A later failed direct check must not leave a seemingly fresh price recommendation.
+  const failing = new PriceMonitorService(prisma, {
+    searchProducts: async () => { throw new Error('Search should not be called') },
+    parse: async () => { throw new Error('HTTP 500: product page unavailable') },
+  }, new MonitorExchangeService(prisma))
+  await failing.autoFindOneCSection({ categoryPath, maxItems: 10 })
+  await failing.tick()
+  const newest = (await failing.jobs()).find(job => job.kind === 'MATCH_1C' && job.url === categoryPath)
+  const last = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: existingUrl } })
+  assert.equal(newest.status, 'COMPLETED')
+  assert.equal(newest.errors, 1)
+  assert.match(newest.lastError, /повторная проверка не удалась/)
+  assert.match(last.lastError, /HTTP 500/)
+  assert.equal(last.latestPrice, 94990)
 })
 
 test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
