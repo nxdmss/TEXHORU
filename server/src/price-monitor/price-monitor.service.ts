@@ -322,7 +322,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (!ranked.length) {
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + trace.cardsParsed + ' прочитано' +
-                    (trace.cached ? ' (кеш)' : '')
+                    (trace.cached ? ' (кеш)' : '') +
+                    (trace.pageUrl ? ' · страница ' + new URL(trace.pageUrl).pathname : '')
                 ).join('; ')
                 const parsingErrors = traces.flatMap(trace => trace.rejectedCards).slice(0, 2)
                 throw new Error('05.ru: нет подтверждённого совпадения для ' + product.name +
