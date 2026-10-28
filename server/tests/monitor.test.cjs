@@ -11,6 +11,7 @@ const { PriceMonitorService, oneCSearchQueries } = require('../dist/price-monito
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
 const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
+const { rankSearchLinks } = require('../dist/price-monitor/search-discovery')
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/05ru-iphone17pro.json'), 'utf8'))
 const name = fixture.snapshot.h1
 const product = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
@@ -72,7 +73,20 @@ test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra o
   assert(compareItems(ours, { ...fiveRu, specs: [{ label: 'Цвет', value: 'серый' }] }).conflicts.length > 0)
   assert.equal(identity({ name: 'Xiaomi 15T Pro (EAC) 12/512' }).storage, '512')
   assert.deepEqual(oneCSearchQueries(ours), ['xiaomi 15t pro 512', 'xiaomi 15t pro'])
-  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 17 Pro 256 Гб' }), ['Смартфон Apple iPhone 17 Pro 256 Гб'])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 17 Pro 256 Гб' }), ['iphone 17 pro 256', 'iphone 17 pro'])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Samsung Galaxy S25 Ultra 12/256 черный' }), ['samsung s25 ultra'])
+})
+
+
+test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links', () => {
+  const target = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
+  const noise = Array.from({ length: 15 }, (_, i) => ({
+    url: 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-12-gb-512-gb-seriy-' + i + '/',
+    title: 'Смартфон Xiaomi 15T 12 Гб/512 Гб серый',
+  }))
+  const candidates = [...noise, { url: target, title: 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный' }]
+  assert.equal(rankSearchLinks(candidates, 'xiaomi 15t pro 512', 8)[0], target)
+  assert.equal(rankSearchLinks([...candidates, candidates.at(-1)], 'xiaomi 15t pro', 20).length, 16)
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
@@ -387,13 +401,20 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     return fixture.snapshot
   }
   try {
-    const result = await parser.searchProducts('Xiaomi Redmi', 7)
+    const trace = {}
+    const result = await parser.searchProducts('Xiaomi Redmi', 7, trace)
     assert.equal(result.length, 7)
+    assert.equal(trace.linksFound, 7)
+    assert.equal(trace.cardsParsed, 7)
+    assert.deepEqual(trace.rejectedCards, [])
     assert.equal(launches, 1)
     assert.equal(cardOpens, 7)
     assert.equal(maxActive, 3)
-    const repeated = await parser.searchProducts('  Xiaomi Redmi ', 7)
+    const cachedTrace = {}
+    const repeated = await parser.searchProducts('  Xiaomi Redmi ', 7, cachedTrace)
     assert.equal(repeated.length, 7)
+    assert.equal(cachedTrace.cached, true)
+    assert.equal(cachedTrace.cardsParsed, 7)
     assert.equal(cardOpens, 7) // identical query comes from short-lived result cache
     const other = await parser.searchProducts('Xiaomi Redmi Note', 7)
     assert.equal(other.length, 7)
