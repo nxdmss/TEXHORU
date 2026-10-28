@@ -2,12 +2,16 @@ import { BadGatewayException, BadRequestException, Injectable, OnModuleDestroy }
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { identity, normalize, type Identity } from './product-matching'
 import { existsSync } from 'node:fs'
+import { rankSearchLinks } from './search-discovery'
 
 type JsonObject = Record<string, unknown>
 export type FiveRuResult = {
   name: string; price: number; oldPrice: number | null; inStock: boolean | null
   externalSku: string | null; categoryName: string; brand: string; url: string
   attributes: Identity; seller: string | null; region: string | null; priceSource: string
+}
+export type FiveRuSearchTrace = {
+  query: string; linksFound: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean
 }
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
@@ -183,12 +187,16 @@ export class FiveRuParser implements OnModuleDestroy {
    * site's own search control. No anti-bot bypass, external navigation or
    * third-party price source is allowed.
    */
-  async searchProducts(query: string, limit = 8): Promise<FiveRuResult[]> {
+  async searchProducts(query: string, limit = 12, trace?: FiveRuSearchTrace): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
     if (!text || limit < 1 || limit > 12) throw new BadRequestException('Неправильный поисковый запрос')
     const cacheKey = normalize(text) + ':' + limit
+    if (trace) Object.assign(trace, { query: text, linksFound: 0, cardsParsed: 0, rejectedCards: [], cached: false })
     const cached = this.queryCache.get(cacheKey)
-    if (cached && cached.expires > Date.now()) return cached.results
+    if (cached && cached.expires > Date.now()) {
+      if (trace) Object.assign(trace, { cardsParsed: cached.results.length, cached: true })
+      return cached.results
+    }
     try {
       return await this.withBrowser(async browser => {
         const context = await this.context(browser, true)
@@ -208,9 +216,20 @@ export class FiveRuParser implements OnModuleDestroy {
             // multi-second delay after the result links are already present.
             await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 7_000 }).catch(() => undefined)
             const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
-              [...new Set(nodes.map(node => (node as HTMLAnchorElement).href))]
+              nodes.map(node => ({
+                url: (node as HTMLAnchorElement).href,
+                title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+                  node.querySelector('img')?.getAttribute('alt') ||
+                  (node as HTMLElement).innerText?.trim() ||
+                  node.closest('.product-card')?.textContent?.trim() || '').slice(0, 180),
+              }))
             )
-            urls = links.flatMap(link => { try { return [fiveRuUrl(link, 'product')] } catch { return [] } }).slice(0, limit)
+            const valid = links.flatMap(link => {
+              try { return [{ url: fiveRuUrl(link.url, 'product'), title: link.title }] }
+              catch { return [] }
+            })
+            if (trace) trace.linksFound = new Set(valid.map(link => link.url)).size
+            urls = rankSearchLinks(valid, text, limit)
           } finally {
             await searchPage.close()
           }
@@ -225,12 +244,15 @@ export class FiveRuParser implements OnModuleDestroy {
               const url = urls[slot]
               try {
                 const page = await this.open(context, url)
-                try { slots[slot] = extractFiveRu(await this.snapshot(page), url) }
-                finally { await page.close() }
+                try {
+                  slots[slot] = extractFiveRu(await this.snapshot(page), url)
+                  if (trace) trace.cardsParsed++
+                } finally { await page.close() }
               } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error)
+                if (trace && trace.rejectedCards.length < 5) trace.rejectedCards.push(url + ': ' + msg.slice(0, 180))
                 if (/HTTP (403|429)|проверку доступа|timeout/i.test(msg)) throw error
-                // An invalid individual card is excluded, not falsely matched.
+                // Report unusable pages instead of pretending the catalog had no match.
               }
             }
           }
@@ -238,6 +260,10 @@ export class FiveRuParser implements OnModuleDestroy {
           const failed = workers.find(worker => worker.status === 'rejected')
           if (failed?.status === 'rejected') throw failed.reason
           const results = slots.filter((result): result is FiveRuResult => Boolean(result))
+          if (!results.length && urls.length) {
+            const firstReason = trace?.rejectedCards[0] || 'структура или цена карточки недоступна'
+            throw new Error('Поиск 05.ru нашёл ' + urls.length + ' ссылок, но карточки не прочитаны: ' + firstReason)
+          }
           if (results.length) {
             if (this.queryCache.size >= 100) this.queryCache.delete(this.queryCache.keys().next().value!)
             this.queryCache.set(cacheKey, { expires: Date.now() + 5 * 60_000, results })
