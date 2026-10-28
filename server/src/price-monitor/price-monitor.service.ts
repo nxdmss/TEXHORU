@@ -489,7 +489,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
-    const scoped = imported.filter(p => !path || p.category.name === path || p.category.name.startsWith(path + ' / '))
+    const scoped = imported.filter(p => (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
+      && (!dto.onlyInStockSmartphones || (p.stockQty > p.reservedQty && /(?:смартфон|smartphone)/i.test(p.category.name))))
     if (!scoped.length) throw new BadRequestException('В выбранном разделе нет импортированных из 1С товаров с ценой и остатком')
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
       throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
@@ -503,7 +504,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const job = await this.prisma.monitorJob.create({
       data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
         pendingUrls: selected.map(p => 'product:' + p.id),
-        visitedUrls: useIndex ? ['INDEX_MATCH'] : [] },
+        visitedUrls: [...(useIndex ? ['INDEX_MATCH'] : []), ...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])] },
     })
     return { ...job, eligible: scoped.length, queued: selected.length }
   }
@@ -608,7 +609,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 ? await this.prisma.product.findUnique({ where: { id: Number(foundId[1]) }, include: { category: true } })
                 : null
               if (!product?.oneCId || product.status !== 'ACTIVE' || product.price <= 0
-                || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))) {
+                || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))
+                || (this.strings(job.visitedUrls).includes('STOCKED_SMARTPHONES')
+                  && (product.stockQty <= product.reservedQty || !/(?:смартфон|smartphone)/i.test(product.category.name)))) {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
               if (!(await this.refreshKnownMatch(product))) {
