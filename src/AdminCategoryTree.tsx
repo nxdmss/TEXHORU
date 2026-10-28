@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { categorySegments, categoryTree, childrenAtPath } from './onec-category-tree'
 import './AdminCategoryTree.css'
+import { browseLabel } from './catalog-navigation'
 
 type Props = {
   categoryNames: string[]
@@ -27,14 +28,14 @@ export function AdminCategoryTree({ categoryNames, productCategoryNames, selecte
     <div className="admin-tree-location">
       {selectedPath && <button className="admin-tree-back" type="button" onClick={() => onSelect(parent)}>← Назад</button>}
       <span className="admin-tree-kicker">Сейчас открыто</span>
-      <strong>{title}</strong>
+      <strong>{browseLabel(title)}</strong>
       <small>{selectedPath ? count(selectedPath) : total} товаров</small>
     </div>
     <div className="admin-tree-level" key={selectedPath || 'root'}>
       {folders.map(child => <button key={child.path} type="button" className="admin-tree-node"
         onClick={() => onSelect(child.path)}>
         <span className="admin-tree-icon" aria-hidden="true">▣</span>
-        <span className="admin-tree-label">{child.title}</span>
+        <span className="admin-tree-label">{browseLabel(child.title)}</span>
         <span className="admin-tree-count">{count(child.path)}</span>
         <span className="admin-tree-arrow" aria-hidden="true">›</span>
       </button>)}
