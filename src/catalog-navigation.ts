@@ -42,6 +42,8 @@ export function featuredIphones<T extends FeaturedPhone>(products: T[], take = 1
 export function featuredPhoneImage(name: string, image?: string) {
   // Properly supplied original images from the product catalog take priority.
   if (image && !/\/products\/(?:phone|iphone-cut-[\w-]+)\.svg(?:\?|$)/.test(image)) return image
+  // Do not show a newer phone silhouette for older generations.
+  if (!/\biphone\s*17\b/i.test(name)) return image || '/products/phone.svg'
   if (/оранж|cosmic orange|orange/i.test(name)) return '/products/iphone-cut-orange.svg'
   if (/син|голуб|blue/i.test(name)) return '/products/iphone-cut-blue.svg'
   if (/бел|сереб|white|silver/i.test(name)) return '/products/iphone-cut-white.svg'
