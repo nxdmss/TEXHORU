@@ -159,8 +159,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     let fresh: FiveRuResult
     try { fresh = await this.fiveRu.parse(url) }
     catch (error) {
-      throw new Error('05.ru: карточка уже известна (' + url + '), но повторная проверка не удалась: ' +
-        (error instanceof Error ? error.message : String(error)))
+      const reason = error instanceof Error ? error.message : String(error)
+      await this.prisma.competitorProduct.update({
+        where: { id: eligible[0].link.id },
+        data: { lastCheckedAt: new Date(), lastError: reason.slice(0, 2000) },
+      })
+      throw new Error('05.ru: карточка уже известна (' + url + '), но повторная проверка не удалась: ' + reason)
     }
     const updated = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
     if (!this.strongVariant(updated)) {
