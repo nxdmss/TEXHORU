@@ -13,10 +13,10 @@ export function isSmartphone(product: Product) {
 }
 
 export function brandForProduct(product: Product) {
-  const last = product.category.split(' / ').at(-1) || ''
-  const categoryBrand = last.replace(/^(смартфоны?|smartphones?)\s+/i, '').trim()
-  let brand = categoryBrand && !/^(смартфоны?|smartphones?)$/i.test(categoryBrand)
-    ? categoryBrand : product.brand.trim()
+  const segments = product.category.split(' / ')
+  const brandFolder = segments.find(segment => /^(?:смартфоны?|smartphones?)\s+\S+/i.test(segment))
+  const categoryBrand = brandFolder?.replace(/^(?:смартфоны?|smartphones?)\s+/i, '').trim()
+  let brand = categoryBrand || product.brand.trim()
   if (!brand || /^(смартфоны?|телефоны?)$/i.test(brand)) {
     brand = product.name.match(/(?:смартфон\s+)?(Apple|Samsung|Xiaomi|Honor|Realme|Poco|Redmi|Tecno|Infinix|Vivo|Oppo|Google)/i)?.[1] || 'Другие'
   }
