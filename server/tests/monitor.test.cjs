@@ -519,3 +519,41 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
 })
+
+
+test('Direct product checks use response commit and reuse Chromium across checks', async () => {
+  const parser = new FiveRuParser()
+  let launches = 0, pageCloses = 0, contexts = 0, browserCloses = 0
+  parser.browser = async () => {
+    launches++
+    return { isConnected: () => true, close: async () => { browserCloses++ } }
+  }
+  parser.context = async () => {
+    contexts++
+    return {
+      newPage: async () => ({
+        goto: async (_, options) => {
+          assert.equal(options.waitUntil, 'commit')
+          assert(options.timeout <= 30_000)
+          return { status: () => 200 }
+        },
+        url: () => fixture.sourceUrl,
+        locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
+        waitForTimeout: async () => {},
+        close: async () => { pageCloses++ },
+      }),
+      close: async () => {},
+    }
+  }
+  parser.snapshot = async () => fixture.snapshot
+  try {
+    const first = await parser.parse(fixture.sourceUrl)
+    const second = await parser.parse(fixture.sourceUrl)
+    assert.equal(first.price, 96990)
+    assert.equal(second.price, 96990)
+    assert.equal(launches, 1)
+    assert.equal(contexts, 2)
+    assert.equal(pageCloses, 2)
+  } finally { await parser.onModuleDestroy() }
+  assert.equal(browserCloses, 1)
+})
