@@ -426,7 +426,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       .sort((a, b) => a.productId - b.productId || a.id.localeCompare(b.id))
     // Include in-stock 1C smartphones with no 05.ru match in the skipped count.
     const skipped = Math.max(0, totalScope - unique.length)
-    const token = createHash('sha256').update(JSON.stringify({ path, rows: unique })).digest('hex')
+    const token = createHash('sha256').update(JSON.stringify({ path, totalScope, rows: unique })).digest('hex')
     return {
       token, count: unique.length, totalScope, skipped,
       unknownCost: unique.filter(row => row.unknownCost).length,
