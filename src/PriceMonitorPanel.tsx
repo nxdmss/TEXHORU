@@ -24,6 +24,7 @@ function childrenAt(products: ApiProduct[], path: string) {
 
 const isFresh = (item: PriceMonitorItem) => Boolean(
   item.lastSuccessAt && !item.lastError && item.priceSource !== 'USER_FILE'
+  && Date.now() - new Date(item.lastSuccessAt).getTime() >= 0
   && Date.now() - new Date(item.lastSuccessAt).getTime() <= 24 * 3600_000
 )
 
@@ -119,8 +120,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const last = jobs.find(j => j.kind === 'MATCH_1C')
   const unlinked = items.filter(i => !i.product?.oneCId || !phones.some(p => p.id === i.product?.id))
   const level = pathSegments(path)
-  const displayPath = search.trim() ? '' : path
-  const scopeCount = search.trim() ? phones.length : scopedPhones.length
+  // Searching filters tiles only; never widen a price-changing scope silently.
+  const displayPath = path
+  const scopeCount = scopedPhones.length
 
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
@@ -259,7 +261,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !scopeCount}
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти совпадения'}</button>
       <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
-        onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить актуальные цены'}</button>
+        onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены в разделе'}</button>
       <input aria-label="Поиск смартфона" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
     {active && <div className="mp-progress" role="status">
