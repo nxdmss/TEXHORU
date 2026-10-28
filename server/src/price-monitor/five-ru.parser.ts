@@ -224,8 +224,9 @@ export class FiveRuParser implements OnModuleDestroy {
                   node.closest('.product-card')?.textContent?.trim() || '').slice(0, 180),
               }))
             )
-            const valid = links.flatMap(link => {
-              try { return [{ url: fiveRuUrl(link.url, 'product'), title: link.title }] }
+            const valid = (links as Array<string | { url: string; title: string }>).flatMap(link => {
+              const candidate = typeof link === 'string' ? { url: link, title: '' } : link
+              try { return [{ url: fiveRuUrl(candidate.url, 'product'), title: candidate.title }] }
               catch { return [] }
             })
             if (trace) trace.linksFound = new Set(valid.map(link => link.url)).size
