@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { categorySegments, categoryTree, type OneCNode } from './onec-category-tree'
 import './AdminCategoryTree.css'
 
@@ -33,7 +33,7 @@ export function AdminCategoryTree({ categoryNames, productCategoryNames, selecte
   }, [categoryNames, productCategoryNames])
 
   const isExpanded = (path: string) => expanded.includes(path) || selectedPath.startsWith(path + ' / ')
-  const render = (nodes: OneCNode[], depth: number): React.ReactNode => nodes.map(node => {
+  const render = (nodes: OneCNode[], depth: number): ReactNode => nodes.map(node => {
     const children = node.children.length > 0
     const opened = children && isExpanded(node.path)
     return <div className="admin-tree-branch" key={node.path}>
