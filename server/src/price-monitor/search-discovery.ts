@@ -24,6 +24,11 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     const title = candidate.title || slug
     const combined = normalize(title + ' ' + slug)
     const parsed = identity({ name: combined })
+    const slugVariant = identity({ name: slug })
+    // Search for 256 GB must not open a 1 TB or 512 GB variant just
+    // because it appears earlier in the storefront results.
+    if (requestedStorage && ((parsed.storage && parsed.storage !== requestedStorage)
+      || (slugVariant.storage && slugVariant.storage !== requestedStorage))) return null
     // Do not spend the limited card-read budget on unrelated models or phone accessories.
     if (requested.model && parsed.model !== requested.model) return null
     if (requested.model && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)
