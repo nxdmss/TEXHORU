@@ -418,20 +418,40 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal(row.latestPrice, 94990)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: own.id } })).price, 91900)
 
-  // A later failed direct check must not leave a seemingly fresh price recommendation.
+  // One slow 05.ru product must not cancel the rest of the batch.
+  const secondId = randomUUID()
+  const secondName = 'Смартфон Apple iPhone 18 Pro 512 Гб eSIM зеленый'
+  await integration.importCatalog({ categories: [], products: [{
+    oneCId: secondId, sku: 'NEXT-'+secondId, slug: 'next-'+secondId,
+    categoryOneCId: categoryId, name: secondName, brand: 'Apple',
+    price: 90000, stockQty: 2, costPrice: 65000,
+  }] })
+  const secondUrl = 'https://05.ru/cat/396f7486/p/test-iphone-18-pro-green-' + secondId + '/'
+  const nextSnapshot = { ...fixture.snapshot, h1: 'Смартфон Apple iPhone 18 Pro 12 Гб/512 Гб зеленый (E-Sim)', specs: [{ label: 'Цвет', value: 'зеленый' }] }
+  let searchCallsAfterTimeout = 0
   const failing = new PriceMonitorService(prisma, {
-    searchProducts: async () => { throw new Error('Search should not be called') },
-    parse: async () => { throw new Error('HTTP 500: product page unavailable') },
+    searchProducts: async query => {
+      searchCallsAfterTimeout++
+      assert(/iphone 18 pro/.test(query))
+      return [{ ...extractFiveRu(nextSnapshot, secondUrl), url: secondUrl }]
+    },
+    parse: async () => { throw new Error('Не удалось проверить 05.ru: page.goto: Timeout 30000ms exceeded') },
   }, new MonitorExchangeService(prisma))
   await failing.autoFindOneCSection({ categoryPath, maxItems: 10 })
   await failing.tick()
+  await failing.tick()
   const newest = (await failing.jobs()).find(job => job.kind === 'MATCH_1C' && job.url === categoryPath)
   const last = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: existingUrl } })
+  const next = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: secondUrl } })
   assert.equal(newest.status, 'COMPLETED')
+  assert.equal(newest.processed, 2)
   assert.equal(newest.errors, 1)
+  assert.equal(searchCallsAfterTimeout, 1)
   assert.match(newest.lastError, /повторная проверка не удалась/)
-  assert.match(last.lastError, /HTTP 500/)
+  assert.match(last.lastError, /Timeout 30000ms exceeded/)
   assert.equal(last.latestPrice, 94990)
+  assert.equal(next.externalName, nextSnapshot.h1)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: secondId } })).price, 90000)
 })
 
 test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
@@ -498,4 +518,42 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
       /не открыл выдачу/)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
+})
+
+
+test('Direct product checks use response commit and reuse Chromium across checks', async () => {
+  const parser = new FiveRuParser()
+  let launches = 0, pageCloses = 0, contexts = 0, browserCloses = 0
+  parser.browser = async () => {
+    launches++
+    return { isConnected: () => true, close: async () => { browserCloses++ } }
+  }
+  parser.context = async () => {
+    contexts++
+    return {
+      newPage: async () => ({
+        goto: async (_, options) => {
+          assert.equal(options.waitUntil, 'commit')
+          assert(options.timeout <= 30_000)
+          return { status: () => 200 }
+        },
+        url: () => fixture.sourceUrl,
+        locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
+        waitForTimeout: async () => {},
+        close: async () => { pageCloses++ },
+      }),
+      close: async () => {},
+    }
+  }
+  parser.snapshot = async () => fixture.snapshot
+  try {
+    const first = await parser.parse(fixture.sourceUrl)
+    const second = await parser.parse(fixture.sourceUrl)
+    assert.equal(first.price, 96990)
+    assert.equal(second.price, 96990)
+    assert.equal(launches, 1)
+    assert.equal(contexts, 2)
+    assert.equal(pageCloses, 2)
+  } finally { await parser.onModuleDestroy() }
+  assert.equal(browserCloses, 1)
 })

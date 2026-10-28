@@ -357,8 +357,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           }
           catch (error) {
             const message = error instanceof Error ? error.message : 'Ошибка карточки'
-            // Block/overload aborts the job with the cursor intact, for explicit retry later.
-            if (/HTTP (403|429)|проверку доступа|Timeout/i.test(message)) throw error
+            // Explicit access-denial/rate-limit responses pause the job.
+            // A browser/network timeout is a per-product failure, not an access-denial:
+            // record it and continue the remaining 1C products instead of aborting at 0/10.
+            if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
             const diagnostic = job.kind === 'MATCH_1C'
               ? [job.lastError, message].filter(Boolean).join('\n').slice(-7000)
               : message

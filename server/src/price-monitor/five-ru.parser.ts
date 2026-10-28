@@ -146,10 +146,13 @@ export class FiveRuParser implements OnModuleDestroy {
   private async open(context: BrowserContext, url: string) {
     const page = await context.newPage()
     try {
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      // Slow first-party scripts can postpone DOMContentLoaded indefinitely.
+      // Accept the main response as soon as it commits, then require a real
+      // product heading before extracting any price/availability information.
+      const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
       if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
       if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Карточка перенаправила на другой сайт')
-      await page.locator('h1').first().waitFor({ timeout: 8_000 })
+      await page.locator('h1').first().waitFor({ state: 'visible', timeout: 15_000 })
       await page.waitForTimeout(300)
       return page
     } catch (error) { await page.close(); throw error }
@@ -288,13 +291,24 @@ export class FiveRuParser implements OnModuleDestroy {
 
   async parse(raw: string): Promise<FiveRuResult> {
     const url = fiveRuUrl(raw, 'product')
-    let browser: Browser | undefined
     try {
-      browser = await this.browser()
-      const page = await this.open(await this.context(browser), url)
-      return extractFiveRu(await this.snapshot(page), url)
-    } catch (error) { throw new BadGatewayException(`Не удалось проверить 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`) }
-    finally { await browser?.close() }
+      // Reuse Chromium between cards, keeping every request in an isolated
+      // context. Launching a fresh browser for each 1C product is expensive.
+      return await this.withBrowser(async browser => {
+        const context = await this.context(browser)
+        try {
+          const page = await this.open(context, url)
+          try { return extractFiveRu(await this.snapshot(page), url) }
+          finally { await page.close() }
+        } finally { await context.close() }
+      })
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Ошибка'
+      const details = /(?:page\.goto:)?\s*Timeout\s+\d+ms exceeded/i.test(reason)
+        ? '05.ru не ответил вовремя. Проверь доступность сайта с этого компьютера и повтори попытку.'
+        : reason
+      throw new BadGatewayException(`Не удалось проверить 05.ru: ${details}`)
+    }
   }
   async discover(raw: string, limit = 100) {
     const url = fiveRuUrl(raw, 'catalog')
