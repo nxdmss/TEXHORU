@@ -11,7 +11,7 @@ export type FiveRuResult = {
   attributes: Identity; seller: string | null; region: string | null; priceSource: string
 }
 export type FiveRuSearchTrace = {
-  query: string; linksFound: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean
+  query: string; linksFound: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean; pageUrl?: string
 }
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
@@ -229,8 +229,15 @@ export class FiveRuParser implements OnModuleDestroy {
               try { return [{ url: fiveRuUrl(candidate.url, 'product'), title: candidate.title }] }
               catch { return [] }
             })
-            if (trace) trace.linksFound = new Set(valid.map(link => link.url)).size
+            if (trace) {
+              trace.linksFound = new Set(valid.map(link => link.url)).size
+              trace.pageUrl = searchPage.url()
+            }
             urls = rankSearchLinks(valid, text, limit)
+            if (!urls.length && new URL(searchPage.url()).pathname === '/') {
+              throw new Error('Поиск 05.ru остался на главной странице после Enter и не открыл выдачу. ' +
+                'Возможно, изменился интерфейс сайта. Это не означает, что товара нет.')
+            }
           } finally {
             await searchPage.close()
           }
