@@ -663,6 +663,9 @@ test('Business price-list import links 1C products safely, never claims 05.ru ve
     { ...row, observedAt: new Date(Date.now() - 32 * 86400000).toISOString() },
   ] }), /последние 30 дней/)
   await assert.rejects(() => monitor.importManualPrices({ rows: [
+    { ...row, url: 'https://05.ru/cat/test/p/iphone-17-pro-max-512-orange-999999/' },
+  ] }), /ссылка 05.ru указывает на другую модель/)
+  await assert.rejects(() => monitor.importManualPrices({ rows: [
     { ...row, url: 'https://05.ru.evil.example/cat/test/p/fake/' },
   ] }), /05.ru/)
 })
