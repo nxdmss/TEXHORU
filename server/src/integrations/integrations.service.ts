@@ -101,6 +101,18 @@ export class IntegrationsService {
             name: item.name, brand: item.brand, gtin: item.gtin, mpn: item.mpn,
             attributes: item.attributes, categoryName: category.name,
           })
+          if (existing?.oneCId && existing.oneCId !== item.oneCId) {
+            // A reused SKU or slug does not authorise changing a previously
+            // imported 1C GUID: it would break the external inventory link.
+            if (variantKey && phoneVariantKey(existing.category ? {
+              ...existing, categoryName: existing.category.name,
+            } : existing) === variantKey) {
+              skippedDuplicates++
+              if (duplicateExamples.length < 12) duplicateExamples.push(item.name)
+              continue
+            }
+            throw new Error('Конфликт идентификаторов 1С: SKU/slug уже принадлежит другому GUID. ' + item.name)
+          }
           const occupied = variantKey && occupiedVariants.get(variantKey)
           if (occupied && occupied.id !== existing?.id) {
             // Never merge two different immutable 1C IDs or sum their stock
