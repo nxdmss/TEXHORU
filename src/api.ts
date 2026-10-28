@@ -198,7 +198,7 @@ export const api = {
   monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
   monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
-  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = true) {
+  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false) {
     return request<MonitorJob & { eligible: number; queued: number }>('/admin/price-monitor/auto-find-1c',
       { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog }) })
   },

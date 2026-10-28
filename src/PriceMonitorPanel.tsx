@@ -196,7 +196,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       <div className="monitor-v2__section-head"><div>
         <p className="eyebrow">1С → TEXHORU → 05.ru</p>
         <h3>Найти совпадения автоматически</h3>
-        <p>Выбери любую группу или вложенную подгруппу, загруженную из 1С. TEXHORU сначала создаёт индекс каталога 05.ru по страницам, затем автоматически ищет точные соответствия всем выбранным товарам 1С. Прогресс сохраняется между перезапусками.</p>
+        <p>Выбери любую группу или вложенную подгруппу, загруженную из 1С. TEXHORU ищет товары напрямую по поисковой выдаче 05.ru, проверяет модель, память и цвет, затем открывает карточки для получения свежих цен. Прогресс сохраняется между перезапусками.</p>
       </div></div>
       <div className="monitor-v2__schedule">
         <label>Группа из 1С
@@ -212,7 +212,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
         </label>
         <button disabled={Boolean(busy) || activeJob || !inScope} onClick={() => void action('auto-find', async () => {
           const job = await api.monitorAutoFindOneC(oneCPath, autoLimit)
-          setNotice(`В очереди: ${job.queued} из ${job.eligible} товаров 1С. При необходимости TEXHORU сначала построит индекс 05.ru — без ручной загрузки.`)
+          setNotice(`В очереди: ${job.queued} из ${job.eligible} товаров 1С. TEXHORU будет проверять товары через прямой поиск 05.ru — без ручных ссылок и предварительной индексации.`)
         })}> {busy === 'auto-find' ? 'Подготовка…' : 'Найти совпадения с 05.ru'}</button>
       </div>
       <p className="monitor-v2__muted">В выбранной группе: {inScope} активных товаров с ценой (включая нулевые остатки). Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>

@@ -258,85 +258,58 @@ export class FiveRuParser implements OnModuleDestroy {
           const searchPage = await context.newPage()
           let urls: string[]
           try {
-            const home = await searchPage.goto('https://05.ru/', { waitUntil: 'domcontentloaded', timeout: 30_000 })
-            if (home && home.status() >= 400) throw new Error(`05.ru ответил HTTP ${home.status()}; обход защиты не выполняется`)
-            const input = searchPage.locator('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]').first()
-            await input.waitFor({ state: 'visible', timeout: 10_000 })
-            // The shop may serve product suggestions without navigating to a new URL.
-            // Capture those *before* Enter, which can close the suggestion popup.
-            const readLinks = async () => {
-              const links = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
-                nodes.map(node => ({
-                  url: (node as HTMLAnchorElement).href,
-                  title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
-                    node.querySelector('img')?.getAttribute('alt') ||
-                    (node as HTMLElement).innerText?.trim() ||
-                    node.closest('.product-card')?.textContent?.trim() || '').slice(0, 180),
-                }))
-              )
-              return (links as Array<string | { url: string; title: string }>).flatMap(link => {
-                const candidate = typeof link === 'string' ? { url: link, title: '' } : link
-                try { return [{ url: fiveRuUrl(candidate.url, 'product'), title: candidate.title }] }
-                catch { return [] }
-              })
+            // Confirmed from the live 05.ru search UI: /search/?q=...&page=1.
+            // Opening the homepage and pressing Enter was timing out, even
+            // though this route displays product cards in a normal browser.
+            const searchUrl = new URL('https://05.ru/search/')
+            searchUrl.searchParams.set('q', text)
+            searchUrl.searchParams.set('page', '1')
+            const response = await searchPage.goto(searchUrl.toString(), {
+              waitUntil: 'commit', timeout: 20_000,
+            })
+            if (response && response.status() >= 400) {
+              throw new Error('05.ru ответил HTTP ' + response.status() + ' на странице поиска; обход защиты не выполняется')
             }
-            await input.fill(text)
-            await searchPage.waitForTimeout(1_200)
-            const suggestions = await readLinks()
-            await input.press('Enter')
-            await searchPage.waitForTimeout(900)
-            if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
-            // Wait for links when the shop renders the full search page asynchronously.
-            await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 5_000 }).catch(() => undefined)
-            let valid = await readLinks()
-            let searchMode = 'enter'
-            // Enter alone can be swallowed by SPA search widgets. Use the
-            // site's *visible* form submit action, never an undocumented API.
-            if (!rankSearchLinks([...valid, ...suggestions], text, 1).length
-              && new URL(searchPage.url()).pathname === '/') {
-              const submitted = await searchPage.evaluate(() => {
-                const input = document.querySelector('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]')
-                if (!(input instanceof HTMLInputElement)) return false
-                const form = input.closest('form')
-                const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]')
-                  || input.parentElement?.parentElement?.querySelector<HTMLButtonElement>('button[aria-label*="Поиск"], button[title*="Поиск"]')
-                if (button) { button.click(); return true }
-                if (form) { form.requestSubmit(); return true }
-                return false
-              })
-              if (submitted) {
-                searchMode = 'form-submit'
-                await searchPage.waitForTimeout(1_200)
-                await searchPage.locator('a[href*="/p/"]').first().waitFor({ timeout: 5_000 }).catch(() => undefined)
-                valid = await readLinks()
-              }
+            const landed = new URL(searchPage.url())
+            if (!['05.ru', 'www.05.ru'].includes(landed.hostname)
+              || !['/search', '/search/'].includes(landed.pathname)) {
+              throw new Error('05.ru перенаправил поиск на другую страницу: ' + landed.pathname)
             }
-            if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Поиск перенаправил за пределы 05.ru')
-            const combined = [...valid, ...suggestions]
+            // The storefront renders the cards after the document response.
+            // The real search page contains repeated anchors to each card;
+            // deduplicate canonical product URLs before opening their pages.
+            await searchPage.locator('a[href*="/p/"]').first()
+              .waitFor({ state: 'attached', timeout: 12_000 }).catch(() => undefined)
+            const rawLinks = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
+              nodes.map(node => ({
+                url: (node as HTMLAnchorElement).href,
+                title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+                  node.querySelector('img')?.getAttribute('alt') ||
+                  node.closest('.product-card')?.textContent?.trim() ||
+                  (node as HTMLElement).innerText?.trim() || '').slice(0, 200),
+              }))
+            )
+            const links = new Map<string, { url: string; title: string }>()
+            for (const link of rawLinks) {
+              try {
+                const url = fiveRuUrl(link.url, 'product')
+                if (!links.has(url)) links.set(url, { url, title: link.title })
+              } catch { /* Ignore non-product or non-05.ru anchors. */ }
+            }
+            const unique = [...links.values()]
             if (trace) {
-              trace.linksFound = new Set(combined.map(link => link.url)).size
-              trace.pageUrl = searchPage.url()
-              trace.searchMode = valid.length ? searchMode : suggestions.length ? 'suggestions' : searchMode
+              trace.linksFound = unique.length
+              trace.pageUrl = landed.toString()
+              trace.searchMode = 'direct-search'
             }
-            urls = rankSearchLinks(combined, text, limit)
-            // The main-page search is often a non-functioning SPA widget.
-            // After closing it, try the public category index instead of
-            // treating an empty search page as proof that a product is absent.
+            urls = rankSearchLinks(unique, text, limit)
+            if (!urls.length) {
+              throw new Error('Прямой поиск 05.ru открылся (' + landed.pathname +
+                '), но не отдал подходящие ссылки на товары. Прочитано ссылок: ' +
+                unique.length + '. Это не означает, что товара нет.')
+            }
           } finally {
             await searchPage.close()
-          }
-          if (!urls.length) {
-            const links = await this.smartphoneCatalogLinks(context)
-            urls = rankSearchLinks(links, text, limit)
-            if (trace) {
-              trace.linksFound += links.length
-              trace.searchMode = 'smartphone-catalog'
-            }
-            if (!urls.length) {
-              throw new Error('05.ru: поиск не вернул товар. Дополнительно просмотрены ' + links.length +
-                ' ссылок публичного каталога смартфонов (не более 4 страниц), но нужной модели там нет. ' +
-                'Это не подтверждает отсутствие товара на сайте.')
-            }
           }
           const slots: Array<FiveRuResult | undefined> = new Array(urls.length)
           let index = 0

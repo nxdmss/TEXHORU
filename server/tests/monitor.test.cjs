@@ -92,6 +92,11 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: 'https://05.ru/cat/x/p/chehol-dlya-iphone-17-pro-256-123/', title: 'Чехол iPhone 17 Pro 256' },
     { url: 'https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/', title: 'Смартфон Apple iPhone 17 Pro 256 Гб оранжевый' },
   ], 'iphone 17 pro 256', 10), ['https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/'])
+  assert.deepEqual(rankSearchLinks([
+    { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-1-tb-oranzheviy-1/', title: 'iPhone 17 Pro 1 ТБ' },
+    { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/', title: 'iPhone 17 Pro 256 GB' },
+    { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-512-gb-oranzheviy-3/', title: 'iPhone 17 Pro 512 GB' },
+  ], 'iphone 17 pro 256', 12), ['https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/'])
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
@@ -458,162 +463,97 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: secondId } })).price, 90000)
 })
 
-test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
+test('Direct 05.ru search URL returns unique ranked product links, checks live cards and caches repeat queries', async () => {
   const parser = new FiveRuParser()
-  let launches = 0, closings = 0, contexts = 0, active = 0, maxActive = 0, cardOpens = 0
-  const links = Array.from({ length: 7 }, (_, i) => 'https://05.ru/cat/mc/p/iphone-variant-' + (i+1) + '/')
-  let hideOnEnter = false, submitAddsCard = false, submitClicks = 0
-  const iphoneUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-e-sim-bez-rustore-24007/'
-  const fakeSearchPage = {
-    goto: async () => ({ status: () => 200 }),
-    locator: selector => selector.startsWith('input')
-      ? { first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => { if (hideOnEnter) links.length = 0 } }) }
-      : { first: () => ({ waitFor: async () => {} }),
-          evaluateAll: async () => links },
-    waitForTimeout: async () => {},
-    url: () => 'https://05.ru/search/',
-    evaluate: async () => { submitClicks++; if (submitAddsCard) links.push(iphoneUrl); return submitAddsCard },
-    close: async () => {},
-  }
+  const orange256 = fixture.sourceUrl
+  const orange1tb = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-1-tb-oranzheviy-e-sim-bez-rustore-34464/'
+  const blue256 = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-siniy-e-sim-bez-rustore-24126/'
+  const orange512 = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-512-gb-oranzheviy-12345/'
+  const white256 = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-beliy-12346/'
+  const productLinks = [
+    { url: orange1tb, title: 'Смартфон Apple iPhone 17 Pro 1 ТБ оранжевый' },
+    { url: orange256, title: fixture.snapshot.h1 },
+    { url: blue256, title: 'Смартфон Apple iPhone 17 Pro 256 ГБ синий' },
+    { url: white256, title: 'Смартфон Apple iPhone 17 Pro 256 ГБ белый' },
+    { url: orange512, title: 'Смартфон Apple iPhone 17 Pro 512 ГБ оранжевый' },
+    { url: 'https://05.ru/cat/x/p/chehol-iphone-17-pro-256-123/', title: 'Чехол iPhone 17 Pro 256' },
+    { url: 'https://05.ru/cat/x/p/iphone-17-pro-max-256-456/', title: 'Смартфон Apple iPhone 17 Pro Max 256' },
+    { url: 'https://other.example/cat/x/p/iphone-17-pro-256-789/', title: 'Другой сайт' },
+  ]
+  // Real search page has 32 anchors, with several anchors per actual product.
+  let links = Array.from({ length: 32 }, (_, i) => productLinks[i % productLinks.length])
+  let responseStatus = 200
+  let launches = 0, closings = 0, contexts = 0, pageCloses = 0, cardOpens = 0, active = 0, maxActive = 0
+  const navigations = [], opened = []
   parser.browser = async () => {
     launches++
     return { isConnected: () => true, close: async () => { closings++ } }
   }
   parser.context = async () => {
     contexts++
-    return { newPage: async () => fakeSearchPage, close: async () => {} }
+    let currentUrl = ''
+    return {
+      newPage: async () => ({
+        goto: async (url, options) => {
+          currentUrl = url; navigations.push(url)
+          assert.equal(options.waitUntil, 'commit')
+          assert.equal(options.timeout, 20_000)
+          const parsed = new URL(url)
+          assert.equal(parsed.origin, 'https://05.ru')
+          assert.equal(parsed.pathname, '/search/')
+          assert.equal(parsed.searchParams.get('page'), '1')
+          assert(parsed.searchParams.has('q'))
+          return { status: () => responseStatus }
+        },
+        url: () => currentUrl,
+        locator: () => ({
+          first: () => ({ waitFor: async () => {} }),
+          evaluateAll: async () => links,
+        }),
+        close: async () => { pageCloses++ },
+      }),
+      close: async () => {},
+    }
   }
   parser.open = async (_, url) => {
-    cardOpens++
-    return { url, close: async () => {} }
+    cardOpens++; opened.push(url)
+    return { close: async () => {} }
   }
   parser.snapshot = async () => {
     active++; maxActive = Math.max(maxActive, active)
-    await new Promise(resolve => setTimeout(resolve, 12))
+    await new Promise(resolve => setTimeout(resolve, 10))
     active--
     return fixture.snapshot
   }
   try {
     const trace = {}
-    const result = await parser.searchProducts('Xiaomi Redmi', 7, trace)
-    assert.equal(result.length, 7)
-    assert.equal(trace.linksFound, 7)
-    assert.equal(trace.cardsParsed, 7)
-    assert.deepEqual(trace.rejectedCards, [])
-    assert.equal(launches, 1)
-    assert.equal(cardOpens, 7)
+    const found = await parser.searchProducts('iPhone 17 Pro 256', 3, trace)
+    assert.equal(found.length, 3)
+    assert.equal(trace.linksFound, 7) // valid 05.ru links, deduplicated
+    assert.equal(trace.searchMode, 'direct-search')
+    assert.equal(trace.cardsParsed, 3)
+    assert.equal(opened[0], orange256) // not the first 1TB card in the feed
+    assert.equal(cardOpens, 3)
     assert.equal(maxActive, 3)
-    const cachedTrace = {}
-    const repeated = await parser.searchProducts('  Xiaomi Redmi ', 7, cachedTrace)
-    assert.equal(repeated.length, 7)
-    assert.equal(cachedTrace.cached, true)
-    assert.equal(cachedTrace.cardsParsed, 7)
-    assert.equal(cardOpens, 7) // identical query comes from short-lived result cache
-    const other = await parser.searchProducts('Xiaomi Redmi Note', 7)
-    assert.equal(other.length, 7)
-    assert.equal(launches, 1) // other products use the same browser
-    assert.equal(contexts, 2) // but a separate isolated context
-    parser.snapshot = async () => ({ ...fixture.snapshot, h1: '', scripts: [], metaPrice: null, domPrice: null })
-    const failedTrace = {}
-    await assert.rejects(() => parser.searchProducts('Broken product', 7, failedTrace), /карточки не прочитаны/)
-    assert.equal(failedTrace.cardsParsed, 0)
-    assert(failedTrace.rejectedCards.length > 0)
-    // A non-working storefront search widget is not a "product not found" result.
-    links.length = 0
-    fakeSearchPage.url = () => 'https://05.ru/'
-    parser.smartphoneCatalogLinks = async () => []
-    await assert.rejects(() => parser.searchProducts('iphone 17 pro 512', 7),
-      /Дополнительно просмотрены 0 ссылок/)
-    assert.equal(submitClicks, 1)
+    assert.equal(launches, 1)
+    assert.equal(pageCloses, 1)
+    assert.equal(new URL(navigations[0]).searchParams.get('q'), 'iPhone 17 Pro 256')
+    const again = await parser.searchProducts('  iPhone 17 Pro 256  ', 3, {})
+    assert.equal(again.length, 3)
+    assert.equal(cardOpens, 3) // cache avoids extra site requests
+    assert.equal(contexts, 1)
 
-    // Autocomplete can contain the product and disappear as soon as Enter is pressed.
-    parser.snapshot = async () => fixture.snapshot
-    links.push(iphoneUrl)
-    hideOnEnter = true
-    const suggestedTrace = {}
-    const suggestionResult = await parser.searchProducts('iphone 17 pro 256', 7, suggestedTrace)
-    assert.equal(suggestionResult.length, 1)
-    assert.equal(suggestedTrace.searchMode, 'suggestions')
-    assert.equal(submitClicks, 1)
-
-    // Clicking the site's own search form should be attempted when Enter does nothing.
-    hideOnEnter = false
-    submitAddsCard = true
-    const formTrace = {}
-    const formResult = await parser.searchProducts('Apple iPhone 17 Pro 256', 7, formTrace)
-    assert.equal(formResult.length, 1)
-    assert.equal(formTrace.searchMode, 'form-submit')
-    assert.equal(submitClicks, 2)
+    links = []
+    const emptyTrace = {}
+    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*не отдал/)
+    assert.equal(emptyTrace.linksFound, 0)
+    assert.equal(emptyTrace.searchMode, 'direct-search')
+    assert.equal(contexts, 2)
+    responseStatus = 403
+    await assert.rejects(() => parser.searchProducts('Another nonexistent model', 3), /HTTP 403/)
+    assert.equal(contexts, 3)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
-})
-
-
-
-test('Fallback indexes the public smartphone catalog once and resolves products when homepage search stays empty', async () => {
-  const parser = new FiveRuParser()
-  const catalogUrl = 'https://05.ru/cat/mc/396f7486/smartfony/'
-  const productUrl = fixture.sourceUrl
-  let pageCount = 0, catalogPageCount = 0, parseCount = 0
-  const page = {
-    goto: async () => ({ status: () => 200 }),
-    url: () => 'https://05.ru/',
-    locator: () => ({ first: () => ({
-      waitFor: async () => {}, fill: async () => {}, press: async () => {},
-    }), evaluateAll: async () => [] }),
-    waitForTimeout: async () => {},
-    evaluate: async () => false, // no submit form / no suggestions
-    close: async () => {},
-  }
-  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
-  parser.context = async () => ({
-    newPage: async () => {
-      pageCount++
-      if (pageCount !== 2) return page
-      catalogPageCount++
-      let calls = 0
-      return {
-        goto: async (url, options) => {
-          assert.equal(url, catalogUrl)
-          assert.equal(options.waitUntil, 'commit')
-          return { status: () => 200 }
-        },
-        url: () => catalogUrl,
-        locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
-        evaluate: async () => {
-          if (++calls === 1) return undefined // scroll to bottom
-          return {
-            links: [
-              { url: 'https://05.ru/cat/x/p/chehol-iphone-17-pro-123/', title: 'Чехол для iPhone 17 Pro' },
-              { url: productUrl, title: fixture.snapshot.h1 },
-            ],
-            next: null,
-          }
-        },
-        waitForTimeout: async () => {},
-        close: async () => {},
-      }
-    },
-    close: async () => {},
-  })
-  parser.open = async (_, url) => {
-    parseCount++
-    assert.equal(url, productUrl)
-    return { close: async () => {} }
-  }
-  parser.snapshot = async () => fixture.snapshot
-  try {
-    const firstTrace = {}
-    const first = await parser.searchProducts('iphone 17 pro 256', 12, firstTrace)
-    assert.equal(first.length, 1)
-    assert.equal(firstTrace.searchMode, 'smartphone-catalog')
-    assert.equal(catalogPageCount, 1)
-    assert.equal(first[0].url, productUrl)
-    const second = await parser.searchProducts('iphone 17 pro', 12)
-    assert.equal(second.length, 1)
-    assert.equal(catalogPageCount, 1) // bounded catalog index cached across queries
-    assert.equal(parseCount, 2) // prices still come from fresh product pages
-  } finally { await parser.onModuleDestroy() }
 })
 
 test('Business price-list import links 1C products safely, never claims 05.ru verification and rolls back invalid rows', async () => {
@@ -788,7 +728,7 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
     },
   }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
-  const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000 })
+  const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000, indexCatalog: true })
   assert.equal(enqueued.eligible, size)
   assert.equal(enqueued.queued, size)
   let indexJob = await prisma.monitorJob.findFirstOrThrow({
@@ -815,4 +755,10 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
   assert.equal(matchJob.processed, 1)
   assert.equal(matchJob.status, 'QUEUED')
+  await monitor.cancelJob(matchJob.id)
+  const indexedCount = await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } })
+  const direct = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000 })
+  assert.equal(direct.queued, size)
+  assert.deepEqual(direct.visitedUrls, [])
+  assert.equal(await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } }), indexedCount)
 })
