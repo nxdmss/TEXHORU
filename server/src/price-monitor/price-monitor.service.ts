@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { createHash } from 'node:crypto'
-import { ProductStatus, StockState } from '@prisma/client'
+import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
 import { compareItems, fingerprint, identity, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
@@ -364,6 +364,111 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null }
     })
     return updated
+  }
+
+  /**
+   * Preview is read-only. The returned token binds the exact verified
+   * observations and original site prices to the user's single confirmation.
+   */
+  private async bulkPriceSnapshot(db: PrismaService | Prisma.TransactionClient, categoryPath = '') {
+    const path = categoryPath.trim()
+    const links = await db.competitorProduct.findMany({
+      where: { source: { key: '05ru' }, product: { isNot: null } },
+      include: { source: true, product: { include: { category: true } } },
+      take: 10000,
+    })
+    const now = Date.now()
+    const counted = new Map<number, number>()
+    const eligible: Array<{
+      id: string; productId: number; productName: string; oldPrice: number;
+      competitorPrice: number; newPrice: number; lastSuccessAt: string;
+      unknownCost: boolean; largeChange: boolean; oneCQueued: boolean;
+    }> = []
+    let skipped = 0
+    for (const link of links) {
+      const product = link.product
+      if (!product?.oneCId || product.status !== 'ACTIVE'
+        || product.stockQty <= product.reservedQty
+        || !/(?:смартфон|smartphone)/i.test(product.category.name)
+        || (path && product.category.name !== path && !product.category.name.startsWith(path + ' / '))) continue
+      counted.set(product.id, (counted.get(product.id) || 0) + 1)
+      const newPrice = (link.latestPrice || 0) - 500
+      const valid = link.matchStatus === 'CONFIRMED'
+        && link.priceSource !== 'USER_FILE'
+        && !link.lastError && link.lastSuccessAt
+        && now - link.lastSuccessAt.getTime() >= 0
+        && now - link.lastSuccessAt.getTime() <= 24 * 3600_000
+        && link.inStock === true && newPrice > 0
+        && fingerprint(product) === link.confirmedProductFingerprint
+        && fingerprint({ name: link.externalName || '', attributes: link.attributes }) === link.confirmedFingerprint
+        && (!product.costPrice || newPrice >= product.costPrice)
+        && newPrice !== product.price
+      if (!valid) { skipped++; continue }
+      eligible.push({
+        id: link.id, productId: product.id, productName: product.name,
+        oldPrice: product.price, competitorPrice: link.latestPrice!,
+        newPrice, lastSuccessAt: link.lastSuccessAt!.toISOString(),
+        unknownCost: !product.costPrice,
+        largeChange: Math.abs(newPrice - product.price) > product.price * 0.1,
+        oneCQueued: product.priceSyncEnabled,
+      })
+    }
+    // Never choose between multiple competing cards linked to one 1C product.
+    const unique = eligible.filter(row => counted.get(row.productId) === 1)
+      .sort((a, b) => a.productId - b.productId || a.id.localeCompare(b.id))
+    skipped += eligible.length - unique.length
+    const token = createHash('sha256').update(JSON.stringify({ path, rows: unique })).digest('hex')
+    return {
+      token, count: unique.length, skipped,
+      unknownCost: unique.filter(row => row.unknownCost).length,
+      largeChanges: unique.filter(row => row.largeChange).length,
+      oneCQueued: unique.filter(row => row.oneCQueued).length,
+      items: unique,
+    }
+  }
+
+  async previewBulkPrices(dto: BulkPriceScopeDto) {
+    return this.bulkPriceSnapshot(this.prisma, dto.categoryPath)
+  }
+
+  async applyBulkPrices(dto: BulkApplyPricesDto) {
+    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+      throw new ConflictException('Проверка цен ещё идёт. Заверши её перед массовым изменением.')
+    }
+    return this.prisma.$transaction(async tx => {
+      // Verify token *inside the same transaction* that changes prices.
+      const snapshot = await this.bulkPriceSnapshot(tx, dto.categoryPath)
+      if (snapshot.token !== dto.token) {
+        throw new ConflictException('Цены или совпадения изменились. Обнови предварительный просмотр и повтори.')
+      }
+      if (!snapshot.count) throw new BadRequestException('Нет подтверждённых актуальных цен для обновления')
+      if (snapshot.unknownCost && !dto.acceptUnknownCost) {
+        throw new BadRequestException('Есть товары без себестоимости. Требуется явное подтверждение риска.')
+      }
+      if (snapshot.largeChanges && !dto.acceptLargeChange) {
+        throw new BadRequestException('Есть изменения более 10%. Требуется явное подтверждение.')
+      }
+      let oneCQueued = 0
+      for (const item of snapshot.items) {
+        const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } })
+        const message = await OneCPriceSyncService.queue(tx, product, item.newPrice, item.id)
+        const changed = await tx.product.updateMany({
+          where: { id: product.id, price: item.oldPrice, status: ProductStatus.ACTIVE },
+          data: { price: item.newPrice },
+        })
+        if (changed.count !== 1) throw new ConflictException('Цена товара изменилась во время применения. Все изменения отменены.')
+        if (message) oneCQueued++
+        await tx.auditLog.create({ data: {
+          action: 'APPLY_MONITOR_SITE_PRICE', entity: 'Product', entityId: String(product.id),
+          details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
+            competitorPrice: item.competitorPrice, newPrice: item.newPrice,
+            costUnknown: item.unknownCost, largeChange: item.largeChange,
+            siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null },
+        } })
+      }
+      return { ok: true, applied: snapshot.count, skipped: snapshot.skipped,
+        oneCQueued, siteOnly: snapshot.count - oneCQueued }
+    }, { timeout: 120000 })
   }
 
   async settings() { return this.prisma.monitorSettings.upsert({ where: { id: '05ru' }, update: {}, create: { id: '05ru' } }) }
