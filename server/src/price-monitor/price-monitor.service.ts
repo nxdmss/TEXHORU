@@ -392,7 +392,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const selected = scoped.slice(0, limit)
     // Small diagnostic runs keep the existing direct search. Bulk runs index
     // the catalog once instead of repeating an unreliable search 2,000 times.
-    const useIndex = dto.indexCatalog === true || selected.length > 100
+    // Direct search is the default; the unverified full-site crawl is opt-in only.
+    const useIndex = dto.indexCatalog === true
     if (useIndex) await this.ensureIndexJob()
     const job = await this.prisma.monitorJob.create({
       data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
