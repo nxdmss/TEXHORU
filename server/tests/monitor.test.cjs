@@ -92,6 +92,11 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: 'https://05.ru/cat/x/p/chehol-dlya-iphone-17-pro-256-123/', title: 'Чехол iPhone 17 Pro 256' },
     { url: 'https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/', title: 'Смартфон Apple iPhone 17 Pro 256 Гб оранжевый' },
   ], 'iphone 17 pro 256', 10), ['https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/'])
+  assert.deepEqual(rankSearchLinks([
+    { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-1-tb-oranzheviy-1/', title: 'iPhone 17 Pro 1 ТБ' },
+    { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/', title: 'iPhone 17 Pro 256 GB' },
+    { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-512-gb-oranzheviy-3/', title: 'iPhone 17 Pro 512 GB' },
+  ], 'iphone 17 pro 256', 12), ['https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/'])
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
@@ -464,10 +469,12 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
   const orange1tb = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-1-tb-oranzheviy-e-sim-bez-rustore-34464/'
   const blue256 = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-siniy-e-sim-bez-rustore-24126/'
   const orange512 = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-512-gb-oranzheviy-12345/'
+  const white256 = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-beliy-12346/'
   const productLinks = [
     { url: orange1tb, title: 'Смартфон Apple iPhone 17 Pro 1 ТБ оранжевый' },
     { url: orange256, title: fixture.snapshot.h1 },
     { url: blue256, title: 'Смартфон Apple iPhone 17 Pro 256 ГБ синий' },
+    { url: white256, title: 'Смартфон Apple iPhone 17 Pro 256 ГБ белый' },
     { url: orange512, title: 'Смартфон Apple iPhone 17 Pro 512 ГБ оранжевый' },
     { url: 'https://05.ru/cat/x/p/chehol-iphone-17-pro-256-123/', title: 'Чехол iPhone 17 Pro 256' },
     { url: 'https://05.ru/cat/x/p/iphone-17-pro-max-256-456/', title: 'Смартфон Apple iPhone 17 Pro Max 256' },
@@ -522,7 +529,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     const trace = {}
     const found = await parser.searchProducts('iPhone 17 Pro 256', 3, trace)
     assert.equal(found.length, 3)
-    assert.equal(trace.linksFound, 6) // valid 05.ru links, deduplicated
+    assert.equal(trace.linksFound, 7) // valid 05.ru links, deduplicated
     assert.equal(trace.searchMode, 'direct-search')
     assert.equal(trace.cardsParsed, 3)
     assert.equal(opened[0], orange256) // not the first 1TB card in the feed
