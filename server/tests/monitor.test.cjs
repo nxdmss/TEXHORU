@@ -706,3 +706,113 @@ test('Direct product checks use response commit and reuse Chromium across checks
   } finally { await parser.onModuleDestroy() }
   assert.equal(browserCloses, 1)
 })
+
+
+test('05.ru seller index reads distinct product pages using observed ?page=N pagination', async () => {
+  const parser = new FiveRuParser()
+  let launches = 0
+  const navigations = []
+  parser.browser = async () => {
+    launches++
+    return { isConnected: () => true, close: async () => {} }
+  }
+  parser.context = async () => ({
+    newPage: async () => {
+      let requestedUrl = ''
+      return {
+        goto: async (url, options) => {
+          requestedUrl = url; navigations.push(url)
+          assert.equal(options.waitUntil, 'commit')
+          return { status: () => 200 }
+        },
+        url: () => requestedUrl,
+        locator: () => ({ first: () => ({ waitFor: async () => {} }), evaluateAll: async () => {
+          const n = new URL(requestedUrl).searchParams.get('page') || '1'
+          return [{ url: 'https://05.ru/cat/396f7486/p/test-iphone-' + n + '/',
+            title: 'Смартфон Apple iPhone 18 Pro 256 Гб оранжевый' }]
+        } }),
+        evaluate: async () => {},
+        waitForTimeout: async () => {},
+        close: async () => {},
+      }
+    },
+    close: async () => {},
+  })
+  try {
+    const first = await parser.indexCatalogPage(1)
+    const second = await parser.indexCatalogPage(2)
+    assert.equal(first.length, 1)
+    assert.equal(second.length, 1)
+    assert.notEqual(first[0].url, second[0].url)
+    assert.deepEqual(navigations, [
+      'https://05.ru/cat/seller/05-ru-133/',
+      'https://05.ru/cat/seller/05-ru-133/?page=2',
+    ])
+    assert.equal(launches, 1)
+  } finally { await parser.onModuleDestroy() }
+})
+
+test('Bulk 1C matching automatically builds persistent 05.ru index and links a verified product without manual URLs', async () => {
+  await prisma.competitorCatalogEntry.deleteMany()
+  const catId = randomUUID(), base = randomUUID(), size = 125
+  const categoryPath = 'BUSINESS 2000 ' + base
+  const iphoneName = 'Смартфон Apple iPhone 18 Pro 12 Гб/256 Гб оранжевый (E-Sim)'
+  const products = Array.from({ length: size }, (_, i) => ({
+    oneCId: base + '-' + i, sku: 'BULK-SKU-' + base + '-' + i,
+    slug: 'bulk-' + base + '-' + i,
+    name: i === 0 ? iphoneName : 'Тестовая модель Xiaomi ' + i,
+    brand: i === 0 ? 'Apple' : 'Xiaomi',
+    categoryOneCId: catId, price: 92000, stockQty: 2, costPrice: 75000,
+  }))
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: catId, name: categoryPath, slug: 'bulk-' + catId }],
+    products,
+  })
+  const url = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-18-pro-12-gb-256-gb-oranzheviy-e-sim-999999/'
+  const currentSnapshot = { ...fixture.snapshot,
+    h1: fixture.snapshot.h1.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro'),
+    scripts: fixture.snapshot.scripts.map(script => script.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
+  }
+  let searchCalls = 0, parseCalls = 0, indexCalls = 0
+  const parser = {
+    indexCatalogPage: async page => {
+      indexCalls++
+      return page === 1 ? [{ url, title: currentSnapshot.h1 }] : []
+    },
+    searchProducts: async () => { searchCalls++; throw new Error('Bulk must not use broken UI search') },
+    parse: async link => {
+      parseCalls++
+      assert.equal(link, url)
+      return { ...extractFiveRu(currentSnapshot, fixture.sourceUrl), url }
+    },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000 })
+  assert.equal(enqueued.eligible, size)
+  assert.equal(enqueued.queued, size)
+  let indexJob = await prisma.monitorJob.findFirstOrThrow({
+    where: { kind: 'INDEX_05RU', status: 'QUEUED' }, orderBy: { createdAt: 'desc' },
+  })
+  assert.equal(indexJob.page, 0)
+  // Use a new instance at every tick to verify persisted progress.
+  for (let i = 0; i < 3; i++) {
+    const worker = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+    await worker.tick()
+  }
+  indexJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: indexJob.id } })
+  assert.equal(indexJob.status, 'COMPLETED')
+  assert.equal(indexJob.page, 2)
+  assert.equal(indexJob.processed, 1)
+  assert.equal(indexCalls, 2)
+  assert.equal(searchCalls, 0)
+  assert.equal(parseCalls, 1)
+  const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
+  const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: base + '-0' } })
+  assert.equal(linked.productId, ours.id)
+  assert.equal(ours.price, 92000)
+  assert.equal((await prisma.competitorCatalogEntry.count()), 1)
+  const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
+  assert.equal(matchJob.processed, 1)
+  assert.equal(matchJob.status, 'QUEUED')
+})
