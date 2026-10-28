@@ -309,7 +309,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             const message = error instanceof Error ? error.message : 'Ошибка карточки'
             // Block/overload aborts the job with the cursor intact, for explicit retry later.
             if (/HTTP (403|429)|проверку доступа|Timeout/i.test(message)) throw error
-            await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { errors: { increment: 1 }, lastError: message } })
+            const diagnostic = job.kind === 'MATCH_1C'
+              ? [job.lastError, message].filter(Boolean).join('\n').slice(-7000)
+              : message
+            await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { errors: { increment: 1 }, lastError: diagnostic } })
           }
           await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { pendingUrls: pending.slice(1), processed: { increment: 1 } } })
         }
