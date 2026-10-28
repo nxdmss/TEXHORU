@@ -427,7 +427,7 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
     price: 90000, stockQty: 2, costPrice: 65000,
   }] })
   const secondUrl = 'https://05.ru/cat/396f7486/p/test-iphone-18-pro-green-' + secondId + '/'
-  const nextSnapshot = { ...fixture.snapshot, h1: 'Смартфон Apple iPhone 18 Pro 12 Гб/512 Гб зеленый (E-Sim)' }
+  const nextSnapshot = { ...fixture.snapshot, h1: 'Смартфон Apple iPhone 18 Pro 12 Гб/512 Гб зеленый (E-Sim)', specs: [{ label: 'Цвет', value: 'зеленый' }] }
   let searchCallsAfterTimeout = 0
   const failing = new PriceMonitorService(prisma, {
     searchProducts: async query => {
