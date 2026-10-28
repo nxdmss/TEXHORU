@@ -194,7 +194,7 @@ export class FiveRuParser implements OnModuleDestroy {
     if (trace) Object.assign(trace, { query: text, linksFound: 0, cardsParsed: 0, rejectedCards: [], cached: false })
     const cached = this.queryCache.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
-      if (trace) Object.assign(trace, { cardsParsed: cached.results.length, cached: true })
+      if (trace) Object.assign(trace, { linksFound: cached.results.length, cardsParsed: cached.results.length, cached: true })
       return cached.results
     }
     try {
