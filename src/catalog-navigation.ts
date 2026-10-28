@@ -38,8 +38,23 @@ export function featuredIphones<T extends FeaturedPhone>(products: T[], take = 1
     : 5
   const variants = products.filter(p => /iphone\s*\d+/i.test(p.name)
     && (p.stockQty === undefined || p.stockQty > 0))
-  // Stable original order for equal ranks; skip other brand phones.
-  return variants.sort((a,b) => rank(a.name)-rank(b.name) || a.id-b.id).slice(0,take)
+    .sort((a,b) => rank(a.name)-rank(b.name) || a.id-b.id)
+  // A balanced first two rows, rather than ten almost-identical Pro Max SKUs.
+  const quotas = [3, 4, 2, 1, 1, take]
+  const selected: T[] = []
+  const used = new Set<number>()
+  for (let group = 0; group < quotas.length; group++) {
+    for (const item of variants.filter(v => rank(v.name) === group).slice(0, quotas[group])) {
+      if (selected.length >= take) break
+      selected.push(item)
+      used.add(item.id)
+    }
+  }
+  for (const item of variants) {
+    if (selected.length >= take) break
+    if (!used.has(item.id)) { selected.push(item); used.add(item.id) }
+  }
+  return selected
 }
 
 export function featuredPhoneImage(name: string, image?: string) {
