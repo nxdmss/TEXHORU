@@ -21,6 +21,9 @@ export function storefrontPath(category: string, name: string): string {
   return base
 }
 
+/** Short display label; never changes the 1C category path. */
+export function browseLabel(name: string) { return name.replace(/^(?:Смартфоны|Телефоны)\s+(?=[\p{L}0-9])/iu, '') }
+
 export type FeaturedPhone = {
   id: number; name: string; category: string; stockQty?: number; image: string
 }
