@@ -771,7 +771,7 @@ test('1C smartphones appear on the storefront only with available stock, and bat
     data: { status: 'CANCELLED', finishedAt: new Date() } })
   const catId = randomUUID(), batch = randomUUID()
   const categoryPath = 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Смартфоны Apple ' + batch
-  const oneCId = 'BULK-ONEC-' + batch, zeroId = 'EMPTY-ONEC-' + batch
+  const oneCId = 'BULK-ONEC-' + batch, zeroId = 'EMPTY-ONEC-' + batch, unmatchedId = 'UNMATCHED-ONEC-' + batch
   const integration = new IntegrationsService(prisma, {})
   await integration.importCatalog({
     categories: [{ oneCId: catId, name: categoryPath, slug: 'stock-test-' + batch }],
@@ -781,6 +781,9 @@ test('1C smartphones appear on the storefront only with available stock, and bat
       { oneCId: zeroId, name: 'Apple iPhone 17 Pro Max 256 Гб синий',
         brand: 'Apple', sku: 'EMPTY-' + batch, slug: 'empty-' + batch,
         categoryOneCId: catId, stockQty: 0, price: 95000, costPrice: 70000 },
+      { oneCId: unmatchedId, name: 'Apple iPhone 17 Pro 512 Гб белый',
+        brand: 'Apple', sku: 'UNMATCHED-' + batch, slug: 'unmatched-' + batch,
+        categoryOneCId: catId, stockQty: 2, price: 96000, costPrice: 70000 },
     ],
   })
   const site = new ProductsService(prisma, { log: async () => {} })
@@ -797,6 +800,8 @@ test('1C smartphones appear on the storefront only with available stock, and bat
   const scope = { categoryPath }
   const preview = await monitor.previewBulkPrices(scope)
   assert.equal(preview.count, 1)
+  assert.equal(preview.totalScope, 2)
+  assert.equal(preview.skipped, 1)
   assert.equal(preview.items[0].newPrice, 96490)
   assert.equal(preview.items[0].oldPrice, 91000)
   await assert.rejects(
