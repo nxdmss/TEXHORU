@@ -1,8 +1,9 @@
 import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
-import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath, isFeaturedCatalogProduct } from './onec-category-tree'
+import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { AdminCategoryTree } from './AdminCategoryTree'
+import { storefrontPath, featuredIphones, featuredPhoneImage, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 import { activeOrders, orderHistory, products as fallbackProducts } from './data'
@@ -56,7 +57,7 @@ function OrderCard({ order }: { order: AccountOrder }) {
 function ProductCard({ product, onOpen, onAdd }: { product: Product; onOpen: (product: Product) => void; onAdd: (product: Product) => void }) {
   return <article className="product-card">
     <button className="product-open" onClick={() => onOpen(product)} aria-label={`Открыть ${product.name}`}>
-      <div className="product-media"><img src={product.image} alt={product.name} /></div>
+      <div className="product-media"><img src={/iphone\s*\d+/i.test(product.name) ? featuredPhoneImage(product.name, product.image) : product.image} alt={product.name} loading="lazy" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /></div>
       <div className="product-card__copy">
         <div className="product-card__title-row">
           <h3>{product.name}</h3>
@@ -570,11 +571,11 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const adminPath = selectedCategoryPath(adminSection) || ''
-  const adminTree = useMemo(() => categoryTree(apiCategories.map(c => c.name)), [apiCategories])
-  const adminFolders = useMemo(() => childrenAtPath(adminTree, adminPath), [adminTree, adminPath])
   const duplicateCount = products.filter(p => Boolean(p.duplicateOf)).length
   const adminCategoryItems = useMemo(() => products.filter(p => showDuplicateRows || !p.duplicateOf)
-    .map(p => p.category?.name || 'Без категории'), [products, showDuplicateRows])
+    .map(p => storefrontPath(p.category?.name || 'Без категории',p.name)), [products, showDuplicateRows])
+  const adminTree = useMemo(() => categoryTree([...apiCategories.map(c => c.name),...adminCategoryItems]), [apiCategories,adminCategoryItems])
+  const adminFolders = useMemo(() => childrenAtPath(adminTree, adminPath), [adminTree, adminPath])
 
   const productGroups = useMemo(() => {
     const q = productSearch.trim().toLowerCase()
@@ -585,8 +586,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       category,
       items: products.filter((item) => item.category?.id === category.id
         && (productSearch.trim()
-          ? inCatalogSection({ name: item.name, categoryName: item.category?.name }, adminSection)
-          : Boolean(adminPath) && item.category?.name === adminPath)
+          ? inCatalogSection({ name: item.name, categoryName: storefrontPath(item.category?.name || '',item.name) }, adminSection)
+          : Boolean(adminPath) && storefrontPath(item.category?.name || '',item.name) === adminPath)
         && (adminCategory === 'ALL' || adminCategory === category.id) && visibleByStatus(item) && (!q || `${item.name} ${item.brand} ${item.sku}`.toLowerCase().includes(q))),
       total: products.filter((item) => item.category?.id === category.id && visibleByStatus(item)).length,
     })).filter((group) => (adminCategory === 'ALL' ? group.items.length > 0 : group.category.id === adminCategory))
@@ -626,8 +627,14 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           onSelect={value => { setAdminCategory('ALL'); setAdminSection(value ? categorySelection(value) : ''); setProductSearch('') }} />
       </aside>
 
-      <div className="admin-catalog-workspace">
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? adminPath.split(' / ').at(-1) : 'Каталог по разделам'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
+      <div className="admin-catalog-workspace" key={adminPath || 'all'}>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
+        {adminPath && <nav className="admin-category-context" aria-label="Путь категории">
+          <button type="button" onClick={() => {setAdminSection('');setProductSearch('')}}>Все разделы</button>
+          {categorySegments(adminPath).map((part,index,parts) => <span key={index}><span aria-hidden="true">/</span>
+            <button type="button" onClick={() => {setAdminSection(categorySelection(parts.slice(0,index+1).join(' / ')));setProductSearch('')}}>{part}</button></span>)}
+        </nav>}
+        <p className="admin-category-description">{adminPath ? 'Выбери подраздел ниже или открой карточку товара.' : 'Открой раздел, чтобы увидеть его категории и товары.'}</p>
         <div className="admin-product-visibility" aria-label="Статус товаров">
           <button className={productVisibility === 'ALL' ? 'active' : ''} onClick={() => setProductVisibility('ALL')}>Все <span>{products.filter(p => showDuplicateRows || !p.duplicateOf).length}</span></button>
           <button className={productVisibility === 'ACTIVE' ? 'active' : ''} onClick={() => setProductVisibility('ACTIVE')}>На сайте <span>{products.filter((item) => item.status === 'ACTIVE' && (showDuplicateRows || !item.duplicateOf)).length}</span></button>
@@ -640,16 +647,16 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         {!productSearch.trim() && adminFolders.length > 0 &&
           <div className="admin-folder-cards">{adminFolders.map(child =>
             <button key={child.path} className="admin-folder-card" onClick={() => { setAdminCategory('ALL'); setAdminSection(categorySelection(child.path)) }}>
-              <b>▣ {child.title}</b>
-              <span>{products.filter(p => (showDuplicateRows || !p.duplicateOf) && (p.category?.name === child.path || p.category?.name?.startsWith(child.path + ' / '))).length} товаров</span>
+              <b>▣ {browseLabel(child.title)}</b>
+              <span>{products.filter(p => (showDuplicateRows || !p.duplicateOf) && (storefrontPath(p.category?.name || '', p.name) === child.path || storefrontPath(p.category?.name || '', p.name).startsWith(child.path + ' / '))).length} товаров</span>
             </button>)}
           </div>}
-        {<><div className="catalog-result-count">{productGroups.reduce((n, g) => n + g.items.length, 0)} товаров · показано до {adminLimit}</div>
+        {<>{(productGroups.length > 0 || productSearch.trim()) && <div className="catalog-result-count">{productGroups.reduce((n, g) => n + g.items.length, 0)} товаров · показано до {adminLimit}</div>}
         <div className="admin-product-groups">{productGroups.filter((_, i) => productGroups.slice(0, i).reduce((n, g) => n + g.items.length, 0) < adminLimit).map((group) => <section className="admin-product-group" key={group.category.id}>
-          <div className="admin-product-group__head"><div><h3>{group.category.name}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
+          <div className="admin-product-group__head"><div><h3>{browseLabel(adminPath.split(' / ').at(-1) || group.category.name.split(' / ').at(-1) || '')}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
           {group.items.length ? <div className="admin-product-grid">{group.items.slice(0, Math.max(0, adminLimit - productGroups.slice(0, productGroups.indexOf(group)).reduce((n, g) => n + g.items.length, 0))).map((item) => <article className={item.status === 'ARCHIVED' ? 'admin-product-tile is-archived' : 'admin-product-tile'} key={item.id}>
             <button className="admin-product-tile__main" onClick={() => openEditProduct(item)}>
-              <div className="admin-product-tile__image"><img src={item.image || '/products/phone.svg'} alt="" onError={(e) => { e.currentTarget.src = '/products/phone.svg' }} />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
+              <div className="admin-product-tile__image"><img src={/iphone\s*\d+/i.test(item.name) ? featuredPhoneImage(item.name,item.image) : (item.image || '/products/phone.svg')} alt="" onError={(e) => { e.currentTarget.src = '/products/phone.svg' }} />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
               <div className="admin-product-tile__copy"><small>{item.brand} · {item.sku}</small><strong>{item.name}</strong><div><b>{money.format(item.price)} ₽</b><span>{item.stockQty} шт.</span></div></div>
             </button>
             <div className="admin-product-tile__actions">
@@ -777,17 +784,23 @@ function App() {
   const selectedProduct = productMatch ? catalogProducts.find((item) => item.id === Number(productMatch[1])) : undefined
   const isProductPage = Boolean(productMatch), isAccountPage = /^\/account\/?$/.test(path), isCheckoutPage = /^\/checkout\/?$/.test(path), isAdminPage = /^\/admin\/?$/.test(path)
   useEffect(() => { setStoreLimit(24) }, [storeSection, category, query])
-  const categoryRoots = useMemo(() => categoryTree(catalogProducts.map(p => p.category)), [catalogProducts])
+  const categoryRoots = useMemo(() => categoryTree(catalogProducts.map(p => storefrontPath(p.category,p.name))), [catalogProducts])
   const menuChildren = childrenAtPath(categoryRoots, menuPath)
+  const selectedBrowsePath = selectedCategoryPath(storeSection)
+  const browseChildren = childrenAtPath(categoryRoots, selectedBrowsePath || '')
+  const isFeaturedView = !query.trim() && !storeSection && category === 'Все'
+  const folderOnly = !query.trim() && (storeSection === ALL_CATALOG || (selectedBrowsePath !== null && browseChildren.length > 0))
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const featuredOnly = !storeSection && category === 'Все' && !q
-    return catalogProducts.filter(product =>
-      (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
-      inCatalogSection({ name: product.name, categoryName: product.category }, storeSection) &&
-      (!featuredOnly || isFeaturedCatalogProduct(product)) &&
-      (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q)))
-  }, [category, query, catalogProducts, storeSection])
+    if (!q && !storeSection && category === 'Все') return featuredIphones(catalogProducts, 10)
+    if (!q && (storeSection === ALL_CATALOG || (selectedBrowsePath !== null && browseChildren.length > 0))) return []
+    return catalogProducts.filter(product => {
+      const virtualPath = storefrontPath(product.category, product.name)
+      return (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
+        (!selectedBrowsePath || virtualPath === selectedBrowsePath) &&
+        (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))
+    })
+  }, [category, query, catalogProducts, storeSection, selectedBrowsePath, browseChildren.length])
   const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : defaultPromos, [promos, promosLoaded])
   useEffect(() => {
     if (path !== '/' || sliderItems.length < 2) return
@@ -884,7 +897,22 @@ function App() {
         </aside>
       </div>
     </section>}
-    <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>{query.trim() ? 'Результаты поиска' : !storeSection && category === 'Все' ? 'Популярные товары' : 'Каталог'}</h2></div></div><CatalogSections hierarchical items={catalogProducts.map(p => ({ name: p.name, categoryName: p.category }))} selection={storeSection} searching={Boolean(query.trim())} onSelect={value => { setStoreSection(value); setCategory('Все'); setQuery('') }} />{<><div className="catalog-result-count">Найдено: {filtered.length}</div><div className="product-grid">{filtered.slice(0, storeLimit).map(product => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length > storeLimit && <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}{filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}</>}</section>
+    <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id="catalog">
+      <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
+        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
+      </div></div>
+      <CatalogSections hierarchical items={catalogProducts.map(p => ({ name:p.name, categoryName:storefrontPath(p.category,p.name) }))}
+        selection={storeSection} searching={Boolean(query.trim())}
+        onSelect={value => {setStoreSection(value);setCategory('Все');setQuery('');setStoreLimit(24)}} />
+      {!folderOnly && <>
+        <div className="catalog-result-count">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + filtered.length}</div>
+        <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart}/>)}</div>
+        {!isFeaturedView && filtered.length > storeLimit &&
+          <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}
+        {filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}
+      </>}
+    </section>
   </>
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={product.image} alt={product.name} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
