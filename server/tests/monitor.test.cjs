@@ -616,6 +616,57 @@ test('Fallback indexes the public smartphone catalog once and resolves products 
   } finally { await parser.onModuleDestroy() }
 })
 
+test('Business price-list import links 1C products safely, never claims 05.ru verification and rolls back invalid rows', async () => {
+  const categoryId = randomUUID(), id = randomUUID(), secondId = randomUUID()
+  const categoryPath = 'Бизнес импорт тест ' + categoryId
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, slug: 'business-import-' + categoryId, name: categoryPath }],
+    products: [
+      { oneCId: id, sku: 'BUS-'+id, slug: 'business-'+id, name: product.name, brand: 'Apple',
+        categoryOneCId: categoryId, price: 91000, stockQty: 3, costPrice: 78000 },
+      { oneCId: secondId, sku: 'BUS-'+secondId, slug: 'business-'+secondId, name: 'Apple iPhone 17 Pro Max 512GB Blue eSIM', brand: 'Apple',
+        categoryOneCId: categoryId, price: 120000, stockQty: 2, costPrice: 94000 },
+    ],
+  })
+  const link = 'https://05.ru/cat/test/p/iphone-17-pro-256-orange-' + id + '/'
+  const observedAt = new Date().toISOString()
+  const row = { oneCId: id, url: link, name: fixture.snapshot.h1,
+    price: 94990, observedAt, inStock: true }
+  const monitor = new PriceMonitorService(prisma, { parse: async () => { throw new Error('Live site must not be opened') } }, new MonitorExchangeService(prisma))
+  const result = await monitor.importManualPrices({ rows: [row] })
+  assert.deepEqual([result.imported, result.created, result.associated, result.verifiedOn05Ru], [1, 1, 1, false])
+  let saved = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: link } })
+  const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  assert.equal(saved.productId, ours.id)
+  assert.equal(saved.matchStatus, 'SUGGESTED')
+  assert.equal(saved.priceSource, 'USER_FILE')
+  assert.equal(saved.lastSuccessAt, null)
+  assert.match(saved.lastError, /не проверена на 05.ru/)
+  assert.equal(saved.latestPrice, 94990)
+  assert.equal((await monitor.list()).find(p => p.id === saved.id).recommendedPrice, null)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).price, 91000)
+  assert.equal((await prisma.monitorDelivery.count({ where: { linkId: saved.id } })), 0)
+  await monitor.importManualPrices({ rows: [row] })
+  assert.equal(await prisma.competitorPriceHistory.count({ where: { competitorProductId: saved.id } }), 1)
+
+  const other = 'https://05.ru/cat/test/p/iphone-17-pro-max-512-blue-' + secondId + '/'
+  await assert.rejects(() => monitor.importManualPrices({ rows: [
+    { ...row, price: 94000 },
+    { oneCId: secondId, url: other, name: 'Apple iPhone 17 Pro 256GB Orange eSIM',
+      price: 101000, observedAt },
+  ] }), /не совпадают/)
+  saved = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: link } })
+  assert.equal(saved.latestPrice, 94990) // valid first row rolled back
+  assert.equal(await prisma.competitorProduct.findUnique({ where: { externalUrl: other } }), null)
+  await assert.rejects(() => monitor.importManualPrices({ rows: [
+    { ...row, observedAt: new Date(Date.now() - 32 * 86400000).toISOString() },
+  ] }), /последние 30 дней/)
+  await assert.rejects(() => monitor.importManualPrices({ rows: [
+    { ...row, url: 'https://05.ru.evil.example/cat/test/p/fake/' },
+  ] }), /05.ru/)
+})
+
 test('Direct product checks use response commit and reuse Chromium across checks', async () => {
   const parser = new FiveRuParser()
   let launches = 0, pageCloses = 0, contexts = 0, browserCloses = 0
