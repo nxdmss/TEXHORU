@@ -381,7 +381,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const path = (dto.categoryPath || '').trim()
     const limit = dto.maxItems || 30
     const imported = await this.prisma.product.findMany({
-      where: { oneCId: { not: null }, status: 'ACTIVE', stockQty: { gt: 0 }, price: { gt: 0 } },
+      where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
     const scoped = imported.filter(p => !path || p.category.name === path || p.category.name.startsWith(path + ' / '))
@@ -501,7 +501,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const product = foundId
                 ? await this.prisma.product.findUnique({ where: { id: Number(foundId[1]) }, include: { category: true } })
                 : null
-              if (!product?.oneCId || product.status !== 'ACTIVE' || product.stockQty <= 0 || product.price <= 0
+              if (!product?.oneCId || product.status !== 'ACTIVE' || product.price <= 0
                 || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))) {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
