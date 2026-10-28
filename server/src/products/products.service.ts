@@ -3,6 +3,7 @@ import { ProductStatus, StockState } from '@prisma/client'
 import { AuditService } from '../audit/audit.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateCategoryDto, UpdateCategoryDto, UpdateProductDto, UpsertProductDto } from './products.dto'
+import { uniquePhoneProducts } from './phone-uniqueness'
 
 @Injectable()
 export class ProductsService {
@@ -10,9 +11,12 @@ export class ProductsService {
 
   async list() {
     const rows = await this.prisma.product.findMany({ where: { status: ProductStatus.ACTIVE }, include: { category: true }, orderBy: [{ category: { sortOrder: 'asc' } }, { id: 'asc' }] })
-    return rows.filter(item => !item.oneCId
+    const visible = rows.filter(item => !item.oneCId
       || !/(?:смартфон|smartphone)/i.test(item.category.name)
-      || item.stockQty > item.reservedQty).map((item) => {
+      || item.stockQty > item.reservedQty)
+    // Older 1C imports may already contain duplicate GUIDs for the exact
+    // same variant. Show one public card; keep all original records intact.
+    return uniquePhoneProducts(visible).map((item) => {
       const available = Math.max(0, item.stockQty - item.reservedQty)
       const stockState = item.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
       return { ...item, stockQty: available, stockState }
