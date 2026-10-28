@@ -1,0 +1,41 @@
+
+/* Editorial catalog; category pages intentionally do not repeat product-category cards. */
+.phone-portal { margin: 30px auto 52px; max-width: 1440px; padding: 0 32px; }
+.phone-portal__button { display:grid; grid-template-columns:minmax(0, .78fr) minmax(0,1fr); width:100%; min-height:385px; padding:0; border:1px solid #e4e4e0; background:#f3f3f0; text-align:left; cursor:pointer; overflow:hidden; position:relative; }
+.phone-portal__button:hover .phone-portal__visual img { transform:scale(1.045) rotate(-2deg); }
+.phone-portal__visual { min-height:385px; display:grid; place-items:center; overflow:hidden; background:radial-gradient(ellipse at 50% 50%,#fafaf8 0%,#efefea 70%); }
+.phone-portal__visual img { display:block; width:75%; height:370px; object-fit:contain; filter:drop-shadow(0 18px 18px rgba(0,0,0,.13)); transition:transform .5s cubic-bezier(.2,.7,.3,1); }
+.phone-portal__copy { display:flex; flex-direction:column; justify-content:center; gap:23px; padding:38px; }
+.phone-portal__copy strong { font-size:clamp(42px,7vw,112px); letter-spacing:-.067em; font-weight:830; line-height:.93; color:#101010; }
+.phone-portal__eyebrow { font:700 11px var(--font-mono,monospace); color:#777; letter-spacing:.06em; }
+.phone-portal__link { font-size:14px; font-weight:650; }
+.phone-portal__link span { display:inline-block; transition:transform .2s; }
+.phone-portal__button:hover .phone-portal__link span { transform:translate(4px,-4px); }
+.phone-journey { min-height:62vh; padding:34px clamp(20px,4vw,70px) 75px; max-width:1480px; margin:0 auto; animation:phoneEnter .4s cubic-bezier(.16,1,.3,1) both; }
+.phone-journey__back { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font:600 11px var(--font-mono,monospace); text-transform:uppercase; color:#999; }
+.phone-journey__back button { background:none; border:0; padding:6px 0; color:#555; font:inherit; cursor:pointer; }
+.phone-journey__back button:hover { color:#d00019; }
+.phone-journey__back strong { color:#555; font-weight:600; }
+.phone-journey__intro { text-align:center; margin:55px auto 55px; }
+.phone-journey__intro > p:first-child { font:700 11px var(--font-mono,monospace); letter-spacing:.18em; color:#b40016; margin:0 0 19px; }
+.phone-journey__heading { view-transition-name:texhoru-catalog-focus; margin:0 auto; font-weight:820; font-size:clamp(64px,11.5vw,174px); line-height:.94; letter-spacing:-.078em; word-break:break-word; }
+.phone-journey__subheading { color:#777; font-size:14px; margin:20px 0 0; }
+.phone-journey__brands { display:flex; flex-direction:column; gap:0; align-items:center; max-width:680px; margin:0 auto; }
+.phone-journey__brand { display:flex; align-items:center; justify-content:center; gap:16px; background:none; color:#161616; border:0; border-bottom:1px solid #e4e4e1; min-width:260px; width:100%; text-align:center; cursor:pointer; padding:20px 10px; font-size:clamp(35px,6vw,72px); line-height:1; letter-spacing:-.055em; font-weight:680; transition:transform .2s,color .2s,opacity .2s; }
+.phone-journey__brand span { display:inline-block; }
+.phone-journey__brand small { font:600 11px var(--font-mono,monospace); color:#aaa; letter-spacing:0; }
+.phone-journey__brand:hover { color:#d50018; transform:translateX(5px); }
+.phone-journey__inventory { margin:0 auto; max-width:1320px; animation:phoneInventory .42s .12s both; }
+.phone-journey__inventory .product-grid { margin-top:15px; }
+.phone-journey__empty { color:#777; font-size:14px; }
+@keyframes phoneEnter { from { opacity:0; transform:translateY(14px); } to {opacity:1;transform:translateY(0);} }
+@keyframes phoneInventory { from {opacity:0;transform:translateY(14px);} to {opacity:1;transform:translateY(0);} }
+@media(max-width:900px) { .phone-portal__button { min-height:300px; }.phone-portal__visual {min-height:300px}.phone-portal__visual img {height:290px} .phone-portal__copy{padding:22px} }
+@media(max-width:650px) { .phone-portal{padding:0 14px;margin:16px auto 28px}.phone-portal__button{grid-template-columns:1fr;min-height:auto}.phone-portal__visual{min-height:230px}.phone-portal__visual img{height:225px}.phone-portal__copy{gap:11px;padding:18px 20px 26px}.phone-portal__copy strong{font-size:50px}.phone-journey{padding:20px 16px 55px}.phone-journey__intro{margin:75px 0 40px}.phone-journey__heading{font-size:clamp(56px,15vw,96px)}.phone-journey__brand{font-size:42px} }
+@media(prefers-reduced-motion:reduce) { .phone-portal__visual img,.phone-journey,.phone-journey__brand,.phone-journey__inventory {animation:none; transition:none;} }
+@supports (view-transition-name: none) {
+  ::view-transition-old(texhoru-catalog-focus) { animation: .45s cubic-bezier(.16,1,.3,1) both fadeOutTitle; }
+  ::view-transition-new(texhoru-catalog-focus) { animation: .45s cubic-bezier(.16,1,.3,1) both fadeInTitle; }
+  @keyframes fadeOutTitle {from{opacity:1}to{opacity:0}}
+  @keyframes fadeInTitle {from{opacity:.45}to{opacity:1}}
+}

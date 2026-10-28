@@ -57,14 +57,19 @@ export function featuredIphones<T extends FeaturedPhone>(products: T[], take = 1
   return selected
 }
 
+/** Actual Apple product photography, rather than custom SVG approximations.
+ * Existing original photos uploaded to TEXHORU always take priority.
+ * These are Apple CDN image URLs (not copied 05.ru media).
+ * To make product shots independent from external networks, replace URLs with
+ * properly licensed, locally hosted images in the product editor.
+ */
 export function featuredPhoneImage(name: string, image?: string) {
-  // Properly supplied original images from the product catalog take priority.
   if (image && !/\/products\/(?:phone|iphone-cut-[\w-]+)\.svg(?:\?|$)/.test(image)) return image
-  // Do not show a newer phone silhouette for older generations.
-  if (!/\biphone\s*17\b/i.test(name)) return image || '/products/phone.svg'
-  if (/оранж|cosmic orange|orange/i.test(name)) return '/products/iphone-cut-orange.svg'
-  if (/син|голуб|blue/i.test(name)) return '/products/iphone-cut-blue.svg'
-  if (/бел|сереб|white|silver/i.test(name)) return '/products/iphone-cut-white.svg'
-  if (/зел|green/i.test(name)) return '/products/iphone-cut-green.svg'
-  return '/products/iphone-cut-dark.svg'
+  if (!/\biphone\s*17\s*pro(?:\s*max)?\b/i.test(name)) return image || '/products/phone.svg'
+  const size = /\bpro\s*max\b/i.test(name) ? 'iphone-17-pro-max' : 'iphone-17-pro'
+  const color = /оранж|cosmic\s*orange|orange/i.test(name) ? 'cosmicorange'
+    : /син|голуб|deep\s*blue|blue/i.test(name) ? 'deepblue'
+    : 'silver'
+  return 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/'
+    + size + '-finish-select-' + color + '-202509?wid=900&hei=900&fmt=png-alpha'
 }
