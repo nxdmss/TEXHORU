@@ -558,7 +558,9 @@ test('Fallback indexes the public smartphone catalog once and resolves products 
   const page = {
     goto: async () => ({ status: () => 200 }),
     url: () => 'https://05.ru/',
-    locator: () => ({ first: () => ({ waitFor: async () => {} }), evaluateAll: async () => [] }),
+    locator: () => ({ first: () => ({
+      waitFor: async () => {}, fill: async () => {}, press: async () => {},
+    }), evaluateAll: async () => [] }),
     waitForTimeout: async () => {},
     evaluate: async () => false, // no submit form / no suggestions
     close: async () => {},
