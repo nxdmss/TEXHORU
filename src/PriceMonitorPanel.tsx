@@ -188,7 +188,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
           {' · '}без совпадения / ошибок: {lastAutoJob.errors}</p>
         {lastAutoJob.lastError && <details className="monitor-settings-details">
           <summary>Почему не найдено совпадение? Показать диагностику</summary>
-          <p className="monitor-v2__muted" style={{ overflowWrap: 'anywhere' }}>{lastAutoJob.lastError}</p>
+          <p className="monitor-v2__muted" style={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{lastAutoJob.lastError}</p>
         </details>}
       </div>}
     </section>}
