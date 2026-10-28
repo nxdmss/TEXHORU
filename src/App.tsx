@@ -571,11 +571,11 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const adminPath = selectedCategoryPath(adminSection) || ''
-  const adminTree = useMemo(() => categoryTree([...apiCategories.map(c => c.name),...products.map(p => storefrontPath(p.category?.name || 'Без категории',p.name))]), [apiCategories])
-  const adminFolders = useMemo(() => childrenAtPath(adminTree, adminPath), [adminTree, adminPath])
   const duplicateCount = products.filter(p => Boolean(p.duplicateOf)).length
   const adminCategoryItems = useMemo(() => products.filter(p => showDuplicateRows || !p.duplicateOf)
     .map(p => storefrontPath(p.category?.name || 'Без категории',p.name)), [products, showDuplicateRows])
+  const adminTree = useMemo(() => categoryTree([...apiCategories.map(c => c.name),...adminCategoryItems]), [apiCategories,adminCategoryItems])
+  const adminFolders = useMemo(() => childrenAtPath(adminTree, adminPath), [adminTree, adminPath])
 
   const productGroups = useMemo(() => {
     const q = productSearch.trim().toLowerCase()
