@@ -91,6 +91,7 @@ export class FiveRuParser implements OnModuleDestroy {
   private browserUsers = 0
   private browserIdleTimer?: NodeJS.Timeout
   private readonly queryCache = new Map<string, { expires: number; results: FiveRuResult[] }>()
+  private smartphoneCatalogCache?: { expires: number; links: Array<{ url: string; title: string }> }
 
   // Browser startup dominates short searches: reuse one process, but keep
   // isolated contexts so concurrent/admin requests cannot share page state.
@@ -185,6 +186,56 @@ export class FiveRuParser implements OnModuleDestroy {
     })
   }
   /**
+   * The public smartphone catalog is an alternative *discovery* channel when
+   * the storefront search box does not return product links. It is not a source
+   * of prices: all selected URLs still undergo a fresh product-page parse.
+   * A bounded multi-page index is shared across queries during a batch.
+   */
+  private async smartphoneCatalogLinks(context: BrowserContext) {
+    const cached = this.smartphoneCatalogCache
+    if (cached && cached.expires > Date.now()) return cached.links
+    const found = new Map<string, { url: string; title: string }>()
+    const visited = new Set<string>()
+    let next: string | null = 'https://05.ru/cat/mc/396f7486/smartfony/'
+    for (let pageNo = 0; pageNo < 4 && next && found.size < 140; pageNo++) {
+      const url = fiveRuUrl(next, 'catalog')
+      if (visited.has(url)) break
+      visited.add(url)
+      const page = await context.newPage()
+      try {
+        const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
+        if (response && response.status() >= 400) throw new Error('05.ru ответил HTTP ' + response.status() + ' при открытии каталога смартфонов')
+        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Каталог 05.ru перенаправил на другой сайт')
+        await page.locator('a[href*="/p/"]').first().waitFor({ timeout: 8_000 }).catch(() => undefined)
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+        await page.waitForTimeout(350)
+        const data = await page.evaluate(() => ({
+          links: Array.from(document.querySelectorAll('a[href*="/p/"]')).map(node => ({
+            url: (node as HTMLAnchorElement).href,
+            title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+              node.querySelector('img')?.getAttribute('alt') ||
+              node.closest('.product-card')?.textContent?.trim() ||
+              (node as HTMLElement).innerText?.trim() || '').slice(0, 180),
+          })),
+          next: (document.querySelector('.page-nav__arrow_right:not(.page-nav__arrow_disabled) a[href], a[rel="next"], a[aria-label="Следующая страница"], a[aria-label="Следующая"]') as HTMLAnchorElement | null)?.href || null,
+        }))
+        for (const link of data.links) {
+          try {
+            const productUrl = fiveRuUrl(link.url, 'product')
+            if (!found.has(productUrl)) found.set(productUrl, { url: productUrl, title: link.title })
+          } catch { /* Product URL outside the official catalog is ignored. */ }
+        }
+        next = null
+        if (data.next) { try { next = fiveRuUrl(data.next, 'catalog') } catch { /* Never follow another host. */ } }
+      } finally { await page.close() }
+    }
+    if (!found.size) throw new Error('05.ru: каталог смартфонов не вернул ссылки на товары. Возможно, сайт не загрузил карточки или ограничил доступ.')
+    const links = [...found.values()]
+    this.smartphoneCatalogCache = { expires: Date.now() + 15 * 60_000, links }
+    return links
+  }
+
+  /**
    * Searches the PUBLIC 05.ru storefront for a product name. This does not rely
    * on a hidden API or guess undocumented search URL parameters: it uses the
    * site's own search control. No anti-bot bypass, external navigation or
@@ -268,14 +319,25 @@ export class FiveRuParser implements OnModuleDestroy {
               trace.searchMode = valid.length ? searchMode : suggestions.length ? 'suggestions' : searchMode
             }
             urls = rankSearchLinks(combined, text, limit)
-            if (!urls.length && new URL(searchPage.url()).pathname === '/') {
-              throw new Error('05.ru не отдал карточки через подсказки, Enter и отправку формы поиска. ' +
-                'Возможно, изменился интерфейс сайта или доступ ограничен. Это не означает, что товара нет.')
-            }
+            // The main-page search is often a non-functioning SPA widget.
+            // After closing it, try the public category index instead of
+            // treating an empty search page as proof that a product is absent.
           } finally {
             await searchPage.close()
           }
-          if (!urls.length) return []
+          if (!urls.length) {
+            const links = await this.smartphoneCatalogLinks(context)
+            urls = rankSearchLinks(links, text, limit)
+            if (trace) {
+              trace.linksFound += links.length
+              trace.searchMode = 'smartphone-catalog'
+            }
+            if (!urls.length) {
+              throw new Error('05.ru: поиск не вернул товар. Дополнительно просмотрены ' + links.length +
+                ' ссылок публичного каталога смартфонов (не более 4 страниц), но нужной модели там нет. ' +
+                'Это не подтверждает отсутствие товара на сайте.')
+            }
+          }
           const slots: Array<FiveRuResult | undefined> = new Array(urls.length)
           let index = 0
           // At most 3 product pages in flight: prevents serial 05.ru latency

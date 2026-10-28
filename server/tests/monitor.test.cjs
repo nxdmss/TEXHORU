@@ -521,8 +521,9 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     // A non-working storefront search widget is not a "product not found" result.
     links.length = 0
     fakeSearchPage.url = () => 'https://05.ru/'
+    parser.smartphoneCatalogLinks = async () => []
     await assert.rejects(() => parser.searchProducts('iphone 17 pro 512', 7),
-      /не отдал карточки/)
+      /Дополнительно просмотрены 0 ссылок/)
     assert.equal(submitClicks, 1)
 
     // Autocomplete can contain the product and disappear as soon as Enter is pressed.
@@ -547,6 +548,73 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
   assert.equal(closings, 1)
 })
 
+
+
+test('Fallback indexes the public smartphone catalog once and resolves products when homepage search stays empty', async () => {
+  const parser = new FiveRuParser()
+  const catalogUrl = 'https://05.ru/cat/mc/396f7486/smartfony/'
+  const productUrl = fixture.sourceUrl
+  let pageCount = 0, catalogPageCount = 0, parseCount = 0
+  const page = {
+    goto: async () => ({ status: () => 200 }),
+    url: () => 'https://05.ru/',
+    locator: () => ({ first: () => ({
+      waitFor: async () => {}, fill: async () => {}, press: async () => {},
+    }), evaluateAll: async () => [] }),
+    waitForTimeout: async () => {},
+    evaluate: async () => false, // no submit form / no suggestions
+    close: async () => {},
+  }
+  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
+  parser.context = async () => ({
+    newPage: async () => {
+      pageCount++
+      if (pageCount !== 2) return page
+      catalogPageCount++
+      let calls = 0
+      return {
+        goto: async (url, options) => {
+          assert.equal(url, catalogUrl)
+          assert.equal(options.waitUntil, 'commit')
+          return { status: () => 200 }
+        },
+        url: () => catalogUrl,
+        locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
+        evaluate: async () => {
+          if (++calls === 1) return undefined // scroll to bottom
+          return {
+            links: [
+              { url: 'https://05.ru/cat/x/p/chehol-iphone-17-pro-123/', title: 'Чехол для iPhone 17 Pro' },
+              { url: productUrl, title: fixture.snapshot.h1 },
+            ],
+            next: null,
+          }
+        },
+        waitForTimeout: async () => {},
+        close: async () => {},
+      }
+    },
+    close: async () => {},
+  })
+  parser.open = async (_, url) => {
+    parseCount++
+    assert.equal(url, productUrl)
+    return { close: async () => {} }
+  }
+  parser.snapshot = async () => fixture.snapshot
+  try {
+    const firstTrace = {}
+    const first = await parser.searchProducts('iphone 17 pro 256', 12, firstTrace)
+    assert.equal(first.length, 1)
+    assert.equal(firstTrace.searchMode, 'smartphone-catalog')
+    assert.equal(catalogPageCount, 1)
+    assert.equal(first[0].url, productUrl)
+    const second = await parser.searchProducts('iphone 17 pro', 12)
+    assert.equal(second.length, 1)
+    assert.equal(catalogPageCount, 1) // bounded catalog index cached across queries
+    assert.equal(parseCount, 2) // prices still come from fresh product pages
+  } finally { await parser.onModuleDestroy() }
+})
 
 test('Direct product checks use response commit and reuse Chromium across checks', async () => {
   const parser = new FiveRuParser()
