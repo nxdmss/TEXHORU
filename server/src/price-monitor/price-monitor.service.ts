@@ -144,8 +144,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       where: { source: { key: '05ru' }, externalName: { not: null } },
       orderBy: { lastSuccessAt: 'desc' }, take: 1000,
     })
+    // Older observations may contain incorrectly extracted colour/spec fields.
+    // Use the saved *product title* only to shortlist canonical 05.ru URLs;
+    // refresh the actual page and re-check its full attributes before linking.
     const possible = saved.map(link => ({
-      link, check: compareItems(product, { name: link.externalName || '', attributes: link.attributes }),
+      link, check: compareItems(product, { name: link.externalName || '' }),
     })).filter(row => (row.link.productId === null || row.link.productId === product.id) && this.strongVariant(row.check))
     // An already confirmed association wins over another unlinked card.
     const assigned = possible.filter(row => row.link.productId === product.id && row.link.matchStatus === 'CONFIRMED')
