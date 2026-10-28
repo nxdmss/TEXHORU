@@ -69,3 +69,13 @@ export class ImportManualCompetitorPricesDto {
   @ValidateNested({ each: true }) @Type(() => ManualCompetitorPriceRowDto)
   rows!: ManualCompetitorPriceRowDto[]
 }
+
+/** Category scope and preview token make a bulk change an explicit, reviewable action. */
+export class BulkPriceScopeDto {
+  @IsOptional() @IsString() @MaxLength(300) categoryPath?: string
+}
+export class BulkApplyPricesDto extends BulkPriceScopeDto {
+  @IsString() @MaxLength(64) token!: string
+  @IsBoolean() acceptUnknownCost!: boolean
+  @IsBoolean() acceptLargeChange!: boolean
+}
