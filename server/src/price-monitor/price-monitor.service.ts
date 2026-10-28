@@ -222,6 +222,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         }
         if (product) {
           const match = compareItems(product, { name: entry.name })
+          // The file can contain an incorrect URL paired with a copied 1C name.
+          // Compare model/storage encoded in the 05.ru slug too, when parseable.
+          const slug = decodeURIComponent(new URL(entry.url).pathname.split('/p/')[1] || '').replace(/-\d+\/$/, '').replace(/-/g, ' ')
+          const slugVariant = identity({ name: slug })
+          if ((slugVariant.model && slugVariant.model !== match.ours.model)
+            || (slugVariant.storage && match.ours.storage && slugVariant.storage !== match.ours.storage)
+            || (slugVariant.color && match.ours.color && slugVariant.color !== match.ours.color)) {
+            throw new BadRequestException('Строка ' + entry.line + ': ссылка 05.ru указывает на другую модель, память или цвет.')
+          }
           // Require the relevant variant information, not just overlapping words.
           if (!match.ours.model || !match.theirs.model || match.ours.model !== match.theirs.model
             || (match.ours.storage && match.ours.storage !== match.theirs.storage)
