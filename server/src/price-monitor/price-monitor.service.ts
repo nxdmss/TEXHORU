@@ -128,6 +128,52 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return this.decorated(row)
     })
   }
+  // A saved 05.ru link is stronger evidence than a storefront search page.
+  // Refresh its price from the *actual product URL*, never from stale stored prices.
+  private strongVariant(check: ReturnType<typeof compareItems>): boolean {
+    return check.score >= 40 && !check.conflicts.length
+      && Boolean(check.ours.model && check.theirs.model === check.ours.model)
+      && (!check.ours.storage || check.theirs.storage === check.ours.storage)
+      && (!check.ours.color || check.theirs.color === check.ours.color)
+      && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
+  }
+
+  private async refreshKnownMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
+    const saved = await this.prisma.competitorProduct.findMany({
+      where: { source: { key: '05ru' }, externalName: { not: null } },
+      orderBy: { lastSuccessAt: 'desc' }, take: 1000,
+    })
+    const possible = saved.map(link => ({
+      link, check: compareItems(product, { name: link.externalName || '', attributes: link.attributes }),
+    })).filter(row => (row.link.productId === null || row.link.productId === product.id) && this.strongVariant(row.check))
+    // An already confirmed association wins over another unlinked card.
+    const assigned = possible.filter(row => row.link.productId === product.id && row.link.matchStatus === 'CONFIRMED')
+    const eligible = assigned.length ? assigned : possible
+    if (!eligible.length) return false
+    if (eligible.length !== 1) throw new Error(
+      '05.ru: найдено несколько сохранённых карточек для ' + product.name +
+      '. Не выбираем автоматически — проверь соответствия вручную.'
+    )
+    const url = eligible[0].link.externalUrl
+    // Do not re-use the stored observation from 26.10 as if it was checked today.
+    let fresh: FiveRuResult
+    try { fresh = await this.fiveRu.parse(url) }
+    catch (error) {
+      throw new Error('05.ru: карточка уже известна (' + url + '), но повторная проверка не удалась: ' +
+        (error instanceof Error ? error.message : String(error)))
+    }
+    const updated = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
+    if (!this.strongVariant(updated)) {
+      // Preserve the observation and invalidate stale confirmed fingerprints.
+      const source = await this.source()
+      await this.save(fresh, source.id)
+      throw new Error('05.ru: сохранённая карточка изменилась, совпадение требует проверки: ' + fresh.name)
+    }
+    const source = await this.source()
+    await this.save(fresh, source.id, product.id)
+    return true
+  }
+
   // Explicitly approved price change. Only the ten opt-in 1C products enter the outbound queue.
   async applyRecommended(id: string, dto: ApplyRecommendedPriceDto) {
     const updated = await this.prisma.$transaction(async tx => {
@@ -249,6 +295,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))) {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
+              if (!(await this.refreshKnownMatch(product))) {
               let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
@@ -259,10 +306,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes }),
                 }))
-                ranked = checked.filter(row => row.check.score >= 40 && !row.check.conflicts.length
-                  && Boolean(row.check.ours.model && row.check.theirs.model === row.check.ours.model)
-                  && (!row.check.ours.storage || row.check.theirs.storage === row.check.ours.storage)
-                  && (!row.check.ours.color || row.check.theirs.color === row.check.ours.color))
+                ranked = checked.filter(row => this.strongVariant(row.check))
                   .sort((a,b) => b.check.score - a.check.score)
                 if (ranked.length) break
                 for (const row of checked.slice(0, 3)) {
@@ -285,7 +329,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   '. Поиск: ' + summary + '. ' +
                   (rejected.length ? 'Отсеяны: ' + rejected.join('; ') : parsingErrors.length
                     ? 'Ошибки чтения: ' + parsingErrors.join('; ')
-                    : 'Поиск не вернул подходящих карточек.'))
+                    : '05.ru не отдал ссылки на товары. Это сбой формы поиска или пустая выдача; отсутствие товара не подтверждено.'))
               }
               // More than one plausible variant must be manually reviewed, never silently chosen.
               if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
@@ -301,6 +345,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               }
               const source = await this.source()
               await this.save(ranked[0].result, source.id, product.id)
+              }
             } else {
               await this.check({ url: pending[0] })
             }
