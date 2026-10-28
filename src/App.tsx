@@ -1,6 +1,6 @@
 import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
-import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath, isFeaturedCatalogProduct } from './onec-category-tree'
+import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { AdminCategoryTree } from './AdminCategoryTree'
 import { storefrontPath, featuredIphones, featuredPhoneImage } from './catalog-navigation'
@@ -897,7 +897,22 @@ function App() {
         </aside>
       </div>
     </section>}
-    <section className="catalog" id="catalog"><div className="section-head"><div><p className="eyebrow">Каталог</p><h2>{query.trim() ? 'Результаты поиска' : !storeSection && category === 'Все' ? 'Популярные товары' : 'Каталог'}</h2></div></div><CatalogSections hierarchical items={catalogProducts.map(p => ({ name: p.name, categoryName: p.category }))} selection={storeSection} searching={Boolean(query.trim())} onSelect={value => { setStoreSection(value); setCategory('Все'); setQuery('') }} />{<><div className="catalog-result-count">Найдено: {filtered.length}</div><div className="product-grid">{filtered.slice(0, storeLimit).map(product => <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} />)}</div>{filtered.length > storeLimit && <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}{filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}</>}</section>
+    <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id="catalog">
+      <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
+        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные iPhone' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
+      </div></div>
+      <CatalogSections hierarchical items={catalogProducts.map(p => ({ name:p.name, categoryName:storefrontPath(p.category,p.name) }))}
+        selection={storeSection} searching={Boolean(query.trim())}
+        onSelect={value => {setStoreSection(value);setCategory('Все');setQuery('');setStoreLimit(24)}} />
+      {!folderOnly && <>
+        <div className="catalog-result-count">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + filtered.length}</div>
+        <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart}/>)}</div>
+        {!isFeaturedView && filtered.length > storeLimit &&
+          <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}
+        {filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}
+      </>}
+    </section>
   </>
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={product.image} alt={product.name} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
