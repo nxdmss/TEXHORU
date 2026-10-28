@@ -369,6 +369,51 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   assert(['SUGGESTED', 'CONFIRMED'].includes(matched.matchStatus))
 })
 
+test('Auto-matching refreshes an existing 05.ru link even when storefront search returns zero links', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const integration = new IntegrationsService(prisma, {})
+  const categoryPath = 'Изолированная группа для обновления сохранённой карточки ' + id
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'known-link-' + id }],
+    products: [{ oneCId: id, sku: 'KNOWN-'+id, slug: 'known-'+id, categoryOneCId: categoryId,
+      name: 'Смартфон Apple iPhone 17 Pro 256 Гб eSIM оранжевый', brand: 'Apple',
+      price: 91900, stockQty: 3, costPrice: 80000 }],
+  })
+  const own = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  const existingUrl = fixture.sourceUrl.replace('24007/', 'saved-' + id + '/')
+  const parsed = { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: existingUrl }
+  const { fingerprint } = require('../dist/price-monitor/product-matching')
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  await prisma.competitorProduct.create({ data: {
+    sourceId: source.id, externalUrl: existingUrl, externalName: parsed.name,
+    attributes: parsed.attributes, productId: own.id, matchStatus: 'CONFIRMED',
+    confirmedFingerprint: fingerprint({ name: parsed.name, attributes: parsed.attributes }),
+    confirmedProductFingerprint: fingerprint(own),
+    lastSuccessAt: new Date(Date.now() - 2 * 24 * 3600_000), latestPrice: 95000, inStock: true,
+  } })
+  let searchCalls = 0, parseCalls = 0
+  const parser = {
+    searchProducts: async () => { searchCalls++; return [] },
+    parse: async url => { parseCalls++; assert.equal(url, existingUrl); return { ...parsed, price: 94990 } },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  await monitor.autoFindOneCSection({ categoryPath, maxItems: 10 })
+  await monitor.tick()
+  const task = (await monitor.jobs()).find(job => job.kind === 'MATCH_1C' && job.url === categoryPath)
+  const row = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: existingUrl } })
+  assert.equal(task.status, 'COMPLETED')
+  assert.equal(task.errors, 0)
+  assert.equal(task.processed, 1)
+  assert.equal(parseCalls, 1)
+  assert.equal(searchCalls, 0)
+  assert.equal(row.productId, own.id)
+  assert.equal(row.matchStatus, 'CONFIRMED')
+  assert.equal(row.latestPrice, 94990)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: own.id } })).price, 91900)
+})
+
 test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
   const parser = new FiveRuParser()
   let launches = 0, closings = 0, contexts = 0, active = 0, maxActive = 0, cardOpens = 0
