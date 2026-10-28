@@ -392,10 +392,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const selected = scoped.slice(0, limit)
     // Small diagnostic runs keep the existing direct search. Bulk runs index
     // the catalog once instead of repeating an unreliable search 2,000 times.
-    if (selected.length > 100) await this.ensureIndexJob()
+    const useIndex = dto.indexCatalog === true || selected.length > 100
+    if (useIndex) await this.ensureIndexJob()
     const job = await this.prisma.monitorJob.create({
       data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
-        pendingUrls: selected.map(p => 'product:' + p.id) },
+        pendingUrls: selected.map(p => 'product:' + p.id),
+        visitedUrls: useIndex ? ['INDEX_MATCH'] : [] },
     })
     return { ...job, eligible: scoped.length, queued: selected.length }
   }
@@ -506,7 +508,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (!(await this.refreshKnownMatch(product))) {
               if (await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
-              } else if (job.perPage > 100 && await this.prisma.competitorCatalogEntry.count()) {
+              } else if ((job.perPage > 100 || this.strings(job.visitedUrls).includes('INDEX_MATCH')) && await this.prisma.competitorCatalogEntry.count()) {
                 throw new Error('В сохранённом индексе 05.ru не найдено точное соответствие для «' + product.name +
                   '». Возможно, товара нет в прочитанной части каталога. Цена не изменена.')
               } else {
