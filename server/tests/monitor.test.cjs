@@ -526,6 +526,7 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     assert.equal(submitClicks, 1)
 
     // Autocomplete can contain the product and disappear as soon as Enter is pressed.
+    parser.snapshot = async () => fixture.snapshot
     links.push(iphoneUrl)
     hideOnEnter = true
     const suggestedTrace = {}
