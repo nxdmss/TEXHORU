@@ -728,7 +728,7 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
     },
   }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
-  const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000 })
+  const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000, indexCatalog: true })
   assert.equal(enqueued.eligible, size)
   assert.equal(enqueued.queued, size)
   let indexJob = await prisma.monitorJob.findFirstOrThrow({
