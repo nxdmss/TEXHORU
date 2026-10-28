@@ -1,6 +1,7 @@
 import { ALL_CATALOG, categorySelection, categorySegments, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { catalogBranches, type CatalogEntry } from './catalog-groups'
 import './catalog-navigation.css'
+import { browseLabel } from './catalog-navigation'
 
 type Props = {
   items: CatalogEntry[]
@@ -41,7 +42,7 @@ function OneCCatalogSections({ items, selection, onSelect, searching }: Props) {
     </nav>}
     <div className="store-category-heading">
       <div><p className="eyebrow">{path ? 'Раздел каталога' : 'Выбери категорию'}</p>
-        <h3>{title}</h3>
+        <h3>{browseLabel(title)}</h3>
         <p>{path ? 'В разделе ' + count(path) + ' товаров. Открой подкатегорию или выбери модель.'
           : 'Открывай разделы последовательно. Все группы загружаются из каталога магазина.'}</p>
       </div>
@@ -52,7 +53,7 @@ function OneCCatalogSections({ items, selection, onSelect, searching }: Props) {
       {folders.map(folder => <button type="button" className="store-category-folder" key={folder.path}
         onClick={() => onSelect(categorySelection(folder.path))}>
         <span className="store-category-folder__icon" aria-hidden="true">▣</span>
-        <strong>{folder.title}</strong>
+        <strong>{browseLabel(folder.title)}</strong>
         <small>{count(folder.path)} товаров</small>
         <span className="store-category-folder__arrow" aria-hidden="true">↗</span>
       </button>)}
