@@ -131,7 +131,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
   async function uploadManualPrices(file: File | undefined) {
     if (!file) return
     await action('manual-prices', async () => {
-      const rows = parseManualPriceCsv(await file.text())
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      let content: string
+      try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+      catch { content = new TextDecoder('windows-1251').decode(bytes) }
+      const rows = parseManualPriceCsv(content)
       const result = await api.importManualCompetitorPrices(rows)
       setNotice(`Импортировано ${result.imported} строк, новых ${result.created}, обновлено ${result.updated}, связано с 1С: ${result.associated}. Цены НЕ проверены на 05.ru; цены 1С и магазина не изменены.`)
     })
