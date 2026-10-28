@@ -390,7 +390,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
     }
     const selected = scoped.slice(0, limit)
-    await this.ensureIndexJob()
+    // Small diagnostic runs keep the existing direct search. Bulk runs index
+    // the catalog once instead of repeating an unreliable search 2,000 times.
+    if (selected.length > 100) await this.ensureIndexJob()
     const job = await this.prisma.monitorJob.create({
       data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
         pendingUrls: selected.map(p => 'product:' + p.id) },
@@ -402,7 +404,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const last = await this.prisma.competitorCatalogEntry.findFirst({
       orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true },
     })
-    if (last && Date.now() - last.lastSeenAt.getTime() < 7 * 86400_000) return null
+    const lastJob = await this.prisma.monitorJob.findFirst({
+      where: { kind: 'INDEX_05RU' }, orderBy: { createdAt: 'desc' },
+    })
+    if (last && Date.now() - last.lastSeenAt.getTime() < 7 * 86400_000
+      && lastJob?.status === 'COMPLETED' && !lastJob.lastError) return null
     return this.prisma.monitorJob.create({
       data: { kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
         page: 0, maxPages: 2100, perPage: 24, processed: 0, visitedUrls: [] },
@@ -500,7 +506,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (!(await this.refreshKnownMatch(product))) {
               if (await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
-              } else if (await this.prisma.competitorCatalogEntry.count()) {
+              } else if (job.perPage > 100 && await this.prisma.competitorCatalogEntry.count()) {
                 throw new Error('В сохранённом индексе 05.ru не найдено точное соответствие для «' + product.name +
                   '». Возможно, товара нет в прочитанной части каталога. Цена не изменена.')
               } else {
