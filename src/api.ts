@@ -6,6 +6,7 @@ export type ApiCategory = { id: string; name: string; slug: string; sortOrder?: 
 export type ApiProduct = {
   id: number
   oneCId?: string | null
+  duplicateOf?: number | null
   priceSyncEnabled?: boolean
   costPrice?: number | null
   gtin?: string | null
