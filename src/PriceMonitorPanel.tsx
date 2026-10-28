@@ -86,7 +86,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
-    && product.stockQty > 0 && phoneCategory(product.category?.name || '')
+    && product.stockQty > (product.reservedQty || 0) && phoneCategory(product.category?.name || '')
   ), [stock])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
