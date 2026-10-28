@@ -337,8 +337,13 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
 test('Universal selection: parent group includes nested 1C category; 05.ru auto-match never changes site prices', async () => {
   const id = randomUUID()
   const catId = randomUUID()
+  const uniqueName = 'Apple iPhone 18 Pro 12GB/256GB Cosmic Orange eSIM'
+  const uniqueSnapshot = { ...fixture.snapshot,
+    h1: fixture.snapshot.h1.replace('iPhone 17 Pro', 'iPhone 18 Pro'),
+    scripts: fixture.snapshot.scripts.map(text => text.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
+  }
   const ours = { oneCId: id, sku: 'UNIVERSAL-'+id, slug: 'universal-'+id,
-    name: product.name, brand: 'Apple', categoryOneCId: catId,
+    name: uniqueName, brand: 'Apple', categoryOneCId: catId,
     price: 99990, stockQty: 2, costPrice: 80000 }
   const integration = new IntegrationsService(prisma, {})
   await integration.importCatalog({
@@ -350,7 +355,7 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const parser = { searchProducts: async query => {
     searches++
     assert(/iphone/i.test(query))
-    return [{ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: sourceUrl }]
+    return [{ ...extractFiveRu(uniqueSnapshot, fixture.sourceUrl), url: sourceUrl }]
   } }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   await assert.rejects(() => monitor.autoFindOneCSection({ categoryPath: 'Несуществующая группа', maxItems: 10 }))
@@ -367,6 +372,66 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   assert.equal(matched.productId, original.id)
   assert.equal(original.price, 99990)
   assert(['SUGGESTED', 'CONFIRMED'].includes(matched.matchStatus))
+})
+
+test('Auto-matching refreshes an existing 05.ru link even when storefront search returns zero links', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const integration = new IntegrationsService(prisma, {})
+  const categoryPath = 'Изолированная группа для обновления сохранённой карточки ' + id
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'known-link-' + id }],
+    products: [{ oneCId: id, sku: 'KNOWN-'+id, slug: 'known-'+id, categoryOneCId: categoryId,
+      name: 'Смартфон Apple iPhone 17 Pro 256 Гб eSIM оранжевый', brand: 'Apple',
+      price: 91900, stockQty: 3, costPrice: 80000 }],
+  })
+  const own = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  const existingUrl = fixture.sourceUrl.replace('24007/', 'saved-' + id + '/')
+  const parsed = { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: existingUrl }
+  const { fingerprint } = require('../dist/price-monitor/product-matching')
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  await prisma.competitorProduct.create({ data: {
+    sourceId: source.id, externalUrl: existingUrl, externalName: parsed.name,
+    attributes: parsed.attributes, productId: own.id, matchStatus: 'CONFIRMED',
+    confirmedFingerprint: fingerprint({ name: parsed.name, attributes: parsed.attributes }),
+    confirmedProductFingerprint: fingerprint(own),
+    lastSuccessAt: new Date(Date.now() - 2 * 24 * 3600_000), latestPrice: 95000, inStock: true,
+  } })
+  let searchCalls = 0, parseCalls = 0
+  const parser = {
+    searchProducts: async () => { searchCalls++; return [] },
+    parse: async url => { parseCalls++; assert.equal(url, existingUrl); return { ...parsed, price: 94990 } },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  await monitor.autoFindOneCSection({ categoryPath, maxItems: 10 })
+  await monitor.tick()
+  const task = (await monitor.jobs()).find(job => job.kind === 'MATCH_1C' && job.url === categoryPath)
+  const row = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: existingUrl } })
+  assert.equal(task.status, 'COMPLETED')
+  assert.equal(task.errors, 0)
+  assert.equal(task.processed, 1)
+  assert.equal(parseCalls, 1)
+  assert.equal(searchCalls, 0)
+  assert.equal(row.productId, own.id)
+  assert.equal(row.matchStatus, 'CONFIRMED')
+  assert.equal(row.latestPrice, 94990)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: own.id } })).price, 91900)
+
+  // A later failed direct check must not leave a seemingly fresh price recommendation.
+  const failing = new PriceMonitorService(prisma, {
+    searchProducts: async () => { throw new Error('Search should not be called') },
+    parse: async () => { throw new Error('HTTP 500: product page unavailable') },
+  }, new MonitorExchangeService(prisma))
+  await failing.autoFindOneCSection({ categoryPath, maxItems: 10 })
+  await failing.tick()
+  const newest = (await failing.jobs()).find(job => job.kind === 'MATCH_1C' && job.url === categoryPath)
+  const last = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: existingUrl } })
+  assert.equal(newest.status, 'COMPLETED')
+  assert.equal(newest.errors, 1)
+  assert.match(newest.lastError, /повторная проверка не удалась/)
+  assert.match(last.lastError, /HTTP 500/)
+  assert.equal(last.latestPrice, 94990)
 })
 
 test('05.ru auto-search reuses one browser, caches identical names and never fetches more than three cards at once', async () => {
@@ -426,6 +491,11 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     await assert.rejects(() => parser.searchProducts('Broken product', 7, failedTrace), /карточки не прочитаны/)
     assert.equal(failedTrace.cardsParsed, 0)
     assert(failedTrace.rejectedCards.length > 0)
+    // A non-working storefront search widget is not a "product not found" result.
+    links.length = 0
+    fakeSearchPage.url = () => 'https://05.ru/'
+    await assert.rejects(() => parser.searchProducts('iphone 17 pro 512', 7),
+      /не открыл выдачу/)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
 })
