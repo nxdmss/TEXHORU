@@ -149,7 +149,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
     URL.revokeObjectURL(address)
   }
   const visible = items.filter(item => inCatalogSection({ name: item.externalName || '', categoryName: item.product?.category?.name }, section) && (filter === 'ALL' || (filter === 'ERROR' ? Boolean(item.lastError) : filter === 'REVIEW' ? item.matchStatus !== 'CONFIRMED' : item.matchStatus === filter)) && `${item.externalName} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase()))
-  const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.stockQty > 0 && p.status === 'ACTIVE')
+  const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.status === 'ACTIVE')
   const oneCPaths = [...new Set(oneCProducts.flatMap(p => {
     const segments = (p.category?.name || '').split(' / ').map(s => s.trim()).filter(Boolean)
     return segments.map((_, i) => segments.slice(0, i + 1).join(' / '))
@@ -215,7 +215,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
           setNotice(`В очереди: ${job.queued} из ${job.eligible} товаров 1С. При необходимости TEXHORU сначала построит индекс 05.ru — без ручной загрузки.`)
         })}> {busy === 'auto-find' ? 'Подготовка…' : 'Найти совпадения с 05.ru'}</button>
       </div>
-      <p className="monitor-v2__muted">В выбранной группе: {inScope} товаров с ценой и остатком. Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
+      <p className="monitor-v2__muted">В выбранной группе: {inScope} активных товаров с ценой (включая нулевые остатки). Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
       {lastAutoJob && <div role="status" className="monitor-v2__search-diagnostics">
         <p>Последний поиск: {lastAutoJob.status === 'COMPLETED' && lastAutoJob.errors
           ? 'Завершено с несовпадениями' : status[lastAutoJob.status] || lastAutoJob.status}
