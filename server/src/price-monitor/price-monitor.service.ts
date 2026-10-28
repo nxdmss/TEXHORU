@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
+import { createHash } from 'node:crypto'
 import { ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
@@ -288,6 +289,41 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
+  /**
+   * Only verified product-page observations are saved as competitor prices.
+   * The indexed title is a navigation hint, never a verified price.
+   */
+  private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
+    const requested = identity(product)
+    if (!requested.model) return false
+    const options = await this.prisma.competitorCatalogEntry.findMany({
+      where: { model: requested.model, ...(requested.storage ? { storage: requested.storage } : {}) },
+      take: 500,
+    })
+    const ranked = options.map(link => ({ link, check: compareItems(product, { name: link.title }) }))
+      .filter(option => this.strongVariant(option.check))
+      .sort((a, b) => b.check.score - a.check.score)
+    if (!ranked.length) return false
+    if (ranked.length > 1) {
+      // Multiple sellers, SIM variants, grades, or colours: don't take an arbitrary first.
+      throw new Error('Индекс 05.ru: несколько похожих карточек для «' + product.name +
+        '». Автоматически выбрать нельзя, нужна проверка соответствия.')
+    }
+    const link = ranked[0].link
+    const existing = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: link.externalUrl } })
+    if (existing?.productId && existing.productId !== product.id) {
+      throw new Error('Карточка конкурента уже связана с другим товаром 1С: ' + link.externalUrl)
+    }
+    const fresh = await this.fiveRu.parse(link.externalUrl)
+    const verified = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
+    if (!this.strongVariant(verified)) {
+      throw new Error('Ссылка индекса открылась, но модель, память или цвет не совпали: ' + fresh.name)
+    }
+    const source = await this.source()
+    await this.save(fresh, source.id, product.id)
+    return true
+  }
+
   // Explicitly approved price change. Only the ten opt-in 1C products enter the outbound queue.
   async applyRecommended(id: string, dto: ApplyRecommendedPriceDto) {
     const updated = await this.prisma.$transaction(async tx => {
@@ -345,7 +381,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const path = (dto.categoryPath || '').trim()
     const limit = dto.maxItems || 30
     const imported = await this.prisma.product.findMany({
-      where: { oneCId: { not: null }, status: 'ACTIVE', stockQty: { gt: 0 }, price: { gt: 0 } },
+      where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
     const scoped = imported.filter(p => !path || p.category.name === path || p.category.name.startsWith(path + ' / '))
@@ -354,11 +390,31 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
     }
     const selected = scoped.slice(0, limit)
+    // Small diagnostic runs keep the existing direct search. Bulk runs index
+    // the catalog once instead of repeating an unreliable search 2,000 times.
+    const useIndex = dto.indexCatalog === true || selected.length > 100
+    if (useIndex) await this.ensureIndexJob()
     const job = await this.prisma.monitorJob.create({
       data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
-        pendingUrls: selected.map(p => 'product:' + p.id) },
+        pendingUrls: selected.map(p => 'product:' + p.id),
+        visitedUrls: useIndex ? ['INDEX_MATCH'] : [] },
     })
     return { ...job, eligible: scoped.length, queued: selected.length }
+  }
+
+  private async ensureIndexJob() {
+    const last = await this.prisma.competitorCatalogEntry.findFirst({
+      orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true },
+    })
+    const lastJob = await this.prisma.monitorJob.findFirst({
+      where: { kind: 'INDEX_05RU' }, orderBy: { createdAt: 'desc' },
+    })
+    if (last && Date.now() - last.lastSeenAt.getTime() < 7 * 86400_000
+      && lastJob?.status === 'COMPLETED' && !lastJob.lastError) return null
+    return this.prisma.monitorJob.create({
+      data: { kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
+        page: 0, maxPages: 2100, perPage: 24, processed: 0, visitedUrls: [] },
+    })
   }
 
   async checkAll() {
@@ -391,6 +447,46 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (!claimed.count) return
       let pending = this.strings(job.pendingUrls)
       try {
+        if (job.kind === 'INDEX_05RU') {
+          // Progress is persisted every page. A restart resumes from job.page.
+          const pageNumber = job.page + 1
+          const links = await this.fiveRu.indexCatalogPage(pageNumber)
+          const visited = this.strings(job.visitedUrls)
+          if (!links.length && pageNumber === 1) {
+            throw new Error('05.ru: первая страница каталога не отдала товары. Индексация невозможна.')
+          }
+          const signature = createHash('sha256').update(
+            links.map(link => link.url).sort().join('\n')
+          ).digest('hex')
+          if (links.length && visited.includes(signature)) {
+            throw new Error('05.ru: страница ' + pageNumber + ' повторяет предыдущую выдачу. ' +
+              'Пагинация не подтвердилась, индекс неполный; сопоставление отменено.')
+          }
+          const scannedAt = new Date()
+          for (const link of links) {
+            const title = link.title.trim() || decodeURIComponent(new URL(link.url).pathname.split('/p/')[1] || '').replace(/-\d+\/?$/, '').replace(/-/g, ' ')
+            const data = identity({ name: title })
+            await this.prisma.competitorCatalogEntry.upsert({
+              where: { externalUrl: link.url },
+              create: { externalUrl: link.url, title, model: data.model || null,
+                storage: data.storage || null, color: data.color || null, lastSeenAt: scannedAt },
+              update: { title, model: data.model || null, storage: data.storage || null,
+                color: data.color || null, lastSeenAt: scannedAt },
+            })
+          }
+          const finished = !links.length || pageNumber >= job.maxPages
+          await this.prisma.monitorJob.update({
+            where: { id: job.id }, data: {
+              page: pageNumber, processed: { increment: links.length },
+              visitedUrls: [...visited, signature],
+              status: finished ? 'COMPLETED' : 'QUEUED', leaseUntil: null,
+              finishedAt: finished ? new Date() : null,
+              lastError: pageNumber >= job.maxPages && links.length
+                ? 'Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.' : null,
+            },
+          })
+          return
+        }
         if (!pending.length && job.kind === 'CATALOG' && job.url && job.page < job.maxPages) {
           this.parsing = true
           let discovered: Awaited<ReturnType<FiveRuParser['discover']>>
@@ -405,11 +501,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const product = foundId
                 ? await this.prisma.product.findUnique({ where: { id: Number(foundId[1]) }, include: { category: true } })
                 : null
-              if (!product?.oneCId || product.status !== 'ACTIVE' || product.stockQty <= 0 || product.price <= 0
+              if (!product?.oneCId || product.status !== 'ACTIVE' || product.price <= 0
                 || (job.url && product.category.name !== job.url && !product.category.name.startsWith(job.url + ' / '))) {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
               if (!(await this.refreshKnownMatch(product))) {
+              if (await this.refreshIndexedMatch(product)) {
+                // Indexed candidates are always re-opened for an actual price check.
+              } else if ((job.perPage > 100 || this.strings(job.visitedUrls).includes('INDEX_MATCH')) && await this.prisma.competitorCatalogEntry.count()) {
+                throw new Error('В сохранённом индексе 05.ru не найдено точное соответствие для «' + product.name +
+                  '». Возможно, товара нет в прочитанной части каталога. Цена не изменена.')
+              } else {
               let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
@@ -462,6 +564,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const source = await this.source()
               await this.save(ranked[0].result, source.id, product.id)
               }
+              }
             } else {
               await this.check({ url: pending[0] })
             }
@@ -484,7 +587,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         const done = !this.strings(latest.pendingUrls).length && (latest.kind !== 'CATALOG' || !latest.url || latest.page >= latest.maxPages)
         await this.prisma.monitorJob.update({ where: { id: job.id }, data: { status: done ? 'COMPLETED' : 'QUEUED', leaseUntil: null, finishedAt: done ? new Date() : null } })
       } catch (error) {
-        await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'FAILED', leaseUntil: null, finishedAt: new Date(), lastError: error instanceof Error ? error.message : 'Ошибка задачи' } })
+        const message = error instanceof Error ? error.message : 'Ошибка задачи'
+        await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'FAILED', leaseUntil: null, finishedAt: new Date(), lastError: message } })
+        if (job.kind === 'INDEX_05RU') {
+          // Never start 2,000 product checks on a known-incomplete, failed index.
+          await this.prisma.monitorJob.updateMany({
+            where: { kind: 'MATCH_1C', status: 'QUEUED', createdAt: { gte: job.createdAt } },
+            data: { status: 'FAILED', finishedAt: new Date(),
+              lastError: 'Индексация 05.ru не завершилась: ' + message },
+          })
+        }
       }
     } finally { this.working = false }
   }

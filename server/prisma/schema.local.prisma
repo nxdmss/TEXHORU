@@ -284,6 +284,21 @@ model CompetitorProduct {
   @@index([lastCheckedAt])
 }
 
+// Discovered public catalog titles and URLs. No unverified price is stored here.
+// Durable across application restarts; never mixed with verified price observations.
+model CompetitorCatalogEntry {
+  id          String   @id @default(cuid())
+  externalUrl String   @unique
+  title       String
+  model       String?
+  storage     String?
+  color       String?
+  lastSeenAt  DateTime @default(now())
+
+  @@index([model, storage])
+  @@index([lastSeenAt])
+}
+
 model CompetitorPriceHistory {
   id                  String            @id @default(cuid())
   competitorProductId String

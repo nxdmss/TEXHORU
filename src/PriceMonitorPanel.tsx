@@ -149,7 +149,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
     URL.revokeObjectURL(address)
   }
   const visible = items.filter(item => inCatalogSection({ name: item.externalName || '', categoryName: item.product?.category?.name }, section) && (filter === 'ALL' || (filter === 'ERROR' ? Boolean(item.lastError) : filter === 'REVIEW' ? item.matchStatus !== 'CONFIRMED' : item.matchStatus === filter)) && `${item.externalName} ${item.product?.name || ''}`.toLowerCase().includes(search.toLowerCase()))
-  const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.stockQty > 0 && p.status === 'ACTIVE')
+  const oneCProducts = products.filter(p => p.oneCId && p.price > 0 && p.status === 'ACTIVE')
   const oneCPaths = [...new Set(oneCProducts.flatMap(p => {
     const segments = (p.category?.name || '').split(' / ').map(s => s.trim()).filter(Boolean)
     return segments.map((_, i) => segments.slice(0, i + 1).join(' / '))
@@ -162,7 +162,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
   return <div className="monitor-v2">
     <header className="monitor-simple-head"><div><h2>Цены конкурента</h2><p>Сравнивай свои товары с 05.ru.</p></div>{view === 'prices' && <button className="monitor-primary" disabled={Boolean(busy) || activeJob || !items.length} onClick={() => void action('all', () => api.monitorCheckAll(), 'Проверка запущена.')}>{activeJob ? 'Проверка идёт…' : 'Обновить цены'}</button>}</header>
     <nav className="monitor-simple-tabs" aria-label="Мониторинг цен">{([['prices', 'Мои товары'], ['add', 'Добавить ссылку'], ['settings', 'Настройки']] as const).map(([id, title]) => <button key={id} aria-pressed={view === id} className={view === id ? 'active' : ''} onClick={() => { setView(id); setError(''); setNotice('') }}>{title}</button>)}</nav>
-    {activeJob && <div className="monitor-live" role="status">{jobs.filter(j => ['QUEUED', 'RUNNING'].includes(j.status)).map(j => <div key={j.id}><span>{j.status === 'QUEUED' ? 'Ожидает запуска' : 'Проверяем'} · {j.processed} карточек · ошибок: {j.errors}</span><button disabled={Boolean(busy)} onClick={() => void action(j.id, () => api.monitorJobAction(j.id, 'cancel'))}>Остановить</button></div>)}</div>}
+    {activeJob && <div className="monitor-live" role="status">{jobs.filter(j => ['QUEUED', 'RUNNING'].includes(j.status)).map(j => <div key={j.id}><span>{j.kind === 'INDEX_05RU' ? `Индекс 05.ru · страница ${j.page}/${j.maxPages} · ${j.processed} ссылок` : `${j.status === 'QUEUED' ? 'Ожидает запуска' : 'Проверяем'} · ${j.processed} карточек · ошибок: ${j.errors}`}</span><button disabled={Boolean(busy)} onClick={() => void action(j.id, () => api.monitorJobAction(j.id, 'cancel'))}>Остановить</button></div>)}</div>}
     {error && <div role="alert" className="form-error">{error}</div>}{notice && <p className="price-monitor__notice" role="status">{notice}</p>}
     {view === 'add' && <><div className="monitor-add-head"><h3>Что добавить?</h3><div className="monitor-simple-tabs"><button className={addMode === 'card' ? 'active' : ''} onClick={() => setAddMode('card')}>Один товар</button><button className={addMode === 'catalog' ? 'active' : ''} onClick={() => setAddMode('catalog')}>Раздел каталога</button></div></div><div className="monitor-v2__forms monitor-single-form">
       {addMode === 'card' && <form onSubmit={(e: FormEvent) => { e.preventDefault(); void action('check', () => api.adminCheckCompetitorPrice({ url }), 'Карточка добавлена. Открой «Мои товары», выбери раздел и свой товар.') }}>
@@ -196,7 +196,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
       <div className="monitor-v2__section-head"><div>
         <p className="eyebrow">1С → TEXHORU → 05.ru</p>
         <h3>Найти совпадения автоматически</h3>
-        <p>Выбери любую группу или вложенную подгруппу, загруженную из 1С. Программа сама ищет товары на 05.ru и сверяет модель, память, цвет и другие характеристики.</p>
+        <p>Выбери любую группу или вложенную подгруппу, загруженную из 1С. TEXHORU сначала создаёт индекс каталога 05.ru по страницам, затем автоматически ищет точные соответствия всем выбранным товарам 1С. Прогресс сохраняется между перезапусками.</p>
       </div></div>
       <div className="monitor-v2__schedule">
         <label>Группа из 1С
@@ -207,15 +207,15 @@ export function PriceMonitorPanel({ products, onCatalogImported }: { products: A
         </label>
         <label>Товаров за проверку
           <select value={autoLimit} onChange={e => setAutoLimit(Number(e.target.value))}>
-            <option value={10}>10 (тест)</option><option value={30}>30</option><option value={100}>100</option>
+            <option value={10}>10 (тест)</option><option value={100}>100</option><option value={500}>500</option><option value={2000}>2 000</option><option value={5000}>До 5 000</option>
           </select>
         </label>
         <button disabled={Boolean(busy) || activeJob || !inScope} onClick={() => void action('auto-find', async () => {
           const job = await api.monitorAutoFindOneC(oneCPath, autoLimit)
-          setNotice(`Запущен поиск по разделу: ${job.queued} из ${job.eligible} товаров. Результаты появятся здесь.`)
+          setNotice(`В очереди: ${job.queued} из ${job.eligible} товаров 1С. При необходимости TEXHORU сначала построит индекс 05.ru — без ручной загрузки.`)
         })}> {busy === 'auto-find' ? 'Подготовка…' : 'Найти совпадения с 05.ru'}</button>
       </div>
-      <p className="monitor-v2__muted">В выбранной группе: {inScope} товаров с ценой и остатком. Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
+      <p className="monitor-v2__muted">В выбранной группе: {inScope} активных товаров с ценой (включая нулевые остатки). Подгруппы включены. Цены автоматически НЕ изменяются; спорные совпадения нужно подтвердить.</p>
       {lastAutoJob && <div role="status" className="monitor-v2__search-diagnostics">
         <p>Последний поиск: {lastAutoJob.status === 'COMPLETED' && lastAutoJob.errors
           ? 'Завершено с несовпадениями' : status[lastAutoJob.status] || lastAutoJob.status}

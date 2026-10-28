@@ -127,7 +127,7 @@ export class IntegrationsService {
         })
 
         return { ok: true, categories: dto.categories.length, products: dto.products.length }
-      }, { timeout: 30000 })
+      }, { timeout: 180000 })
     } catch (error) {
       await this.prisma.syncLog.create({
         data: {
