@@ -545,7 +545,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
 
     links = []
     const emptyTrace = {}
-    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*не отдал/)
+    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /не предоставил подходящих ссылок/)
     assert.equal(emptyTrace.linksFound, 0)
     assert.equal(emptyTrace.searchMode, 'direct-search')
     assert.equal(contexts, 2)
@@ -761,4 +761,103 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   assert.equal(direct.queued, size)
   assert.deepEqual(direct.visitedUrls, [])
   assert.equal(await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } }), indexedCount)
+})
+
+test('05.ru search uses public smartphone catalog if both search routes render zero links', async () => {
+  const parser = new FiveRuParser()
+  const link = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
+  const name = 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный'
+  const visits = []
+  let catalogReads = 0
+  const page = {
+    goto: async url => { visits.push(url); return { status: () => 200 } },
+    url: () => visits.at(-1),
+    locator: () => ({ first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => {} }) }),
+    close: async () => {},
+  }
+  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
+  parser.context = async () => ({ newPage: async () => page, close: async () => {} })
+  parser.pageProductLinks = async () => []
+  parser.smartphoneCatalogLinks = async () => {
+    catalogReads++
+    return [{ url: link, title: name }, {
+      url: 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-12-gb-512-gb-cherniy-24870/',
+      title: 'Смартфон Xiaomi 15T 12 Гб/512 Гб черный',
+    }]
+  }
+  parser.open = async () => ({ close: async () => {} })
+  parser.snapshot = async () => ({
+    h1: name, scripts: [JSON.stringify({
+      '@type': 'Product', name, offers: {
+        price: 55990, priceCurrency: 'RUB', availability: 'https://schema.org/OutOfStock',
+      },
+    })], metaPrice: null, domPrice: null, oldPrice: null, availability: null, specs: [],
+  })
+  try {
+    const trace = { query: '', linksFound: 0, cardsParsed: 0, rejectedCards: [] }
+    const found = await parser.searchProducts('xiaomi 15t pro 512', 12, trace)
+    assert.equal(found.length, 1)
+    assert.equal(found[0].url, link)
+    assert.equal(found[0].price, 55990)
+    assert.equal(found[0].inStock, false)
+    assert.equal(trace.searchMode, 'smartphone-catalog-fallback')
+    assert.equal(trace.cardsParsed, 1)
+    assert.equal(catalogReads, 1)
+    assert(visits.some(url => String(url).includes('/search/')))
+    assert(visits.some(url => String(url) === 'https://05.ru/'))
+  } finally { await parser.onModuleDestroy() }
+})
+
+test('Cached 05.ru Xiaomi title can be revalidated despite stale wrong-color attributes', async () => {
+  const oneCId = randomUUID()
+  const catId = randomUUID()
+  const category = { oneCId: catId, name: 'Тестовая мобильная связь / Смартфоны Xiaomi', slug: 'xiaomi-' + catId }
+  const ours = { oneCId, sku: 'XIAOMI-' + oneCId, slug: 'xiaomi-' + oneCId,
+    name: 'Смартфон Xiaomi 15T Pro (EAC) 12/512 ГБ черный', brand: 'Xiaomi',
+    categoryOneCId: catId, price: 58900, stockQty: 5 }
+  const integration = new IntegrationsService(prisma, {}, {})
+  await integration.importCatalog({ categories: [category], products: [ours] })
+  const saved = await prisma.product.findUniqueOrThrow({ where: { oneCId } })
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  const url = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
+  const externalName = 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный'
+  await prisma.competitorProduct.upsert({
+    where: { externalUrl: url },
+    create: { sourceId: source.id, externalUrl: url, externalName, latestPrice: 55990,
+      attributes: { brand: 'xiaomi', model: 'xiaomi 15t pro', storage: '512', color: 'blue' },
+      matchStatus: 'UNMATCHED', lastCheckedAt: new Date(), lastSuccessAt: new Date() },
+    update: { productId: null, externalName, attributes: {
+      brand: 'xiaomi', model: 'xiaomi 15t pro', storage: '512', color: 'blue',
+    }, matchStatus: 'UNMATCHED' },
+  })
+  let parsed = 0
+  const parser = {
+    parse: async target => {
+      parsed++
+      assert.equal(target, url)
+      return { name: externalName, brand: 'Xiaomi', url, price: 55990, oldPrice: null,
+        inStock: false, externalSku: '25708', categoryName: 'Смартфоны', attributes: identity({ name: externalName }),
+        seller: '05.ru', region: 'Махачкала', priceSource: 'JSON-LD Offer' }
+    },
+    searchProducts: async () => { throw new Error('Should not need the broken 05.ru search route') },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  // Earlier integration cases may leave a queued index job in this shared
+  // test database. Stop those fixtures before testing a new focused batch.
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
+  const job = await monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 10 })
+  await monitor.tick()
+  const result = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(result.processed, 1)
+  assert.equal(result.errors, 0, result.lastError || '')
+  assert.equal(parsed, 1)
+  const updated = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
+  assert.equal(updated.productId, saved.id)
+  assert.equal(updated.inStock, false)
+  assert.equal(updated.latestPrice, 55990)
+  assert.equal(updated.matchStatus, 'SUGGESTED')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: saved.id } })).price, 58900)
 })

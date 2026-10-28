@@ -235,6 +235,30 @@ export class FiveRuParser implements OnModuleDestroy {
     return links
   }
 
+  // Read anchors from the *rendered* first-party page. Extracting titles
+  // before ranking ensures we never guess competitor variants from a slug.
+  private async pageProductLinks(page: Page, waitMs = 12_000) {
+    await page.locator('a[href*="/p/"]').first()
+      .waitFor({ state: 'attached', timeout: waitMs }).catch(() => undefined)
+    const raw = await page.locator('a[href*="/p/"]').evaluateAll(nodes =>
+      nodes.map(node => ({
+        url: (node as HTMLAnchorElement).href,
+        title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+          node.querySelector('img')?.getAttribute('alt') ||
+          node.closest('.product-card')?.textContent?.trim() ||
+          (node as HTMLElement).innerText?.trim() || '').slice(0, 200),
+      }))
+    )
+    const links = new Map<string, { url: string; title: string }>()
+    for (const link of raw) {
+      try {
+        const url = fiveRuUrl(link.url, 'product')
+        if (!links.has(url)) links.set(url, { url, title: link.title })
+      } catch { /* Only canonical first-party product links can be opened. */ }
+    }
+    return [...links.values()]
+  }
+
   /**
    * Searches the PUBLIC 05.ru storefront for a product name. This does not rely
    * on a hidden API or guess undocumented search URL parameters: it uses the
@@ -275,28 +299,7 @@ export class FiveRuParser implements OnModuleDestroy {
               || !['/search', '/search/'].includes(landed.pathname)) {
               throw new Error('05.ru перенаправил поиск на другую страницу: ' + landed.pathname)
             }
-            // The storefront renders the cards after the document response.
-            // The real search page contains repeated anchors to each card;
-            // deduplicate canonical product URLs before opening their pages.
-            await searchPage.locator('a[href*="/p/"]').first()
-              .waitFor({ state: 'attached', timeout: 12_000 }).catch(() => undefined)
-            const rawLinks = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
-              nodes.map(node => ({
-                url: (node as HTMLAnchorElement).href,
-                title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
-                  node.querySelector('img')?.getAttribute('alt') ||
-                  node.closest('.product-card')?.textContent?.trim() ||
-                  (node as HTMLElement).innerText?.trim() || '').slice(0, 200),
-              }))
-            )
-            const links = new Map<string, { url: string; title: string }>()
-            for (const link of rawLinks) {
-              try {
-                const url = fiveRuUrl(link.url, 'product')
-                if (!links.has(url)) links.set(url, { url, title: link.title })
-              } catch { /* Ignore non-product or non-05.ru anchors. */ }
-            }
-            const unique = [...links.values()]
+            const unique = await this.pageProductLinks(searchPage)
             if (trace) {
               trace.linksFound = unique.length
               trace.pageUrl = landed.toString()
@@ -304,13 +307,53 @@ export class FiveRuParser implements OnModuleDestroy {
             }
             urls = rankSearchLinks(unique, text, limit)
             if (!urls.length) {
-              throw new Error('Прямой поиск 05.ru открылся (' + landed.pathname +
-                '), но не отдал подходящие ссылки на товары. Прочитано ссылок: ' +
-                unique.length + '. Это не означает, что товара нет.')
+              // Direct /search can return a shell with 0 links even while the
+              // real storefront works in Chrome. Try its visible search box
+              // before concluding that 05.ru has no such product.
+              try {
+                const home = await searchPage.goto('https://05.ru/', { waitUntil: 'commit', timeout: 20_000 })
+                if (home && home.status() >= 400) throw new Error('HTTP ' + home.status())
+                if (!['05.ru', 'www.05.ru'].includes(new URL(searchPage.url()).hostname)) throw new Error('Перенаправление с 05.ru')
+                const input = searchPage.locator('input[type="search"], input[placeholder*="Искать"], input[placeholder*="Поиск"]').first()
+                await input.waitFor({ state: 'visible', timeout: 8_000 })
+                await input.fill(text)
+                await input.press('Enter')
+                const uiLinks = await this.pageProductLinks(searchPage, 12_000)
+                urls = rankSearchLinks(uiLinks, text, limit)
+                if (trace) {
+                  trace.linksFound = Math.max(trace.linksFound, uiLinks.length)
+                  trace.searchMode = 'storefront-search-box'
+                }
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error)
+                if (/HTTP (403|429)|проверку доступа/i.test(message)) throw error
+                if (trace && trace.rejectedCards.length < 5) trace.rejectedCards.push('Поисковая строка 05.ru: ' + message.slice(0, 160))
+              }
             }
           } finally {
             await searchPage.close()
           }
+          if (!urls.length) {
+            // Another public, bounded discovery route. The catalog only
+            // supplies candidate URLs; prices ALWAYS come from the full
+            // product cards and exact model/colour/memory comparison.
+            try {
+              const catalogLinks = await this.smartphoneCatalogLinks(context)
+              urls = rankSearchLinks(catalogLinks, text, limit)
+              if (trace) {
+                trace.linksFound = Math.max(trace.linksFound, catalogLinks.length)
+                trace.searchMode = 'smartphone-catalog-fallback'
+              }
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error)
+              if (/HTTP (403|429)|проверку доступа/i.test(msg)) throw error
+              if (trace && trace.rejectedCards.length < 5) trace.rejectedCards.push('Каталог смартфонов 05.ru: ' + msg.slice(0, 160))
+            }
+          }
+          if (!urls.length) throw new Error(
+            '05.ru не предоставил подходящих ссылок ни через /search/, ни через поле поиска, ни через первые страницы каталога смартфонов.' +
+            ' Это не доказывает отсутствие товара. Проверь сообщения диагностики или добавь прямую ссылку через «Добавить ссылку».'
+          )
           const slots: Array<FiveRuResult | undefined> = new Array(urls.length)
           let index = 0
           // At most 3 product pages in flight: prevents serial 05.ru latency
