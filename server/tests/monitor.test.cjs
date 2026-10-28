@@ -476,6 +476,11 @@ test('05.ru auto-search reuses one browser, caches identical names and never fet
     await assert.rejects(() => parser.searchProducts('Broken product', 7, failedTrace), /карточки не прочитаны/)
     assert.equal(failedTrace.cardsParsed, 0)
     assert(failedTrace.rejectedCards.length > 0)
+    // A non-working storefront search widget is not a "product not found" result.
+    links.length = 0
+    fakeSearchPage.url = () => 'https://05.ru/'
+    await assert.rejects(() => parser.searchProducts('iphone 17 pro 512', 7),
+      /не открыл выдачу/)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
 })
