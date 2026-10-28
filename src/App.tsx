@@ -1,7 +1,8 @@
 import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
-import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, isFeaturedCatalogProduct } from './onec-category-tree'
+import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath, isFeaturedCatalogProduct } from './onec-category-tree'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
+import { AdminCategoryTree } from './AdminCategoryTree'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 import { activeOrders, orderHistory, products as fallbackProducts } from './data'
@@ -376,7 +377,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [adminSection, setAdminSection] = useState('')
   const [adminLimit, setAdminLimit] = useState(36)
   const [productVisibility, setProductVisibility] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED'>('ALL')
-  useEffect(() => { setAdminLimit(36) }, [adminSection, adminCategory, productSearch, productVisibility])
+  const [showDuplicateRows, setShowDuplicateRows] = useState(false)
+  useEffect(() => { setAdminLimit(36) }, [adminSection, adminCategory, productSearch, productVisibility, showDuplicateRows])
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingProductId, setEditingProductId] = useState<number | null>(null)
   const [productDraft, setProductDraft] = useState<AdminProductDraft>(() => blankProductDraft())
@@ -563,19 +565,32 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     event.preventDefault(); setError('')
     try {
       const created = await api.adminCreateCategory({ name: categoryDraft.name.trim(), slug: categoryDraft.slug.trim() || slugifyProduct(categoryDraft.name), sortOrder: apiCategories.length * 10 })
-      setCategoryDraft({ name: '', slug: '' }); setCategoryCreating(false); setAdminCategory(created.id); await load()
+      setCategoryDraft({ name: '', slug: '' }); setCategoryCreating(false); setAdminCategory('ALL'); setAdminSection(categorySelection(created.name)); await load()
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось создать группу') }
   }
 
+  const adminPath = selectedCategoryPath(adminSection) || ''
+  const adminTree = useMemo(() => categoryTree(apiCategories.map(c => c.name)), [apiCategories])
+  const adminFolders = useMemo(() => childrenAtPath(adminTree, adminPath), [adminTree, adminPath])
+  const duplicateCount = products.filter(p => Boolean(p.duplicateOf)).length
+  const adminCategoryItems = useMemo(() => products.filter(p => showDuplicateRows || !p.duplicateOf)
+    .map(p => p.category?.name || 'Без категории'), [products, showDuplicateRows])
+
   const productGroups = useMemo(() => {
     const q = productSearch.trim().toLowerCase()
-    const visibleByStatus = (item: AdminProduct) => productVisibility === 'ALL' || item.status === productVisibility
+    const visibleByStatus = (item: AdminProduct) =>
+      (showDuplicateRows || !item.duplicateOf) &&
+      (productVisibility === 'ALL' || item.status === productVisibility)
     return apiCategories.map((category) => ({
       category,
-      items: products.filter((item) => item.category?.id === category.id && inCatalogSection({ name: item.name, categoryName: item.category?.name }, adminSection) && (adminCategory === 'ALL' || adminCategory === category.id) && visibleByStatus(item) && (!q || `${item.name} ${item.brand} ${item.sku}`.toLowerCase().includes(q))),
+      items: products.filter((item) => item.category?.id === category.id
+        && (productSearch.trim()
+          ? inCatalogSection({ name: item.name, categoryName: item.category?.name }, adminSection)
+          : Boolean(adminPath) && item.category?.name === adminPath)
+        && (adminCategory === 'ALL' || adminCategory === category.id) && visibleByStatus(item) && (!q || `${item.name} ${item.brand} ${item.sku}`.toLowerCase().includes(q))),
       total: products.filter((item) => item.category?.id === category.id && visibleByStatus(item)).length,
     })).filter((group) => (adminCategory === 'ALL' ? group.items.length > 0 : group.category.id === adminCategory))
-  }, [apiCategories, products, productSearch, adminCategory, productVisibility, adminSection])
+  }, [apiCategories, products, productSearch, adminCategory, productVisibility, adminSection, adminPath, showDuplicateRows])
 
   const archiveProduct = async (item: AdminProduct) => {
     if (!confirm(`Скрыть «${item.name}» с сайта? Товар останется в базе и его можно будет вернуть.`)) return
@@ -606,19 +621,29 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       <aside className="admin-category-panel">
         <div className="admin-category-panel__head"><div><span>Каталог</span><strong>Группы товаров</strong></div><button className="admin-category-add" onClick={() => setCategoryCreating((value) => !value)}>+ Группа</button></div>
         {categoryCreating && <form className="admin-category-create" onSubmit={createCategory}><input autoFocus required placeholder="Название группы" value={categoryDraft.name} onChange={(e) => setCategoryDraft({ name: e.target.value, slug: slugifyProduct(e.target.value) })} /><input required placeholder="slug" value={categoryDraft.slug} onChange={(e) => setCategoryDraft({ ...categoryDraft, slug: slugifyProduct(e.target.value) })} /><div><button type="button" onClick={() => setCategoryCreating(false)}>Отмена</button><button>Создать</button></div></form>}
-        <button className={adminCategory === 'ALL' ? 'active' : ''} onClick={() => { setAdminCategory('ALL'); setAdminSection(''); setProductSearch('') }}><span>Все разделы</span><b>{products.length}</b></button>
-        {apiCategories.map((category) => <button key={category.id} className={adminCategory === category.id ? 'active' : ''} onClick={() => { setAdminCategory(category.id); setAdminSection('') }}><span>{category.name}{category.isActive === false ? ' · скрыта' : ''}</span><b>{products.filter((item) => item.category?.id === category.id).length}</b></button>)}
+        <AdminCategoryTree categoryNames={apiCategories.filter(c => c.isActive !== false).map(c => c.name)}
+          productCategoryNames={adminCategoryItems} selectedPath={adminPath}
+          onSelect={value => { setAdminCategory('ALL'); setAdminSection(value ? categorySelection(value) : ''); setProductSearch('') }} />
       </aside>
 
       <div className="admin-catalog-workspace">
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminCategory === 'ALL' ? 'Каталог по разделам' : apiCategories.find((item) => item.id === adminCategory)?.name}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? adminPath.split(' / ').at(-1) : 'Каталог по разделам'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
         <div className="admin-product-visibility" aria-label="Статус товаров">
-          <button className={productVisibility === 'ALL' ? 'active' : ''} onClick={() => setProductVisibility('ALL')}>Все <span>{products.length}</span></button>
-          <button className={productVisibility === 'ACTIVE' ? 'active' : ''} onClick={() => setProductVisibility('ACTIVE')}>На сайте <span>{products.filter((item) => item.status === 'ACTIVE').length}</span></button>
-          <button className={productVisibility === 'ARCHIVED' ? 'active' : ''} onClick={() => setProductVisibility('ARCHIVED')}>Скрытые <span>{products.filter((item) => item.status === 'ARCHIVED').length}</span></button>
+          <button className={productVisibility === 'ALL' ? 'active' : ''} onClick={() => setProductVisibility('ALL')}>Все <span>{products.filter(p => showDuplicateRows || !p.duplicateOf).length}</span></button>
+          <button className={productVisibility === 'ACTIVE' ? 'active' : ''} onClick={() => setProductVisibility('ACTIVE')}>На сайте <span>{products.filter((item) => item.status === 'ACTIVE' && (showDuplicateRows || !item.duplicateOf)).length}</span></button>
+          <button className={productVisibility === 'ARCHIVED' ? 'active' : ''} onClick={() => setProductVisibility('ARCHIVED')}>Скрытые <span>{products.filter((item) => item.status === 'ARCHIVED' && (showDuplicateRows || !item.duplicateOf)).length}</span></button>
+          {duplicateCount > 0 && <button className={showDuplicateRows ? 'active' : ''} onClick={() => setShowDuplicateRows(value => !value)}>
+            {showDuplicateRows ? 'Скрыть повторы' : 'Посмотреть повторы'} <span>{duplicateCount}</span>
+          </button>}
         </div>
 
-        {adminCategory === 'ALL' && <CatalogSections items={products.filter(p => productVisibility === 'ALL' || p.status === productVisibility).map(p => ({ name: p.name, categoryName: p.category?.name }))} selection={adminSection} searching={Boolean(productSearch.trim())} onSelect={value => { setAdminSection(value); setProductSearch('') }} />}
+        {!productSearch.trim() && adminFolders.length > 0 &&
+          <div className="admin-folder-cards">{adminFolders.map(child =>
+            <button key={child.path} className="admin-folder-card" onClick={() => { setAdminCategory('ALL'); setAdminSection(categorySelection(child.path)) }}>
+              <b>▣ {child.title}</b>
+              <span>{products.filter(p => (showDuplicateRows || !p.duplicateOf) && (p.category?.name === child.path || p.category?.name?.startsWith(child.path + ' / '))).length} товаров</span>
+            </button>)}
+          </div>}
         {<><div className="catalog-result-count">{productGroups.reduce((n, g) => n + g.items.length, 0)} товаров · показано до {adminLimit}</div>
         <div className="admin-product-groups">{productGroups.filter((_, i) => productGroups.slice(0, i).reduce((n, g) => n + g.items.length, 0) < adminLimit).map((group) => <section className="admin-product-group" key={group.category.id}>
           <div className="admin-product-group__head"><div><h3>{group.category.name}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
@@ -635,7 +660,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           </article>)}</div> : <div className="admin-group-empty">По этому фильтру товаров нет.</div>}
         </section>)}</div>
         {productGroups.reduce((n, g) => n + g.items.length, 0) > adminLimit && <button className="catalog-more" onClick={() => setAdminLimit(n => n + 36)}>Показать ещё 36</button>}
-        {productGroups.length === 0 && <div className="admin-group-empty admin-group-empty--large">Ничего не найдено. Измени поиск или выбери другую группу.</div>}</>}
+        {productGroups.length === 0 && adminFolders.length === 0 && <div className="admin-group-empty admin-group-empty--large">Ничего не найдено. Измени поиск или выбери другую группу.</div>}</>}
       </div>
     </div>}
 

@@ -4,6 +4,7 @@ import { OrdersService } from '../orders/orders.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 import { OneCPriceSyncService } from './price-sync.service'
+import { phoneVariantKey } from '../products/phone-uniqueness'
 
 @Injectable()
 export class IntegrationsService {
@@ -51,6 +52,20 @@ export class IntegrationsService {
           categoryIdByIncomingOneCId.set(category.oneCId, resolvedCategory.id)
         }
 
+        // Existing 1C GUIDs remain authoritative. A second GUID representing
+        // precisely the same identifiable phone variant must not create a new card.
+        // Keep all old rows, orders and price-monitor associations untouched.
+        const current = await tx.product.findMany({
+          where: { status: 'ACTIVE' }, include: { category: true }, orderBy: { id: 'asc' },
+        })
+        const occupiedVariants = new Map<string, { oneCId: string | null; id: number }>()
+        for (const row of current) {
+          const key = phoneVariantKey(row)
+          if (key && !occupiedVariants.has(key)) occupiedVariants.set(key, { oneCId: row.oneCId, id: row.id })
+        }
+        let skippedDuplicates = 0
+        const duplicateExamples: string[] = []
+
         for (const item of dto.products) {
           const categoryId = categoryIdByIncomingOneCId.get(item.categoryOneCId)
           const category = categoryId
@@ -82,6 +97,28 @@ export class IntegrationsService {
           }
 
           const existing = byOneCId ?? bySku ?? bySlug
+          const variantKey = phoneVariantKey({
+            name: item.name, brand: item.brand, gtin: item.gtin, mpn: item.mpn,
+            attributes: item.attributes, categoryName: category.name,
+          })
+          if (existing?.oneCId && existing.oneCId !== item.oneCId) {
+            // A reused SKU or slug does not authorise changing a previously
+            // imported 1C GUID: it would break the external inventory link.
+            if (variantKey && phoneVariantKey({ ...existing, categoryName: category.name }) === variantKey) {
+              skippedDuplicates++
+              if (duplicateExamples.length < 12) duplicateExamples.push(item.name)
+              continue
+            }
+            throw new Error('Конфликт идентификаторов 1С: SKU/slug уже принадлежит другому GUID. ' + item.name)
+          }
+          const occupied = variantKey && occupiedVariants.get(variantKey)
+          if (occupied && occupied.id !== existing?.id) {
+            // Never merge two different immutable 1C IDs or sum their stock
+            // blindly: the source's records may differ for business reasons.
+            skippedDuplicates++
+            if (duplicateExamples.length < 12) duplicateExamples.push(item.name)
+            continue
+          }
           const stockState: StockState = item.stockQty <= 0 ? StockState.OUT_OF_STOCK : item.stockQty <= 3 ? StockState.LOW : StockState.IN_STOCK
           // The site may have just approved a new price that has not reached 1C yet.
           // Do not undo it when the 1C poll pushes the previous catalog snapshot.
@@ -107,6 +144,7 @@ export class IntegrationsService {
           const updated = existing
             ? await tx.product.update({ where: { id: existing.id }, data: productData })
             : await tx.product.create({ data: productData })
+          if (variantKey) occupiedVariants.set(variantKey, { oneCId: updated.oneCId, id: updated.id })
 
           const crossedLowStock = item.stockQty <= 3 && (!existing || existing.stockQty > 3)
           if (crossedLowStock) {
@@ -122,11 +160,13 @@ export class IntegrationsService {
             direction: 'FROM_1C',
             entity: 'CATALOG',
             status: 'SUCCESS',
-            message: `Категорий: ${dto.categories.length}; товаров: ${dto.products.length}`,
+            message: `Категорий: ${dto.categories.length}; новых/обновлённых товаров: ${dto.products.length - skippedDuplicates}; пропущено дублей: ${skippedDuplicates}`,
           },
         })
 
-        return { ok: true, categories: dto.categories.length, products: dto.products.length }
+        return { ok: true, categories: dto.categories.length,
+          products: dto.products.length - skippedDuplicates,
+          skippedDuplicates, duplicateExamples }
       }, { timeout: 180000 })
     } catch (error) {
       await this.prisma.syncLog.create({
