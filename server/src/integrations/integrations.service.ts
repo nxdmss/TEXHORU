@@ -104,9 +104,7 @@ export class IntegrationsService {
           if (existing?.oneCId && existing.oneCId !== item.oneCId) {
             // A reused SKU or slug does not authorise changing a previously
             // imported 1C GUID: it would break the external inventory link.
-            if (variantKey && phoneVariantKey(existing.category ? {
-              ...existing, categoryName: existing.category.name,
-            } : existing) === variantKey) {
+            if (variantKey && phoneVariantKey({ ...existing, categoryName: category.name }) === variantKey) {
               skippedDuplicates++
               if (duplicateExamples.length < 12) duplicateExamples.push(item.name)
               continue
