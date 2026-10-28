@@ -545,7 +545,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
 
     links = []
     const emptyTrace = {}
-    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*не отдал/)
+    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /не предоставил подходящих ссылок/)
     assert.equal(emptyTrace.linksFound, 0)
     assert.equal(emptyTrace.searchMode, 'direct-search')
     assert.equal(contexts, 2)
