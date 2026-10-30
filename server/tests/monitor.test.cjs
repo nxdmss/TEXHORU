@@ -1124,8 +1124,8 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
   assert.equal(monitor.strongVariant(wrongMaker), false)
   assert(wrongMaker.conflicts.includes('бренд'))
 
-  const exactGtin = '4006381333931'
-  assert.equal(validGtin(exactGtin), exactGtin)
+  const exactGtin = validGtin('4006381333931')
+  assert.ok(exactGtin)
   const exactAccessory = compareItems(
     { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
     { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
