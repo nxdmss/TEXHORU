@@ -817,7 +817,17 @@ function App() {
   useEffect(() => { setStoreLimit(24) }, [storeSection, category, query])
   const smartphoneBrands = useMemo(() => shopBrands(catalogProducts), [catalogProducts])
   const selectedJourneyBrand = journeyMatch?.[1] ? smartphoneBrands.find(brand => brand.slug === decodeURIComponent(journeyMatch[1])) : undefined
-  const journeyProducts = catalogProducts.filter(product => isSmartphone(product) && selectedJourneyBrand && brandForProduct(product) === selectedJourneyBrand.name)
+  const journeyProducts = useMemo(() => {
+    const matches = catalogProducts.filter(product => isSmartphone(product)
+      && (!selectedJourneyBrand || brandForProduct(product) === selectedJourneyBrand.name))
+    const mix = (id: number) => {
+      let value = id | 0
+      value = Math.imul(value ^ (value >>> 16), 0x45d9f3b)
+      value = Math.imul(value ^ (value >>> 16), 0x45d9f3b)
+      return (value ^ (value >>> 16)) >>> 0
+    }
+    return matches.sort((left, right) => mix(left.id) - mix(right.id))
+  }, [catalogProducts, selectedJourneyBrand])
   const categoryRoots = useMemo(() => categoryTree(catalogProducts.map(p => storefrontPath(p.category,p.name))), [catalogProducts])
   const menuChildren = childrenAtPath(categoryRoots, menuPath)
   const selectedBrowsePath = selectedCategoryPath(storeSection)
@@ -957,12 +967,10 @@ function App() {
   if (isAdminPage) content = <AdminPage onBack={() => navigate('/')} />
   else if (journeyMatch) content = <SmartphoneJourney brands={smartphoneBrands} activeBrand={selectedJourneyBrand}
     count={journeyProducts.length} onOpen={openJourney}>
-    {selectedJourneyBrand && <>{journeyProducts.length > 0
-      ? <div className="product-grid">{journeyProducts.slice(0, storeLimit).map(product =>
+    {journeyProducts.length > 0
+      ? <div className="product-grid">{journeyProducts.map(product =>
           <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart}/>)}</div>
-      : <div className="empty-search">В наличии нет товаров. После обновления 1С они появятся здесь.</div>}
-      {journeyProducts.length > storeLimit && <button className="catalog-more"
-        onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}</>}
+      : <div className="empty-search">В наличии нет смартфонов в этом разделе.</div>}
   </SmartphoneJourney>
   else if (mockPaymentMatch) content = <MockPaymentPage paymentId={mockPaymentMatch[1]} trackingToken={tokenFromQuery} onDone={() => navigate(`/order/${tokenFromQuery}`)} />
   else if (orderMatch) content = <OrderStatusPage trackingToken={orderMatch[1]} onHome={() => navigate('/')} />
