@@ -21,7 +21,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   }
   if (parsed.kind && accessoryType[parsed.kind]) {
     const focused = [parsed.brand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
-    return [...new Set([focused, cleanName].filter(Boolean))]
+    const makerModel = [parsed.brand, parsed.model].filter(Boolean).join(' ')
+    return [...new Set([focused, makerModel, cleanName].filter(Boolean))]
   }
   if (parsed.kind === 'smartwatch') {
     const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
@@ -43,6 +44,7 @@ export function isExpectedReviewOutcome(message: string) {
     || text.includes('несколько близких совпадений')
     || text.includes('карточка 05.ru уже связана')
     || text.includes('не найдено точное соответствие')
+    || text.includes('найдено несколько сохранённых карточек')
     || text.includes('товар исключён из выбранного раздела')
 }
 
@@ -167,26 +169,30 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
   private strongVariant(check: ReturnType<typeof compareItems>): boolean {
-    // Phone compatibility does not identify a case series or a glass model.
-    if (['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(check.ours.kind || '')
-      && !check.exactId) return false
-    return check.score >= 40 && !check.conflicts.length
+    const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
+    const accessory = accessories.includes(check.ours.kind || '')
+    const base = check.score >= 40 && !check.conflicts.length
       && Boolean(check.ours.model && check.theirs.model === check.ours.model)
       && (!check.ours.storage || check.theirs.storage === check.ours.storage)
       && (!check.ours.color || check.theirs.color === check.ours.color)
-      && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
+
+    // Accessory compatibility can produce a review suggestion, not an automatic
+    // confirmation. save() still requires an exact GTIN/MPN before confirming it.
+    if (accessory) return base && check.ours.kind === check.theirs.kind
+    return base && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
   }
 
   private async refreshKnownMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
+    // Reuse only cards already assigned to this exact 1C product. Unlinked
+    // review candidates must not block a fresh catalog/search discovery run.
     const saved = await this.prisma.competitorProduct.findMany({
-      where: { source: { key: '05ru' }, externalName: { not: null } },
-      orderBy: { lastSuccessAt: 'desc' }, take: 1000,
+      where: { source: { key: '05ru' }, productId: product.id, externalName: { not: null } },
+      orderBy: { lastSuccessAt: 'desc' }, take: 50,
     })
     const possible = saved.map(link => ({
       link, check: compareItems(product, { name: link.externalName || '', attributes: link.attributes }),
-    })).filter(row => (row.link.productId === null || row.link.productId === product.id) && this.strongVariant(row.check))
-    // An already confirmed association wins over another unlinked card.
-    const assigned = possible.filter(row => row.link.productId === product.id && row.link.matchStatus === 'CONFIRMED')
+    })).filter(row => this.strongVariant(row.check))
+    const assigned = possible.filter(row => row.link.matchStatus === 'CONFIRMED')
     const eligible = assigned.length ? assigned : possible
     if (!eligible.length) return false
     if (eligible.length !== 1) throw new Error(
@@ -335,8 +341,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const requested = identity(product)
     if (!requested.model) return false
     const options = await this.prisma.competitorCatalogEntry.findMany({
-      where: { model: requested.model, ...(requested.storage ? { storage: requested.storage } : {}) },
-      take: 500,
+      where: {
+        model: requested.model,
+        ...(requested.storage ? { OR: [{ storage: requested.storage }, { storage: null }] } : {}),
+      },
+      take: 1000,
     })
     // Catalog titles are hints. Missing colour/SIM on a tile must not reject
     // a real product before reading its specifications.
@@ -356,10 +365,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
     }
     if (!verified.length) return false
-    if (verified.length > 1 && !verified.every(item => item.check.canAutoConfirm)) return false
-    verified.sort((a, b) => Number(b.result.inStock === true) - Number(a.result.inStock === true) || a.result.price - b.result.price)
+
+    const exact = verified.filter(item => item.check.canAutoConfirm)
     const source = await this.source()
-    await this.save(verified[0].result, source.id, product.id)
+    if (exact.length === 1) {
+      await this.save(exact[0].result, source.id, product.id)
+      return true
+    }
+    if (verified.length === 1) {
+      // A single plausible accessory/variant is useful as SUGGESTED, but save()
+      // will not confirm it without the required exact identifier.
+      await this.save(verified[0].result, source.id, product.id)
+      return true
+    }
+
+    // Keep a small shortlist for manual review instead of throwing away every
+    // candidate just because several product pages share a compatible model.
+    verified.sort((a, b) => b.check.score - a.check.score)
+    for (const option of verified.slice(0, 3)) {
+      await this.save(option.result, source.id)
+    }
     return true
   }
 
@@ -568,7 +593,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       && lastJob?.status === 'COMPLETED' && !lastJob.lastError) return null
     return this.prisma.monitorJob.create({
       data: { kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
-        page: 0, maxPages: 2100, perPage: 24, processed: 0, visitedUrls: [] },
+        page: 0, maxPages: 2300, perPage: 24, processed: 0, visitedUrls: [] },
     })
   }
 
@@ -666,9 +691,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
               } else {
-              let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
+              const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems> }>()
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
+              const requestedKind = identity(product).kind
               for (const query of oneCSearchQueries(product)) {
                 const trace: FiveRuSearchTrace = { query, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
@@ -684,9 +710,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
-                ranked = checked.filter(row => this.strongVariant(row.check))
-                  .sort((a,b) => b.check.score - a.check.score)
-                if (ranked.length) break
+                for (const row of checked.filter(candidate => this.strongVariant(candidate.check))) {
+                  const previous = rankedByUrl.get(row.result.url)
+                  if (!previous || row.check.score > previous.check.score) rankedByUrl.set(row.result.url, row)
+                }
+                // A fully variant-filtered smartphone result is already precise.
+                // Accessories keep searching all query variants to improve recall.
+                if (requestedKind === 'smartphone' && rankedByUrl.size) break
                 for (const row of checked.slice(0, 3)) {
                   const reason = row.check.conflicts.length ? row.check.conflicts.join(', ')
                     : !row.check.theirs.model ? 'модель не распознана'
@@ -697,6 +727,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   if (rejected.length < 5) rejected.push(row.result.name + ': ' + reason)
                 }
               }
+              const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
               if (!ranked.length) {
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + trace.cardsParsed + ' прочитано' +
