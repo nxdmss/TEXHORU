@@ -5,7 +5,7 @@ const { resolve } = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
-const { compareItems, identity, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
+const { compareItems, identity, fingerprint, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { ProductsService } = require('../dist/products/products.service')
@@ -110,6 +110,13 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
     'green lion чехол iphone 15 pro max',
     'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max',
   ])
+  const caseUrl = 'https://05.ru/cat/x/p/chehol-green-lion-iphone-15-pro-max-123/'
+  const phoneUrl = 'https://05.ru/cat/x/p/smartfon-apple-iphone-15-pro-max-256-456/'
+  assert.deepEqual(rankSearchLinks([
+    { url: phoneUrl, title: 'Смартфон Apple iPhone 15 Pro Max 256 Гб' },
+    { url: caseUrl, title: 'Чехол Green Lion для iPhone 15 Pro Max' },
+  ], 'green lion чехол iphone 15 pro max', 10), [caseUrl])
+  assert.equal(fingerprint({ name: 'Xiaomi 15T Pro' }), fingerprint({ name: 'Xiaomi 15T Pro', category: 'Смартфоны' }))
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Xiaomi 15T Pro 12/512' }), [
     'xiaomi 15t pro 512', 'xiaomi 15t pro',
   ])
