@@ -10,7 +10,9 @@ type Item = {
 }
 
 export function normalize(value: string) {
-  return value.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ')
+  return value.toLowerCase().replace(/ё/g, 'е')
+    .replace(/\b(?:iphone|ip)\s*(\d{1,2})\s*(pro\s*max|pro|plus|mini)?/g, (_, number, variant) => 'iphone ' + number + (variant ? ' ' + variant.replace(/pro\s*max/, 'pro max') + ' ' : ' '))
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ')
 }
 
 const colors: Array<[RegExp, string]> = [
@@ -82,7 +84,8 @@ export function identity(item: Item): Identity {
   // A broad /цвет|color/ pattern also matches unrelated attributes like
   // "Количество цветов экрана" or "Цветовая температура", leading to
   // false variant mismatches. Only explicit body/phone colour is authoritative.
-  const colorText = attrs.color || spec(/^(?:цвет|цвет корпуса|основной цвет|цвет устройства|цвет телефона|color|body color)$/i) || text
+  const colorName = text.replace(/\bgreen lion\b/g, '').replace(/\bgreen(?=\s+(?:9h|3d)\b)/g, '')
+  const colorText = attrs.color || spec(/^(?:цвет|цвет корпуса|основной цвет|цвет устройства|цвет телефона|color|body color)$/i) || colorName
   const color = colors.find(([re]) => re.test(colorText))?.[1] || (attrs.color ? normalize(attrs.color) : undefined)
   const simText = normalize(attrs.sim || spec(/тип sim|сим|sim карт/i) || text)
   const hasEsim = /e\s*sim|esim/.test(simText)
@@ -90,11 +93,14 @@ export function identity(item: Item): Identity {
   const sim = hasEsim && physical ? 'physical+esim' : hasEsim ? 'esim' : /nano\s*sim|dual sim|2 sim/.test(simText) ? 'physical' : undefined
   const brandText = normalize(attrs.brand || item.brand || '')
   const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf'].find(b => text.includes(b))
-  const inferredBrand = /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
+  const kind = attrs.kind || productKind(item)
+  const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
+  const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
+  const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
   // Explicit 1C brand belongs to the product. Do not replace accessory makers
   // with Apple just because the title also contains an iPhone model.
-  const brand = brandText && brandText !== 'без бренда' ? canonicalBrand(brandText) : inferredBrand
-  const kind = attrs.kind || productKind(item)
+  const usableBrand = brandText && !['без бренда', 'другие', 'other'].includes(brandText)
+  const brand = accessoryMaker || (usableBrand ? canonicalBrand(brandText) : inferredBrand)
   const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
@@ -129,7 +135,7 @@ export function compareItems(ours: Item, theirs: Item) {
   }
   if ((a.condition === 'used') !== (b.condition === 'used')) conflicts.push('новый / восстановленный')
   const exactId = Boolean((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn))
-  const phone = Boolean(a.kind === 'smartphone' || a.model?.includes('iphone') || a.brand === 'samsung' || /смартфон|телефон/i.test(ours.name))
+  const phone = a.kind === 'smartphone'
   for (const key of (phone ? ['model', 'storage', 'color', 'sim'] : ['model']) as Array<keyof Identity>) {
     if (!a[key] || !b[key]) missing.push(labels[key])
   }

@@ -1018,3 +1018,28 @@ test('Legacy duplicate 1C records show as one public phone, remain accessible to
   assert.equal(reimport.skippedDuplicates, 1)
   assert.equal(await prisma.product.count({ where: { categoryId: c.id } }), 2)
 })
+
+
+test('Compact iPhone accessory names keep compatibility separate from manufacturer and colour', () => {
+  const names = [
+    ['Накладка Green Lion Leather Case for iPhone 15Pro Max - Blue', 'iphone 15 pro max', 'blue'],
+    ['Накладка Green Lion Leather Case for iPhone 15Pro - Black', 'iphone 15 pro', 'black'],
+    ['Накладка Green Lion Case for iP15 ProGray/Blue', 'iphone 15 pro', 'blue'],
+  ]
+  for (const [name, model, color] of names) {
+    const parsed = identity({ name, brand: 'Другие' })
+    assert.equal(parsed.model, model)
+    assert.equal(parsed.brand, 'green lion')
+    assert.equal(parsed.color, color)
+    assert(oneCSearchQueries({ name })[0].startsWith('green lion чехол iphone'))
+  }
+  const glass = identity({ name: 'Защитное стекло Green Lion Screen Protector for iPhone 15Pro - Clear' })
+  assert.equal(glass.color, undefined) // Green is part of the manufacturer, not the finish.
+  assert.equal(glass.brand, 'green lion')
+  const links = rankSearchLinks([{url:'https://05.ru/cat/cases/p/iphone-15-pro-max-123/', title:'Чехол Green Lion для iPhone 15 Pro Max'}], 'green lion чехол iphone 15Pro Max')
+  assert.equal(links.length, 1)
+  const monitor = new PriceMonitorService({}, {}, {})
+  const check = compareItems({name:names[0][0]}, {name:'Чехол Green Lion Other Series iPhone 15 Pro Max Blue'})
+  assert.equal(monitor.strongVariant(check), false)
+  assert(compareItems({name:names[0][0]}, {name:'Чехол G-Case iPhone 15 Pro Max Blue', brand:'G-Case'}).conflicts.includes('бренд'))
+})

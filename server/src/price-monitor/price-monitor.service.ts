@@ -158,6 +158,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
   private strongVariant(check: ReturnType<typeof compareItems>): boolean {
+    // Phone compatibility does not identify a case series or a glass model.
+    if (['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(check.ours.kind || '')
+      && !check.exactId) return false
     return check.score >= 40 && !check.conflicts.length
       && Boolean(check.ours.model && check.theirs.model === check.ours.model)
       && (!check.ours.storage || check.theirs.storage === check.ours.storage)
