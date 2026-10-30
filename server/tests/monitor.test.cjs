@@ -719,6 +719,31 @@ test('Business price-list import links 1C products safely, never claims 05.ru ve
   ] }), /05.ru/)
 })
 
+test('Product page reader retries transient 5xx and accepts Product JSON-LD without a visible h1', async () => {
+  const parser = new FiveRuParser()
+  const url = fixture.sourceUrl
+  let attempts = 0, closed = 0
+  const context = {
+    newPage: async () => ({
+      goto: async (_, options) => {
+        assert.equal(options.waitUntil, 'commit')
+        attempts++
+        return { status: () => attempts === 1 ? 503 : 200 }
+      },
+      url: () => url,
+      locator: selector => selector === 'h1'
+        ? { first: () => ({ waitFor: async () => { throw new Error('Timeout waiting for h1') } }) }
+        : { evaluateAll: async () => true },
+      waitForTimeout: async () => {},
+      close: async () => { closed++ },
+    }),
+  }
+  const page = await parser.open(context, url)
+  assert.equal(attempts, 2)
+  assert.equal(closed, 1)
+  await page.close()
+})
+
 test('Direct product checks use response commit and reuse Chromium across checks', async () => {
   const parser = new FiveRuParser()
   let launches = 0, pageCloses = 0, contexts = 0, browserCloses = 0
