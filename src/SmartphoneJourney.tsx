@@ -61,7 +61,7 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
   const heading = activeBrand?.name || 'СМАРТФОНЫ'
   const visibleBrands = brands.filter(brand => brand.slug !== activeBrand?.slug)
   return <section className="phone-journey">
-    <div className="phone-journey__inner">
+    <div className="phone-journey__inner" key={activeBrand?.slug || "all"}>
       <nav className="phone-journey__back" aria-label="Путь по каталогу">
         <button onClick={() => onOpen('/')} type="button">Главная</button>
         <span>/</span>

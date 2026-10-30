@@ -747,6 +747,21 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   </section>
 }
 
+let catalogTransition: { finished: Promise<void>; skipTransition: () => void } | undefined
+function animateCatalog(update: () => void) {
+  catalogTransition?.skipTransition()
+  const doc = document as Document & { startViewTransition?: (update: () => void) => { finished: Promise<void>; skipTransition: () => void } }
+  if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    update()
+    return
+  }
+  const transition = doc.startViewTransition(() => flushSync(update))
+  catalogTransition = transition
+  void transition.finished.catch(() => undefined).finally(() => {
+    if (catalogTransition === transition) catalogTransition = undefined
+  })
+}
+
 function App() {
   const [category, setCategory] = useState<Category>('Все')
   const [storeSection, setStoreSection] = useState('')
@@ -760,6 +775,7 @@ function App() {
   const [cartOpen, setCartOpen] = useState(false)
   const [accountTab, setAccountTab] = useState<AccountTab>('active')
   const [path, setPath] = useState(() => window.location.pathname)
+  const lastPhonePath = useRef('/catalog/smartphones')
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPath, setMenuPath] = useState('')
   const [slideIndex, setSlideIndex] = useState(0)
@@ -777,11 +793,20 @@ function App() {
     return () => window.removeEventListener('texhoru:promos-changed', onPromosChanged)
   }, [])
   useEffect(() => { localStorage.setItem('texhoru_cart', JSON.stringify(cart)) }, [cart])
-  useEffect(() => { const onPopState = () => setPath(window.location.pathname); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState) }, [])
+  useEffect(() => { const onPopState = () => animateCatalog(() => setPath(window.location.pathname)); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState) }, [])
 
-  const navigate = (nextPath: string) => { if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); setPath(nextPath); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const navigate = (nextPath: string) => {
+    if (window.location.pathname === nextPath) return
+    const update = () => {
+      window.history.pushState({}, '', nextPath)
+      setPath(nextPath)
+      window.scrollTo({ top: 0, behavior: 'instant' })
+    }
+    if (/^\/(catalog\/smartphones|product\/)/.test(path) || /^\/(catalog\/smartphones|product\/)/.test(nextPath)) animateCatalog(update)
+    else update()
+  }
   const journeyMatch = path.match(/^\/catalog\/smartphones(?:\/([^/]+))?\/?$/)
-  const openJourney = (url: string, source?: HTMLElement | null) => {
+  const openJourney = (url: string, _source?: HTMLElement | null) => {
     const next = () => {
       if (window.location.pathname !== url) window.history.pushState({}, '', url)
       setPath(url)
@@ -792,22 +817,12 @@ function App() {
       setQuery('')
       setStoreLimit(24)
     }
-    const doc = document as Document & { startViewTransition?: (update: () => void) => { finished: Promise<void> } }
-    if (source && doc.startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const previousHeading = document.querySelector('.phone-journey__heading')
-      if (previousHeading instanceof HTMLElement) previousHeading.style.viewTransitionName = 'none'
-      source.style.viewTransitionName = 'texhoru-catalog-focus'
-      const transition = doc.startViewTransition(() => {
-        flushSync(next)
-        window.scrollTo(0, 0)
-      })
-      void transition.finished.catch(() => undefined).finally(() => {
-        source.style.removeProperty('view-transition-name')
-      })
-    } else {
+    if (window.location.pathname === url) return
+    if (url.startsWith('/catalog/smartphones')) lastPhonePath.current = url
+    animateCatalog(() => {
       next()
-      window.scrollTo({top:0,behavior:'auto'})
-    }
+      window.scrollTo({ top: 0, behavior: 'instant' })
+    })
   }
   const productMatch = path.match(/^\/product\/(\d+)\/?$/)
   const orderMatch = path.match(/^\/order\/([^/]+)\/?$/)
@@ -855,7 +870,10 @@ function App() {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0), total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
   const addToCart = (product: Product) => { if (product.stockQty === 0 && product.stock !== 'Под заказ') return; setCart((current) => { const existing = current.find((item) => item.product.id === product.id); return existing ? current.map((item) => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { product, quantity: 1 }] }); setCartOpen(true) }
   const changeQuantity = (productId: number, delta: number) => setCart((current) => current.map((item) => item.product.id === productId ? { ...item, quantity: item.quantity + delta } : item).filter((item) => item.quantity > 0))
-  const openProduct = (product: Product) => navigate(`/product/${product.id}`)
+  const openProduct = (product: Product) => {
+    if (journeyMatch) lastPhonePath.current = path
+    navigate(`/product/${product.id}`)
+  }
   const jumpToCatalog = (nextCategory: Category = 'Все') => {
     setCategory(nextCategory)
     setQuery('')
@@ -958,7 +976,7 @@ function App() {
     </section>
   </>
 
-  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={/iphone\s*\d+/i.test(product.name) ? featuredPhoneImage(product.name, product.image) : product.image} alt={product.name} onError={e => { e.currentTarget.src='/products/phone.svg' }} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
+  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={/iphone\s*\d+/i.test(product.name) ? featuredPhoneImage(product.name, product.image) : product.image} alt={product.name} onError={e => { e.currentTarget.src='/products/phone.svg' }} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
 
   const renderAccountPage = () => <section className="account-page"><div className="account-page__top"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> В магазин</button><div className="account-simple-head"><div><p className="eyebrow">TEXHORU</p><h1>Личный кабинет</h1></div><div className="account-simple-user"><strong>Умар Мутаев</strong><span>+7 999 123-45-67</span></div></div></div><nav className="account-simple-tabs"><button className={accountTab === 'active' ? 'active' : ''} onClick={() => setAccountTab('active')}>Активные заказы <span>{activeOrders.length}</span></button><button className={accountTab === 'history' ? 'active' : ''} onClick={() => setAccountTab('history')}>История</button><button className={accountTab === 'profile' ? 'active' : ''} onClick={() => setAccountTab('profile')}>Мои данные</button></nav><div className="account-page__content account-page__content--simple">{accountTab === 'active' && <div className="order-list order-list--page">{activeOrders.map((order) => <OrderCard key={order.id} order={order} />)}</div>}{accountTab === 'history' && <div className="order-list order-list--page">{orderHistory.map((order) => <OrderCard key={order.id} order={order} />)}</div>}{accountTab === 'profile' && <div className="profile-simple"><div><span>Имя</span><strong>Умар Мутаев</strong></div><div><span>Телефон</span><strong>+7 999 123-45-67</strong></div><div><span>Email</span><strong>umar@example.com</strong></div><div><span>Город</span><strong>Кизилюрт, Дагестан</strong></div></div>}</div></section>
 
