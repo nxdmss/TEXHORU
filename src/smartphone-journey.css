@@ -49,12 +49,6 @@
 ::view-transition { pointer-events: none; }
 @keyframes phone-enter { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
 @keyframes phone-exit { to { opacity:0; transform:translateY(-6px); } }
-.phone-journey__intro { animation:phone-enter 320ms cubic-bezier(.22,1,.36,1) both; }
-.phone-journey__inventory .product-card { animation:phone-enter 360ms cubic-bezier(.22,1,.36,1) both; }
-.phone-journey__inventory .product-card:nth-child(2) { animation-delay:25ms; }
-.phone-journey__inventory .product-card:nth-child(3) { animation-delay:50ms; }
-.phone-journey__inventory .product-card:nth-child(4) { animation-delay:75ms; }
-.phone-journey__inventory .product-card:nth-child(n+5) { animation-delay:90ms; }
 .phone-journey__brand { position:relative; transition:color 180ms ease, transform 180ms ease; }
 .phone-journey__brand::after { content:''; position:absolute; bottom:0; left:0; right:0; height:2px; background:#d00019; transform:scaleX(0); transform-origin:left; transition:transform 220ms cubic-bezier(.22,1,.36,1); }
 .phone-journey__brand:focus-visible { outline:2px solid #d00019; outline-offset:5px; }
@@ -69,4 +63,29 @@
  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation:none !important; }
  .phone-journey__intro, .phone-journey__inventory .product-card { animation:none !important; }
  .phone-journey__brand, .phone-journey__brand::after, .phone-portal__visual img { transition:none !important; transform:none !important; }
+}
+
+/* A stable viewport and explicit rail keep all brands on the same edges. */
+html { scrollbar-gutter:stable; }
+.phone-journey { box-sizing:border-box; min-width:0; }
+.phone-journey__inner, .phone-journey__inventory { min-width:0; }
+.phone-journey__heading { view-transition-name:phone-brand-title; }
+.phone-journey__inventory { view-transition-name:phone-inventory; }
+.phone-journey__brand span { display:inline-block; }
+.phone-brand-switch #top { view-transition-name:none; }
+::view-transition-group(phone-brand-title) {
+ animation-duration:650ms; animation-timing-function:cubic-bezier(.22,1,.36,1);
+}
+::view-transition-old(phone-brand-title) { animation:phone-title-out 500ms ease both; }
+::view-transition-new(phone-brand-title) { animation:phone-title-in 650ms ease both; }
+::view-transition-group(phone-inventory) { animation:none; }
+::view-transition-old(phone-inventory) { animation:phone-inventory-out 360ms cubic-bezier(.4,0,1,1) both; }
+::view-transition-new(phone-inventory) { animation:phone-inventory-in 540ms 280ms cubic-bezier(.16,1,.3,1) both; }
+@keyframes phone-title-out { to { opacity:0; } }
+@keyframes phone-title-in { from { opacity:0; } to { opacity:1; } }
+@keyframes phone-inventory-out { from { opacity:1; transform:translateY(0); } to { opacity:0; transform:translateY(65px); } }
+@keyframes phone-inventory-in { from { opacity:0; transform:translateY(85px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) {
+ ::view-transition-group(phone-brand-title), ::view-transition-old(phone-brand-title), ::view-transition-new(phone-brand-title),
+ ::view-transition-old(phone-inventory), ::view-transition-new(phone-inventory) { animation:none !important; }
 }

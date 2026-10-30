@@ -5331,3 +5331,13 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
   width: 100% !important;
   max-width: none !important;
 }
+
+/* Smartphone category and brand inventories use one invariant content rail. */
+#top:has(.phone-journey) { width:100%; min-width:0; }
+.phone-journey .phone-journey__inner,
+.phone-journey .phone-journey__inventory,
+.phone-journey .phone-journey__inventory > .product-grid {
+ width:100% !important; max-width:none !important; min-width:0;
+ margin-left:0 !important; margin-right:0 !important;
+ padding-left:0 !important; padding-right:0 !important;
+}

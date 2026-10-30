@@ -748,17 +748,32 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 }
 
 let catalogTransition: { finished: Promise<void>; skipTransition: () => void } | undefined
-function animateCatalog(update: () => void) {
+function animateCatalog(update: () => void, source?: HTMLElement | null) {
   catalogTransition?.skipTransition()
   const doc = document as Document & { startViewTransition?: (update: () => void) => { finished: Promise<void>; skipTransition: () => void } }
   if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     update()
     return
   }
-  const transition = doc.startViewTransition(() => flushSync(update))
+  // Give the clicked label the identity of the next heading.
+  const previousHeading = document.querySelector<HTMLElement>('.phone-journey__heading')
+  const brandSwitch = Boolean(source && previousHeading)
+  if (brandSwitch) {
+    document.documentElement.classList.add('phone-brand-switch')
+    previousHeading!.style.viewTransitionName = 'none'
+    source!.style.viewTransitionName = 'phone-brand-title'
+  }
+  const transition = doc.startViewTransition(() => {
+    flushSync(update)
+    source?.style.removeProperty('view-transition-name')
+    previousHeading?.style.removeProperty('view-transition-name')
+  })
   catalogTransition = transition
   void transition.finished.catch(() => undefined).finally(() => {
-    if (catalogTransition === transition) catalogTransition = undefined
+    if (catalogTransition === transition) {
+      catalogTransition = undefined
+      document.documentElement.classList.remove('phone-brand-switch')
+    }
   })
 }
 
@@ -806,7 +821,7 @@ function App() {
     else update()
   }
   const journeyMatch = path.match(/^\/catalog\/smartphones(?:\/([^/]+))?\/?$/)
-  const openJourney = (url: string, _source?: HTMLElement | null) => {
+  const openJourney = (url: string, source?: HTMLElement | null) => {
     const next = () => {
       if (window.location.pathname !== url) window.history.pushState({}, '', url)
       setPath(url)
@@ -821,8 +836,8 @@ function App() {
     if (url.startsWith('/catalog/smartphones')) lastPhonePath.current = url
     animateCatalog(() => {
       next()
-      window.scrollTo({ top: 0, behavior: 'instant' })
-    })
+      if (!journeyMatch) window.scrollTo({ top: 0, behavior: 'instant' })
+    }, source)
   }
   const productMatch = path.match(/^\/product\/(\d+)\/?$/)
   const orderMatch = path.match(/^\/order\/([^/]+)\/?$/)

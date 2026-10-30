@@ -74,7 +74,7 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
       </header>
       <nav className="phone-journey__brands" aria-label="Фильтр по производителю">
         {inBrand && <button className="phone-journey__brand phone-journey__brand--all" type="button"
-          onClick={() => onOpen('/catalog/smartphones')}>Все смартфоны</button>}
+          onClick={e => onOpen('/catalog/smartphones', e.currentTarget.querySelector('span'))}><span>Все смартфоны</span></button>}
         {visibleBrands.map(brand => <button className="phone-journey__brand" key={brand.slug} type="button"
           onClick={e => onOpen('/catalog/smartphones/' + encodeURIComponent(brand.slug), e.currentTarget.querySelector('span'))}>
           <span>{brand.name}</span>
