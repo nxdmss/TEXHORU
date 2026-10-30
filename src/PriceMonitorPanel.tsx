@@ -131,7 +131,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     await run('match', async () => {
       const number = Math.min(5000, scopeCount)
       if (!number) throw new Error('В этом разделе нет товаров из 1С с ценой')
-      const useCatalogIndex = number >= 30
+      const useCatalogIndex = number >= 100
       const onlyInStockSmartphones = /(?:смартфон|smartphone)/i.test(displayPath)
       const job = await api.monitorAutoFindOneC(displayPath, number, useCatalogIndex, onlyInStockSmartphones)
       setNotice(useCatalogIndex
