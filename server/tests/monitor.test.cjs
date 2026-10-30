@@ -741,6 +741,22 @@ test('05.ru parser launches only its dedicated bundled Chromium in headless mode
   }
 })
 
+test('Missing bundled Chromium never falls back to the installed desktop Edge', async () => {
+  const parser = new FiveRuParser()
+  const oldPath = chromium.executablePath
+  const oldLaunch = chromium.launch
+  let launched = false
+  chromium.executablePath = () => 'Z:\\missing\\playwright\\chromium.exe'
+  chromium.launch = async () => { launched = true; throw new Error('Should not launch') }
+  try {
+    await assert.rejects(() => parser.browser(), /Фоновый Chromium не установлен/)
+    assert.equal(launched, false)
+  } finally {
+    chromium.executablePath = oldPath
+    chromium.launch = oldLaunch
+  }
+})
+
 test('Catalog discovery reuses the shared browser and closes its page and context', async () => {
   const parser = new FiveRuParser()
   let launches = 0, pageClosed = 0, contextClosed = 0, evaluations = 0
