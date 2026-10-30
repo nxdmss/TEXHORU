@@ -549,7 +549,7 @@ export class FiveRuParser implements OnModuleDestroy {
         }
       })
     } catch (error) {
-      throw new BadGatewayException(\`Каталог 05.ru: \${error instanceof Error ? error.message : 'Ошибка'}\`)
+      throw new BadGatewayException(`Каталог 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`)
     }
   }
 }
