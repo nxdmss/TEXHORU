@@ -80,6 +80,33 @@ test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra o
 })
 
 
+test('Recognizes smartwatch model codes and keeps accessory searches separate from phones', () => {
+  const mibro = { name: 'Смарт-часы Mibro XPAW002', brand: 'Mibro', category: 'Смарт-часы' }
+  const tecno = { name: 'Смарт-часы TECNO Watch 3 Active', brand: 'TECNO', category: 'Смарт-часы' }
+  const amazfit = { name: 'Умные часы Amazfit Active 2R', brand: 'Amazfit', category: 'Умные часы' }
+  const generic = { name: 'Умные часы C60 Gold Frame White Silicone Strap', category: 'Смарт-часы' }
+  assert.equal(identity(mibro).model, 'xpaw002')
+  assert.equal(identity(mibro).brand, 'mibro')
+  assert.equal(identity(mibro).kind, 'smartwatch')
+  assert.equal(identity(tecno).model, 'watch 3 active')
+  assert.equal(identity(amazfit).model, 'active 2r')
+  assert.equal(identity(generic).model, 'c60')
+  assert.deepEqual(oneCSearchQueries(mibro), ['mibro xpaw002', 'Смарт-часы Mibro XPAW002'])
+
+  const caseItem = { name: 'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max', brand: 'Green Lion', category: 'Аксессуары / Чехлы' }
+  const phoneItem = { name: 'Смартфон Apple iPhone 15 Pro Max 256 Гб', brand: 'Apple', category: 'Смартфоны' }
+  assert.equal(identity(caseItem).kind, 'case')
+  assert.equal(identity(caseItem).brand, 'green lion')
+  assert(compareItems(caseItem, phoneItem).conflicts.includes('тип товара'))
+  assert.deepEqual(oneCSearchQueries(caseItem), [
+    'green lion чехол iphone 15 pro max',
+    'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max',
+  ])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Xiaomi 15T Pro 12/512' }), [
+    'xiaomi 15t pro 512', 'xiaomi 15t pro',
+  ])
+})
+
 test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links', () => {
   const target = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
   const noise = Array.from({ length: 15 }, (_, i) => ({
