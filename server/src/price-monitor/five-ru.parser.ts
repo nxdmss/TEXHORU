@@ -153,7 +153,7 @@ export class FiveRuParser implements OnModuleDestroy {
       try {
         const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
         if (response && response.status() >= 400) {
-          throw new Error(\`05.ru ответил HTTP \${response.status()}. Проверка остановлена; обход защиты не выполняется.\`)
+          throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
         }
         if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
           throw new Error('Карточка перенаправила на другой сайт')
