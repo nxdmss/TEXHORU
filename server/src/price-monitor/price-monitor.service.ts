@@ -639,8 +639,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           const pageNumber = job.page + 1
           const links = await this.fiveRu.indexCatalogPage(pageNumber)
           const visited = this.strings(job.visitedUrls)
-          if (!links.length && pageNumber === 1) {
-            throw new Error('05.ru: первая страница каталога не отдала товары. Индексация невозможна.')
+          if (!links.length) {
+            // A transient empty render must not silently truncate the catalog.
+            // Retry the same page once; only a repeated empty response ends the crawl.
+            const retryMarker = 'EMPTY_PAGE_RETRY:' + pageNumber
+            if (!visited.includes(retryMarker)) {
+              await this.prisma.monitorJob.update({
+                where: { id: job.id },
+                data: { visitedUrls: [...visited, retryMarker], status: 'QUEUED', leaseUntil: null },
+              })
+              return
+            }
+            if (pageNumber === 1) {
+              throw new Error('05.ru: первая страница каталога дважды не отдала товары. Индексация невозможна.')
+            }
           }
           const signature = createHash('sha256').update(
             links.map(link => link.url).sort().join('\n')
