@@ -662,7 +662,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               for (const query of oneCSearchQueries(product)) {
                 const trace: FiveRuSearchTrace = { query, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
-                const results = await this.fiveRu.searchProducts(query, 12, trace)
+                let results: FiveRuResult[]
+                try {
+                  results = await this.fiveRu.searchProducts(query, 12, trace)
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : String(error)
+                  if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
+                  trace.rejectedCards.push(message)
+                  continue
+                }
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))

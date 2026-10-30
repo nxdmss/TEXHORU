@@ -410,6 +410,7 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   let searches = 0
   const parser = { searchProducts: async query => {
     searches++
+    if (searches === 1) throw new Error("Search timeout")
     assert(/iphone/i.test(query))
     return [{ ...extractFiveRu(uniqueSnapshot, fixture.sourceUrl), url: sourceUrl }]
   } }
@@ -422,7 +423,7 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const finished = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
   assert.equal(finished.status, 'COMPLETED')
   assert.equal(finished.processed, 1)
-  assert.equal(searches, 1)
+  assert.equal(searches, 2)
   const matched = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: sourceUrl } })
   const original = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   assert.equal(matched.productId, original.id)
@@ -590,15 +591,27 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(cardOpens, 3) // cache avoids extra site requests
     assert.equal(contexts, 1)
 
+    const originalOpen = parser.open
+    parser.open = async (context, url) => {
+      if (url === orange256) throw new Error('Timeout 20000ms exceeded')
+      return originalOpen(context, url)
+    }
+    const partialTrace = {}
+    const partial = await parser.searchProducts('iPhone 17 Pro 256 GB', 3, partialTrace)
+    assert.equal(partial.length, 2)
+    assert.equal(partialTrace.rejectedCards.length, 1)
+    parser.open = originalOpen
+    const recovered = await parser.searchProducts('iPhone 17 Pro 256 GB', 3, {})
+    assert.equal(recovered.length, 3) // Partial results must not poison the query cache.
     links = []
     const emptyTrace = {}
     await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*не отдал/)
     assert.equal(emptyTrace.linksFound, 0)
     assert.equal(emptyTrace.searchMode, 'direct-search')
-    assert.equal(contexts, 2)
+    assert.equal(contexts, 4)
     responseStatus = 403
     await assert.rejects(() => parser.searchProducts('Another nonexistent model', 3), /HTTP 403/)
-    assert.equal(contexts, 3)
+    assert.equal(contexts, 5)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
 })

@@ -244,6 +244,7 @@ export class FiveRuParser implements OnModuleDestroy {
   async searchProducts(query: string, limit = 12, trace?: FiveRuSearchTrace): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
     if (!text || limit < 1 || limit > 12) throw new BadRequestException('Неправильный поисковый запрос')
+    trace ??= { query: text, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
     const cacheKey = normalize(text) + ':' + limit
     if (trace) Object.assign(trace, { query: text, linksFound: 0, cardsParsed: 0, rejectedCards: [], cached: false })
     const cached = this.queryCache.get(cacheKey)
@@ -328,7 +329,7 @@ export class FiveRuParser implements OnModuleDestroy {
               } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error)
                 if (trace && trace.rejectedCards.length < 5) trace.rejectedCards.push(url + ': ' + msg.slice(0, 180))
-                if (/HTTP (403|429)|проверку доступа|timeout/i.test(msg)) throw error
+                if (/HTTP (403|429)|проверку доступа/i.test(msg)) throw error
                 // Report unusable pages instead of pretending the catalog had no match.
               }
             }
@@ -341,7 +342,7 @@ export class FiveRuParser implements OnModuleDestroy {
             const firstReason = trace?.rejectedCards[0] || 'структура или цена карточки недоступна'
             throw new Error('Поиск 05.ru нашёл ' + urls.length + ' ссылок, но карточки не прочитаны: ' + firstReason)
           }
-          if (results.length) {
+          if (results.length && !trace?.rejectedCards.length) {
             if (this.queryCache.size >= 100) this.queryCache.delete(this.queryCache.keys().next().value!)
             this.queryCache.set(cacheKey, { expires: Date.now() + 5 * 60_000, results })
           }
