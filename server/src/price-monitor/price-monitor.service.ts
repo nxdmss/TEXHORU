@@ -635,7 +635,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         if (links) await this.checkAll()
         await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
       }
-      const job = await this.prisma.monitorJob.findFirst({ where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' } })
+      // Finish a requested catalog build before processing the batch that depends on it.
+      const indexJob = await this.prisma.monitorJob.findFirst({
+        where: { status: 'QUEUED', kind: 'INDEX_05RU' }, orderBy: { createdAt: 'asc' },
+      })
+      const job = indexJob ?? await this.prisma.monitorJob.findFirst({
+        where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' },
+      })
       if (!job) return
       const claimed = await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'QUEUED' }, data: { status: 'RUNNING', leaseUntil: new Date(Date.now() + 180000) } })
       if (!claimed.count) return
