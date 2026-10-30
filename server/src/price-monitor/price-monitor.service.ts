@@ -378,6 +378,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       await this.save(exact[0].result, source.id, product.id)
       return true
     }
+    if (exact.length > 1) {
+      // Multiple exact IDs are still multiple offers; never auto-pick one.
+      for (const option of verified.slice(0, 3)) {
+        await this.save(option.result, source.id, undefined, true)
+      }
+      return true
+    }
 
     verified.sort((a, b) => b.check.score - a.check.score)
     const top = verified[0]
