@@ -686,15 +686,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 color: data.color || null, lastSeenAt: scannedAt },
             })
           }
-          const finished = !links.length || pageNumber >= job.maxPages
+          if (pageNumber >= job.maxPages && links.length) {
+            throw new Error('Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.')
+          }
+          const finished = !links.length
           await this.prisma.monitorJob.update({
             where: { id: job.id }, data: {
               page: pageNumber, processed: { increment: links.length },
               visitedUrls: [...visited, signature],
               status: finished ? 'COMPLETED' : 'QUEUED', leaseUntil: null,
               finishedAt: finished ? new Date() : null,
-              lastError: pageNumber >= job.maxPages && links.length
-                ? 'Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.' : null,
+              lastError: null,
             },
           })
           return
