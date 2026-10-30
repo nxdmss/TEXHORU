@@ -37,6 +37,10 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   return [...new Set([model + (parsed.storage ? ' ' + parsed.storage : ''), model])]
 }
 
+export function isExpectedReviewOutcome(message: string) {
+  return /нет подтверждённого совпадения|несколько близких совпадений|карточка 05\\.ru уже связана|не найдено точное соответствие|товар исключён из выбранного раздела/i.test(message)
+}
+
 @Injectable()
 export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
@@ -715,7 +719,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               : message
             // No safe match or several candidates means review, not a parser crash.
             // The red counter is reserved for actual technical failures.
-            const expectedReview = /нет подтверждённого совпадения|несколько близких совпадений|карточка 05\.ru уже связана|не найдено точное соответствие|товар исключён из выбранного раздела/i.test(message)
+            const expectedReview = isExpectedReviewOutcome(message)
             await this.prisma.monitorJob.updateMany({
               where: { id: job.id, status: 'RUNNING' },
               data: { ...(expectedReview ? {} : { errors: { increment: 1 } }), lastError: diagnostic },
