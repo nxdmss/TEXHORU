@@ -116,7 +116,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   }, [items])
   const confirmed = phones.filter(p => byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
   // Prefer the job the worker is actually executing over a newer queued job.
-  const active = jobs.find(j => j.status === 'RUNNING') ?? jobs.find(j => j.status === 'QUEUED')
+  const active = jobs.find(j => j.status === 'RUNNING')
+    ?? jobs.find(j => j.kind === 'INDEX_05RU' && j.status === 'QUEUED')
+    ?? jobs.find(j => j.status === 'QUEUED')
   const last = jobs.find(j => j.kind === 'MATCH_1C')
   const unlinked = items.filter(i => !i.product?.oneCId || !phones.some(p => p.id === i.product?.id))
   const level = pathSegments(path)
