@@ -143,6 +143,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
         } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
       } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') matchStatus = 'SUGGESTED'
+      // Re-check the actual assigned product; suggestions used to bypass auto-confirmation.
+      if (productId && (existing?.productId || suggestedProductId) && matchStatus !== 'CONFIRMED') {
+        const assigned = await tx.product.findUnique({ where: { id: productId } })
+        if (assigned?.status === 'ACTIVE' && compareItems(assigned, theirs).canAutoConfirm) {
+          matchStatus = 'CONFIRMED'
+          confirmedFingerprint = fingerprint(theirs)
+          confirmedProductFingerprint = fingerprint(assigned)
+        }
+      }
       const now = new Date()
       const data = { sourceId, productId, externalName: result.name, externalSku: result.externalSku,
         attributes: jsonValue(result.attributes), seller: result.seller, region: result.region, priceSource: result.priceSource,
@@ -329,27 +338,28 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       where: { model: requested.model, ...(requested.storage ? { storage: requested.storage } : {}) },
       take: 500,
     })
+    // Catalog titles are hints. Missing colour/SIM on a tile must not reject
+    // a real product before reading its specifications.
     const ranked = options.map(link => ({ link, check: compareItems(product, { name: link.title }) }))
-      .filter(option => this.strongVariant(option.check))
-      .sort((a, b) => b.check.score - a.check.score)
-    if (!ranked.length) return false
-    if (ranked.length > 1) {
-      // Multiple sellers, SIM variants, grades, or colours: don't take an arbitrary first.
-      throw new Error('Индекс 05.ru: несколько похожих карточек для «' + product.name +
-        '». Автоматически выбрать нельзя, нужна проверка соответствия.')
+      .filter(option => !option.check.conflicts.length && option.check.theirs.model === requested.model)
+      .sort((a, b) => b.check.score - a.check.score).slice(0, 8)
+    const verified: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
+    for (const { link } of ranked) {
+      const existing = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: link.externalUrl } })
+      if (existing?.productId && existing.productId !== product.id) continue
+      try {
+        const result = await this.fiveRu.parse(link.externalUrl)
+        const check = compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes })
+        if (this.strongVariant(check)) verified.push({ result, check })
+      } catch (error) {
+        if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(error instanceof Error ? error.message : String(error))) throw error
+      }
     }
-    const link = ranked[0].link
-    const existing = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: link.externalUrl } })
-    if (existing?.productId && existing.productId !== product.id) {
-      throw new Error('Карточка конкурента уже связана с другим товаром 1С: ' + link.externalUrl)
-    }
-    const fresh = await this.fiveRu.parse(link.externalUrl)
-    const verified = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
-    if (!this.strongVariant(verified)) {
-      throw new Error('Ссылка индекса открылась, но модель, память или цвет не совпали: ' + fresh.name)
-    }
+    if (!verified.length) return false
+    if (verified.length > 1 && !verified.every(item => item.check.canAutoConfirm)) return false
+    verified.sort((a, b) => Number(b.result.inStock === true) - Number(a.result.inStock === true) || a.result.price - b.result.price)
     const source = await this.source()
-    await this.save(fresh, source.id, product.id)
+    await this.save(verified[0].result, source.id, product.id)
     return true
   }
 
@@ -655,9 +665,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (!(await this.refreshKnownMatch(product))) {
               if (await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
-              } else if ((job.perPage > 100 || this.strings(job.visitedUrls).includes('INDEX_MATCH')) && await this.prisma.competitorCatalogEntry.count()) {
-                throw new Error('В сохранённом индексе 05.ru не найдено точное соответствие для «' + product.name +
-                  '». Возможно, товара нет в прочитанной части каталога. Цена не изменена.')
               } else {
               let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
               const traces: FiveRuSearchTrace[] = []
@@ -762,7 +769,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     } finally { this.working = false }
   }
 
-  // Kept for older clients: test imports are drafts, never inventory of the real business.
+  // Legacy catalog import now collects competitor observations without creating shop inventory.
   async importFiveRuCatalog(dto: ImportFiveRuCatalogDto) {
     if (this.working || this.parsing) throw new ConflictException('Парсер занят')
     this.parsing = true
@@ -774,15 +781,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       for (const url of scan.urls) {
         try {
           const result = await this.fiveRu.parse(url)
-          const category = await this.ensureTestCategory(scan.title)
-          categories.add(category.name)
-          const sku = this.testSku(result), existing = await this.prisma.product.findUnique({ where: { sku } })
-          const data = { sku, slug: `test-05ru-${this.key(url)}`, name: result.name, brand: result.brand, price: result.price,
-            stockQty: 0, stockState: StockState.OUT_OF_STOCK, status: ProductStatus.DRAFT, categoryId: category.id,
-            badge: 'ТЕСТ', attributes: jsonValue(result.attributes), image: '/products/phone.svg' }
-          const product = existing ? await this.prisma.product.update({ where: { id: existing.id }, data }) : await this.prisma.product.create({ data })
+          categories.add(result.categoryName || scan.title)
+          const existing = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: result.url } })
+          await this.save(result, source.id)
           existing ? updated++ : created++
-          await this.save(result, source.id, product.id)
         } catch { errors++ }
       }
       return { ok: true, sourceCategoryName: scan.title, discoveredLinks: scan.discovered, imported: created+updated, created, updated, categories: [...categories], errors }

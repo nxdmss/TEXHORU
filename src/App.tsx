@@ -618,7 +618,15 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     <div className="admin-top"><div><p className="eyebrow">TEXHORU CONTROL</p><h1>Управление магазином</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'API: ошибка' : 'API: подключён'}</span><button onClick={() => load()}>Обновить</button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти</button></div></div>
     <div className="admin-tabs">{(Object.keys(tabNames) as AdminTab[]).map((item) => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{tabNames[item]}</button>)}</div>
     {error && <div className="admin-error">{error}</div>}{loading && <div className="admin-loading">Загрузка…</div>}
-    {tab === 'overview' && <div className="admin-metrics"><article><span>Товаров</span><strong>{products.length}</strong></article><article><span>Категорий</span><strong>{apiCategories.length}</strong></article><article><span>Заказов</span><strong>{orders.length}</strong></article><article><span>Новых уведомлений</span><strong>{unread}</strong></article><article><span>Ошибок обмена 1С</span><strong>{logs.filter((item) => item.status === 'FAILED').length}</strong></article><article><span>Мало товара</span><strong>{products.filter((item) => Math.max(0, item.stockQty - (item.reservedQty ?? 0)) <= 3).length}</strong></article></div>}
+    {tab === 'overview' && <div className="admin-metrics">
+      <article><span>Из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong></article>
+      <article><span>Активных из 1С</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE').length}</strong></article>
+      <article><span>Из 1С с доступным остатком</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE' && p.stockQty > (p.reservedQty || 0)).length}</strong></article>
+      <article><span>Тестовые карточки 05.ru</span><strong>{products.filter(p => p.sku.startsWith('05RU-')).length}</strong></article>
+      <article><span>Карточек на витрине</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || !/(?:смартфон|smartphone)/i.test(p.category?.name || '') || p.stockQty > (p.reservedQty || 0))).length}</strong></article>
+      <article><span>Черновики</span><strong>{products.filter(p => p.status === 'DRAFT').length}</strong></article>
+    </div>}
+    {tab === 'overview' && <div className="admin-metrics"><article><span>Записей в базе</span><strong>{products.length}</strong></article><article><span>Категорий</span><strong>{apiCategories.length}</strong></article><article><span>Заказов</span><strong>{orders.length}</strong></article><article><span>Новых уведомлений</span><strong>{unread}</strong></article><article><span>Ошибок обмена 1С</span><strong>{logs.filter((item) => item.status === 'FAILED').length}</strong></article><article><span>Мало товара</span><strong>{products.filter((item) => Math.max(0, item.stockQty - (item.reservedQty ?? 0)) <= 3).length}</strong></article></div>}
 
     {tab === 'products' && <div className="admin-products-v2">
       <aside className="admin-category-panel">
@@ -863,15 +871,14 @@ function App() {
   const selectedBrowsePath = selectedCategoryPath(storeSection)
   const browseChildren = childrenAtPath(categoryRoots, selectedBrowsePath || '')
   const isFeaturedView = !query.trim() && !storeSection && category === 'Все'
-  const folderOnly = !query.trim() && (storeSection === ALL_CATALOG || (selectedBrowsePath !== null && browseChildren.length > 0))
+  const folderOnly = false
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q && !storeSection && category === 'Все') return featuredIphones(catalogProducts, 10)
-    if (!q && (storeSection === ALL_CATALOG || (selectedBrowsePath !== null && browseChildren.length > 0))) return []
     return catalogProducts.filter(product => {
       const virtualPath = storefrontPath(product.category, product.name)
       return (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
-        (!selectedBrowsePath || virtualPath === selectedBrowsePath) &&
+        (!selectedBrowsePath || virtualPath === selectedBrowsePath || virtualPath.startsWith(selectedBrowsePath + ' / ')) &&
         (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))
     })
   }, [category, query, catalogProducts, storeSection, selectedBrowsePath, browseChildren.length])
@@ -984,6 +991,7 @@ function App() {
         <div className="catalog-result-count">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + filtered.length}</div>
         <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
           <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart}/>)}</div>
+        {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogProducts.length} товаров</button>}
         {!isFeaturedView && filtered.length > storeLimit &&
           <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}
         {filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}

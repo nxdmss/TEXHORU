@@ -198,8 +198,8 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal(nestedCategory.name, 'Электроника / Смартфоны')
   const ours = await prisma.product.findUnique({ where: { oneCId } })
   let link = await monitor.check({ url })
-  assert.equal(link.matchStatus, 'SUGGESTED')
-  assert.equal((await exchange.pending()).items.length, 0)
+  assert.equal(link.matchStatus, 'CONFIRMED')
+  assert.equal((await exchange.pending()).items.length, 1)
   assert.equal((await monitor.candidates(link.id))[0].product.id, ours.id)
   await monitor.confirm(link.id, ours.id)
   await monitor.confirm(link.id, ours.id)
@@ -428,7 +428,7 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const original = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   assert.equal(matched.productId, original.id)
   assert.equal(original.price, 99990)
-  assert(['SUGGESTED', 'CONFIRMED'].includes(matched.matchStatus))
+  assert.equal(matched.matchStatus, 'CONFIRMED')
 })
 
 test('Auto-matching refreshes an existing 05.ru link even when storefront search returns zero links', async () => {
@@ -778,9 +778,9 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   const parser = {
     indexCatalogPage: async page => {
       indexCalls++
-      return page === 1 ? [{ url, title: currentSnapshot.h1 }] : []
+      return page === 1 ? [{ url, title: 'Смартфон Apple iPhone 18 Pro 256 Гб' }] : []
     },
-    searchProducts: async () => { searchCalls++; throw new Error('Bulk must not use broken UI search') },
+    searchProducts: async () => { searchCalls++; return [] },
     parse: async link => {
       parseCalls++
       assert.equal(link, url)
@@ -815,6 +815,9 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
   assert.equal(matchJob.processed, 1)
   assert.equal(matchJob.status, 'QUEUED')
+  await monitor.tick()
+  assert(searchCalls > 0, 'Missing index entry must fall back to live search')
+  assert.equal((await prisma.monitorJob.findUniqueOrThrow({where:{id:matchJob.id}})).processed, 2)
   await monitor.cancelJob(matchJob.id)
   const indexedCount = await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } })
   const direct = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000 })
@@ -1042,4 +1045,27 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
   const check = compareItems({name:names[0][0]}, {name:'Чехол Green Lion Other Series iPhone 15 Pro Max Blue'})
   assert.equal(monitor.strongVariant(check), false)
   assert(compareItems({name:names[0][0]}, {name:'Чехол G-Case iPhone 15 Pro Max Blue', brand:'G-Case'}).conflicts.includes('бренд'))
+})
+
+
+test('Complete smartphone variants auto-confirm; incomplete or conflicting variants do not', () => {
+  const complete = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
+  assert.equal(compareItems(complete, complete).canAutoConfirm, true)
+  for (const name of ['Apple iPhone 17 Pro 12GB/256GB Cosmic Orange',
+    'Apple iPhone 17 Pro 12GB/512GB Cosmic Orange eSIM',
+    'Apple iPhone 17 Pro 12GB/256GB Blue eSIM']) {
+    assert.equal(compareItems(complete, {name, brand:'Apple'}).canAutoConfirm, false)
+  }
+})
+
+test('Competitor catalog import never creates draft store inventory', async () => {
+  const url = fixture.sourceUrl.replace('24007/', randomUUID() + '/')
+  const before = await prisma.product.count()
+  const parser = { discover:async () => ({urls:[url], title:'Аксессуары', discovered:1}),
+    parse:async () => ({...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url}) }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const result = await monitor.importFiveRuCatalog({url:'https://05.ru/cat/test/',limit:1})
+  assert.equal(result.imported,1)
+  assert.equal(await prisma.product.count(), before)
+  assert(await prisma.competitorProduct.findUnique({where:{externalUrl:url}}))
 })

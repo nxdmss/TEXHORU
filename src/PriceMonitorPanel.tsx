@@ -4,7 +4,6 @@ import './price-monitor-simple.css'
 
 const rub = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽'
 const prettyDate = (s?: string | null) => s ? new Date(s).toLocaleString('ru-RU') : '—'
-const phoneCategory = (value: string) => /(?:смартфон|smartphone)/i.test(value)
 const pathSegments = (value: string) => value.split(' / ').map(s => s.trim()).filter(Boolean)
 const inPath = (category: string, path: string) => !path || category === path || category.startsWith(path + ' / ')
 const cleanName = (name: string) => name.replace(/^Фотография товара\s*/i, '').trim()
@@ -86,7 +85,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
-    && product.stockQty > (product.reservedQty || 0) && phoneCategory(product.category?.name || '')
+    && product.price > 0
   ), [stock])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
@@ -96,7 +95,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     const q = search.trim().toLocaleLowerCase('ru')
     return phones.filter(product => (
       q ? inPath(product.category?.name || '', path) && (product.name + ' ' + product.sku + ' ' + product.category?.name).toLocaleLowerCase('ru').includes(q)
-        : (product.category?.name || '') === path
+        : inPath(product.category?.name || '', path)
     )).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   }, [phones, path, search])
   const byProduct = useMemo(() => {
@@ -128,9 +127,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
     await run('match', async () => {
       const number = Math.min(5000, scopeCount)
-      if (!number) throw new Error('В этом разделе нет смартфонов в наличии из 1С')
-      const job = await api.monitorAutoFindOneC(displayPath, number, false, true)
-      setNotice('Поиск ' + job.queued + ' смартфонов запущен.')
+      if (!number) throw new Error('В этом разделе нет товаров из 1С с ценой')
+      const job = await api.monitorAutoFindOneC(displayPath, number, false, false)
+      setNotice('Поиск ' + job.queued + ' товаров запущен.')
     }, 'Поиск запущен. Найденные связи и цены появятся в карточках.')
   }
 
@@ -248,7 +247,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   return <div className="mp-shell">
     <header className="mp-top">
       <div><h2>Мониторинг цен</h2><p>Сравнение с 05.ru</p></div>
-      <div className="mp-top-count"><b>{phones.length}</b><span>в наличии из 1С</span></div>
+      <div className="mp-top-count"><b>{phones.length}</b><span>из 1С с ценой</span></div>
     </header>
 
     <div className="mp-summary">
@@ -261,8 +260,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !scopeCount}
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Проверить раздел'}</button>
       <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
-        onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены в разделе'}</button>
-      <input aria-label="Поиск смартфона" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
+        onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены смартфонов'}</button>
+      <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
     {active && <div className="mp-progress" role="status">
       <span>{active.kind === 'MATCH_1C' ? 'Поиск совпадений' : 'Проверка 05.ru'} · {active.processed} / {active.perPage || '…'}</span>
@@ -278,7 +277,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
     <section className="mp-browser">
       <nav className="mp-breadcrumbs" aria-label="Категории 1С">
-        <button onClick={() => { setPath(''); setSearch(''); setOpened(null) }}>Все смартфоны</button>
+        <button onClick={() => { setPath(''); setSearch(''); setOpened(null) }}>Все товары</button>
         {level.map((segment, index) =>
           <span key={level.slice(0, index + 1).join('/')}>
             <span aria-hidden="true">/</span>
@@ -297,11 +296,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         })}
       </div>}
       {visiblePhones.length > 0 && <>
-        <div className="mp-group-title"><h3>Смартфоны</h3><span>{visiblePhones.length}</span></div>
+        <div className="mp-group-title"><h3>Товары</h3><span>{visiblePhones.length}</span></div>
         <div className="mp-card-grid">{visiblePhones.map(renderPhone)}</div>
       </>}
       {!visiblePhones.length && !folders.length &&
-        <p className="mp-empty">{phones.length ? 'В этом разделе нет смартфонов в наличии.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
+        <p className="mp-empty">{phones.length ? 'В этом разделе нет товаров в наличии.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
     </section>
 
     {unlinked.length > 0 && <details className="mp-extra"><summary>Не разобрано: {unlinked.length} карточек 05.ru</summary>

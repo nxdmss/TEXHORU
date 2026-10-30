@@ -143,7 +143,7 @@ export function compareItems(ours: Item, theirs: Item) {
   const common = [...wordsA].filter(w => wordsB.has(w)).length
   const similarity = common / Math.max(wordsA.size, wordsB.size, 1)
   const score = conflicts.length ? 0 : exactId ? 100 : Math.min(94, Math.round(similarity * 50 + reasons.length * 8))
-  return { score, reasons, conflicts, missing, exactId, canAutoConfirm: Boolean(!conflicts.length && ((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn && !missing.length))), ours: a, theirs: b }
+  return { score, reasons, conflicts, missing, exactId, canAutoConfirm: Boolean(!conflicts.length && ((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn && !missing.length) || (phone && b.kind === 'smartphone' && !missing.length && a.brand && a.brand === b.brand && (!a.ram && !b.ram || a.ram === b.ram)))), ours: a, theirs: b }
 }
 
 export function recommendation(input: { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null }, product?: { price: number; costPrice?: number | null } | null) {
