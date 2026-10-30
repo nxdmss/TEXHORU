@@ -33,7 +33,7 @@ function productKind(item: Item): string | undefined {
   if (/(?:кабель|cable|провод usb)/.test(text)) return 'cable'
   if (/(?:наушник|headphone|earbud|гарнитур)/.test(text)) return 'headphones'
   if (/(?:смарт часы|умные часы|smartwatch|smart watch|watch|часы)/.test(text)) return 'smartwatch'
-  if (/(?:смартфон|smartphone|iphone|galaxy|(?:xiaomi|redmi|poco|samsung|honor|huawei|realme|oneplus|tecno|infinix|oppo|vivo|pixel|motorola|nothing)\\s+(?:\\d|[a-z]\\d|note|spark|camon|pova))/i.test(text)) return 'smartphone'
+  if (/(?:смартфон|smartphone|iphone|galaxy|(?:xiaomi|redmi|poco|samsung|honor|huawei|realme|oneplus|tecno|infinix|oppo|vivo|pixel|motorola|nothing)\s+(?:\d|[a-z]\d|note|spark|camon|pova))/i.test(text)) return 'smartphone'
   if (/(?:планшет|tablet|ipad)/.test(text)) return 'tablet'
   if (/(?:ноутбук|laptop|macbook)/.test(text)) return 'laptop'
   return undefined
