@@ -120,7 +120,7 @@ export async function prepareRuntime(root, logFile, report = console.log, signal
     writeFileSync(dbState, JSON.stringify({ schemaHash, database: db }))
   }
   const hasChromium = () => new Promise(done => {
-    const check = spawn(process.execPath, ['-e', "const fs=require('node:fs'); const {chromium}=require('playwright'); process.exit(fs.existsSync(chromium.executablePath()) ? 0 : 1)"], { cwd: join(runtime, 'server'), env: childEnv, stdio: 'ignore', windowsHide: true })
+    const check = spawn(process.execPath, ['-e', "const {chromium}=require('playwright'); chromium.launch({headless:true}).then(browser=>browser.close()).then(()=>process.exit(0)).catch(()=>process.exit(1))"], { cwd: join(runtime, 'server'), env: childEnv, stdio: 'ignore', windowsHide: true })
     check.once('error', () => done(false)); check.once('exit', code => done(code === 0))
   })
   let browserCheck = await hasChromium()
