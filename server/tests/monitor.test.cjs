@@ -117,6 +117,10 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
     { url: caseUrl, title: 'Чехол Green Lion для iPhone 15 Pro Max' },
   ], 'green lion чехол iphone 15 pro max', 10), [caseUrl])
   assert.equal(fingerprint({ name: 'Xiaomi 15T Pro' }), fingerprint({ name: 'Xiaomi 15T Pro', category: 'Смартфоны' }))
+  const partialTitleUrl = 'https://05.ru/cat/x/p/smart-watch-mibro-123/'
+  assert.deepEqual(rankSearchLinks([
+    { url: partialTitleUrl, title: 'Смарт-часы Mibro' },
+  ], 'mibro xpaw002', 12), [partialTitleUrl])
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Xiaomi 15T Pro 12/512' }), [
     'xiaomi 15t pro 512', 'xiaomi 15t pro',
   ])
