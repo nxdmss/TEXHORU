@@ -1123,6 +1123,16 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
   const wrongMaker = compareItems({name:names[0][0]}, {name:'Чехол G-Case iPhone 15 Pro Max Blue', brand:'G-Case'})
   assert.equal(monitor.strongVariant(wrongMaker), false)
   assert(wrongMaker.conflicts.includes('бренд'))
+
+  const exactGtin = '4006381333931'
+  assert.equal(validGtin(exactGtin), exactGtin)
+  const exactAccessory = compareItems(
+    { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
+    { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
+  )
+  assert.equal(exactAccessory.exactId, true)
+  assert.equal(monitor.strongVariant(exactAccessory), true)
+  assert.equal(exactAccessory.canAutoConfirm, true)
 })
 
 
