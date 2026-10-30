@@ -40,8 +40,8 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
 
     // A phone search should not waste page reads on accessories whose category
     // text is too generic for productKind() to classify.
-    if (requested.model && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)
-      && !/(?:^|\s)(?:чехол|стекло|пленка|case|cover)(?=\s|$)/.test(normalize(query))) return null
+    if (requested.kind === 'smartphone' && requested.model
+      && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
 
     // If both sides expose a brand, a different brand is a hard rejection.
     // Missing brand on a search tile is not proof of a mismatch; the product
