@@ -196,7 +196,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   }
 
   function itemStatus(item?: PriceMonitorItem) {
-    if (!item) return { label: 'Ищем', className: 'missing' }
+    if (!item) return { label: 'Нет связи', className: 'missing' }
     if (item.matchStatus === 'CONFIRMED' && isFresh(item)) return { label: 'Совпало', className: 'ready' }
     if (item.matchStatus === 'CONFIRMED') return { label: 'Обновить', className: 'pending' }
     if (item.matchStatus === 'SUGGESTED' || item.matchStatus === 'REVIEW_REQUIRED') return { label: 'Проверить', className: 'pending' }
@@ -247,19 +247,19 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   return <div className="mp-shell">
     <header className="mp-top">
-      <div><h2>Мониторинг цен</h2><p>Смартфоны из 1С → 05.ru → цены сайта</p></div>
+      <div><h2>Мониторинг цен</h2><p>Сравнение с 05.ru</p></div>
       <div className="mp-top-count"><b>{phones.length}</b><span>в наличии из 1С</span></div>
     </header>
 
     <div className="mp-summary">
       <span><b>{confirmed}</b> совпадений</span>
-      <span><b>{items.filter(i => i.lastSuccessAt && isFresh(i)).length}</b> свежих цен</span>
+      <span><b>{phones.filter(p => byProduct.get(p.id)?.some(isFresh)).length}</b> свежих цен</span>
       <span><b>{phones.length - confirmed}</b> без подтверждения</span>
     </div>
 
     <div className="mp-toolbar">
       <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !scopeCount}
-        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти совпадения'}</button>
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Проверить раздел'}</button>
       <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
         onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены в разделе'}</button>
       <input aria-label="Поиск смартфона" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
@@ -267,6 +267,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     {active && <div className="mp-progress" role="status">
       <span>{active.kind === 'MATCH_1C' ? 'Поиск совпадений' : 'Проверка 05.ru'} · {active.processed} / {active.perPage || '…'}</span>
       <button disabled={Boolean(busy)} onClick={() => void run('stop', () => api.monitorJobAction(active.id, 'cancel'))}>Остановить</button>
+      <progress aria-label="Ход проверки" max={Math.max(1, active.perPage || active.processed || 1)} value={active.processed} />
     </div>}
     {last && !active && <div className="mp-last">
       Последний поиск: {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
@@ -289,7 +290,6 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         {folders.map(([name, count]) => {
           const child = path ? path + ' / ' + name : name
           return <button className="mp-folder" key={child} onClick={() => { setPath(child); setOpened(null) }}>
-            <span className="mp-folder-icon" aria-hidden="true">▣</span>
             <b>{name}</b>
             <small>{count} товаров</small>
             <span className="mp-folder-arrow" aria-hidden="true">›</span>
