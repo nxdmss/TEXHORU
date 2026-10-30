@@ -145,19 +145,49 @@ export class FiveRuParser implements OnModuleDestroy {
     return context
   }
   private async open(context: BrowserContext, url: string) {
-    const page = await context.newPage()
-    try {
-      // Slow first-party scripts can postpone DOMContentLoaded indefinitely.
-      // Accept the main response as soon as it commits, then require a real
-      // product heading before extracting any price/availability information.
-      const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
-      if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
-      if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Карточка перенаправила на другой сайт')
-      await page.locator('h1').first().waitFor({ state: 'visible', timeout: 15_000 })
-      await page.waitForTimeout(300)
-      return page
-    } catch (error) { await page.close(); throw error }
+    let lastError: unknown
+    // Retry only a transient navigation/render failure. Explicit 403/429
+    // responses are surfaced immediately; access controls are never bypassed.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const page = await context.newPage()
+      try {
+        const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
+        if (response && response.status() >= 400) {
+          throw new Error(\`05.ru ответил HTTP \${response.status()}. Проверка остановлена; обход защиты не выполняется.\`)
+        }
+        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
+          throw new Error('Карточка перенаправила на другой сайт')
+        }
+
+        const hasHeading = await page.locator('h1').first()
+          .waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false)
+        if (!hasHeading) {
+          // Some product pages expose a valid Product JSON-LD record before
+          // their visible heading is hydrated. extractFiveRu can use it when
+          // there is exactly one Product object.
+          const hasProductJsonLd = await page.locator('script[type="application/ld+json"]')
+            .evaluateAll(nodes => nodes.some(node => {
+              const value = node.textContent || ''
+              return /@type/.test(value) && /Product/.test(value)
+            })).catch(() => false)
+          if (!hasProductJsonLd) throw new Error('Карточка не отдала заголовок h1 или Product JSON-LD')
+        }
+        await page.waitForTimeout(300)
+        return page
+      } catch (error) {
+        await page.close()
+        lastError = error
+        const message = error instanceof Error ? error.message : String(error)
+        if (attempt === 0 && (/HTTP 5\d\d\b|Timeout|timeout/i.test(message))) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+          continue
+        }
+        throw error
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Не удалось открыть карточку 05.ru')
   }
+
   private async snapshot(page: Page): Promise<ProductSnapshot> {
     await page.locator('.shop-info__link').first().waitFor({ timeout: 600 }).catch(() => undefined)
     return page.evaluate(() => {
