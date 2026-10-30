@@ -21,7 +21,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   }
   if (parsed.kind && accessoryType[parsed.kind]) {
     const focused = [parsed.brand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
-    return [...new Set([focused, cleanName].filter(Boolean))]
+    const typeModel = [accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
+    return [...new Set([focused, typeModel, cleanName].filter(Boolean))]
   }
   if (parsed.kind === 'smartwatch') {
     const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
@@ -43,6 +44,7 @@ export function isExpectedReviewOutcome(message: string) {
     || text.includes('несколько близких совпадений')
     || text.includes('карточка 05.ru уже связана')
     || text.includes('не найдено точное соответствие')
+    || text.includes('найдено несколько сохранённых карточек')
     || text.includes('товар исключён из выбранного раздела')
 }
 
@@ -125,7 +127,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw error
     } finally { this.parsing = false }
   }
-  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number) {
+  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false) {
     return this.prisma.$transaction(async tx => {
       const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
       let productId = existing?.productId || suggestedProductId || null
@@ -135,16 +137,22 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const theirs = { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }
       if (matchStatus === 'CONFIRMED' && (fingerprint(theirs) !== confirmedFingerprint || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint)) matchStatus = 'REVIEW_REQUIRED'
       if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
-        const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
-        const candidates = products.map(product => ({ product, check: compareItems(product, theirs) })).filter(c => c.check.score >= 20).sort((a,b) => b.check.score - a.check.score)
-        const exact = candidates.filter(c => c.check.canAutoConfirm)
-        if (exact.length === 1) {
-          productId = exact[0].product.id; matchStatus = 'CONFIRMED'
-          confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
-        } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
+        if (forceReview) {
+          // Ambiguous candidates remain unlinked; never auto-confirm one by
+          // re-running the global matcher on each candidate page.
+          matchStatus = 'UNMATCHED'
+        } else {
+          const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
+          const candidates = products.map(product => ({ product, check: compareItems(product, theirs) })).filter(c => c.check.score >= 20).sort((a,b) => b.check.score - a.check.score)
+          const exact = candidates.filter(c => c.check.canAutoConfirm)
+          if (exact.length === 1) {
+            productId = exact[0].product.id; matchStatus = 'CONFIRMED'
+            confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
+          } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
+        }
       } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') matchStatus = 'SUGGESTED'
       // Re-check the actual assigned product; suggestions used to bypass auto-confirmation.
-      if (productId && (existing?.productId || suggestedProductId) && matchStatus !== 'CONFIRMED') {
+      if (!forceReview && productId && (existing?.productId || suggestedProductId) && matchStatus !== 'CONFIRMED') {
         const assigned = await tx.product.findUnique({ where: { id: productId } })
         if (assigned?.status === 'ACTIVE' && compareItems(assigned, theirs).canAutoConfirm) {
           matchStatus = 'CONFIRMED'
@@ -167,26 +175,31 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
   private strongVariant(check: ReturnType<typeof compareItems>): boolean {
-    // Phone compatibility does not identify a case series or a glass model.
-    if (['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(check.ours.kind || '')
-      && !check.exactId) return false
-    return check.score >= 40 && !check.conflicts.length
+    if (check.exactId && !check.conflicts.length) return true
+    const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
+    const accessory = accessories.includes(check.ours.kind || '')
+    const base = check.score >= 40 && !check.conflicts.length
       && Boolean(check.ours.model && check.theirs.model === check.ours.model)
       && (!check.ours.storage || check.theirs.storage === check.ours.storage)
       && (!check.ours.color || check.theirs.color === check.ours.color)
-      && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
+
+    // Accessory compatibility can produce a review suggestion, not an automatic
+    // confirmation. save() still requires an exact GTIN/MPN before confirming it.
+    if (accessory) return base && check.ours.kind === check.theirs.kind
+    return base && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
   }
 
   private async refreshKnownMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
+    // Reuse only cards already assigned to this exact 1C product. Unlinked
+    // review candidates must not block a fresh catalog/search discovery run.
     const saved = await this.prisma.competitorProduct.findMany({
-      where: { source: { key: '05ru' }, externalName: { not: null } },
-      orderBy: { lastSuccessAt: 'desc' }, take: 1000,
+      where: { source: { key: '05ru' }, productId: product.id, externalName: { not: null } },
+      orderBy: { lastSuccessAt: 'desc' }, take: 50,
     })
     const possible = saved.map(link => ({
       link, check: compareItems(product, { name: link.externalName || '', attributes: link.attributes }),
-    })).filter(row => (row.link.productId === null || row.link.productId === product.id) && this.strongVariant(row.check))
-    // An already confirmed association wins over another unlinked card.
-    const assigned = possible.filter(row => row.link.productId === product.id && row.link.matchStatus === 'CONFIRMED')
+    })).filter(row => this.strongVariant(row.check))
+    const assigned = possible.filter(row => row.link.matchStatus === 'CONFIRMED')
     const eligible = assigned.length ? assigned : possible
     if (!eligible.length) return false
     if (eligible.length !== 1) throw new Error(
@@ -335,8 +348,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const requested = identity(product)
     if (!requested.model) return false
     const options = await this.prisma.competitorCatalogEntry.findMany({
-      where: { model: requested.model, ...(requested.storage ? { storage: requested.storage } : {}) },
-      take: 500,
+      where: {
+        model: requested.model,
+        ...(requested.storage ? { OR: [{ storage: requested.storage }, { storage: null }] } : {}),
+      },
+      take: 1000,
     })
     // Catalog titles are hints. Missing colour/SIM on a tile must not reject
     // a real product before reading its specifications.
@@ -356,10 +372,34 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
     }
     if (!verified.length) return false
-    if (verified.length > 1 && !verified.every(item => item.check.canAutoConfirm)) return false
-    verified.sort((a, b) => Number(b.result.inStock === true) - Number(a.result.inStock === true) || a.result.price - b.result.price)
+
+    const exact = verified.filter(item => item.check.canAutoConfirm)
     const source = await this.source()
-    await this.save(verified[0].result, source.id, product.id)
+    if (exact.length === 1) {
+      await this.save(exact[0].result, source.id, product.id)
+      return true
+    }
+    if (exact.length > 1) {
+      // Multiple exact IDs are still multiple offers; never auto-pick one.
+      for (const option of verified.slice(0, 3)) {
+        await this.save(option.result, source.id, undefined, true)
+      }
+      return true
+    }
+
+    verified.sort((a, b) => b.check.score - a.check.score)
+    const top = verified[0]
+    const runnerUp = verified[1]
+    if (verified.length === 1 || (top && runnerUp && top.check.score - runnerUp.check.score >= 10)) {
+      // A clear but non-exact candidate is attached as SUGGESTED, never confirmed.
+      await this.save(top.result, source.id, product.id)
+      return true
+    }
+
+    // Several close candidates are kept unlinked for explicit human review.
+    for (const option of verified.slice(0, 3)) {
+      await this.save(option.result, source.id, undefined, true)
+    }
     return true
   }
 
@@ -568,7 +608,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       && lastJob?.status === 'COMPLETED' && !lastJob.lastError) return null
     return this.prisma.monitorJob.create({
       data: { kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
-        page: 0, maxPages: 2100, perPage: 24, processed: 0, visitedUrls: [] },
+        page: 0, maxPages: 2300, perPage: 24, processed: 0, visitedUrls: [] },
     })
   }
 
@@ -596,7 +636,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         if (links) await this.checkAll()
         await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
       }
-      const job = await this.prisma.monitorJob.findFirst({ where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' } })
+      // Finish a requested catalog build before processing the batch that depends on it.
+      const indexJob = await this.prisma.monitorJob.findFirst({
+        where: { status: 'QUEUED', kind: 'INDEX_05RU' }, orderBy: { createdAt: 'asc' },
+      })
+      const job = indexJob ?? await this.prisma.monitorJob.findFirst({
+        where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' },
+      })
       if (!job) return
       const claimed = await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'QUEUED' }, data: { status: 'RUNNING', leaseUntil: new Date(Date.now() + 180000) } })
       if (!claimed.count) return
@@ -607,8 +653,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           const pageNumber = job.page + 1
           const links = await this.fiveRu.indexCatalogPage(pageNumber)
           const visited = this.strings(job.visitedUrls)
-          if (!links.length && pageNumber === 1) {
-            throw new Error('05.ru: первая страница каталога не отдала товары. Индексация невозможна.')
+          if (!links.length) {
+            // A transient empty render must not silently truncate the catalog.
+            // Retry the same page once; only a repeated empty response ends the crawl.
+            const retryMarker = 'EMPTY_PAGE_RETRY:' + pageNumber
+            if (!visited.includes(retryMarker)) {
+              await this.prisma.monitorJob.update({
+                where: { id: job.id },
+                data: { visitedUrls: [...visited, retryMarker], status: 'QUEUED', leaseUntil: null },
+              })
+              return
+            }
+            if (pageNumber === 1) {
+              throw new Error('05.ru: первая страница каталога дважды не отдала товары. Индексация невозможна.')
+            }
           }
           const signature = createHash('sha256').update(
             links.map(link => link.url).sort().join('\n')
@@ -629,15 +687,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 color: data.color || null, lastSeenAt: scannedAt },
             })
           }
-          const finished = !links.length || pageNumber >= job.maxPages
+          if (pageNumber >= job.maxPages && links.length) {
+            throw new Error('Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.')
+          }
+          const finished = !links.length
           await this.prisma.monitorJob.update({
             where: { id: job.id }, data: {
               page: pageNumber, processed: { increment: links.length },
               visitedUrls: [...visited, signature],
               status: finished ? 'COMPLETED' : 'QUEUED', leaseUntil: null,
               finishedAt: finished ? new Date() : null,
-              lastError: pageNumber >= job.maxPages && links.length
-                ? 'Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.' : null,
+              lastError: null,
             },
           })
           return
@@ -666,9 +726,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
               } else {
-              let ranked: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
+              const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems> }>()
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
+              const requestedKind = identity(product).kind
               for (const query of oneCSearchQueries(product)) {
                 const trace: FiveRuSearchTrace = { query, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
@@ -684,9 +745,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
-                ranked = checked.filter(row => this.strongVariant(row.check))
-                  .sort((a,b) => b.check.score - a.check.score)
-                if (ranked.length) break
+                for (const row of checked.filter(candidate => this.strongVariant(candidate.check))) {
+                  const previous = rankedByUrl.get(row.result.url)
+                  if (!previous || row.check.score > previous.check.score) rankedByUrl.set(row.result.url, row)
+                }
+                // A fully variant-filtered smartphone result is already precise.
+                // Accessories keep searching all query variants to improve recall.
+                if (requestedKind === 'smartphone' && rankedByUrl.size) break
                 for (const row of checked.slice(0, 3)) {
                   const reason = row.check.conflicts.length ? row.check.conflicts.join(', ')
                     : !row.check.theirs.model ? 'модель не распознана'
@@ -697,6 +762,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   if (rejected.length < 5) rejected.push(row.result.name + ': ' + reason)
                 }
               }
+              const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
               if (!ranked.length) {
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + trace.cardsParsed + ' прочитано' +
@@ -716,7 +782,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 // Keep plausible 05.ru cards in the monitor for manual review,
                 // but do NOT choose a winner or apply a price automatically.
                 const source = await this.source()
-                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id)
+                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id, undefined, true)
                 throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
               }
               const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })

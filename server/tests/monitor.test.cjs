@@ -108,6 +108,7 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
   assert(compareItems(caseItem, phoneItem).conflicts.includes('тип товара'))
   assert.deepEqual(oneCSearchQueries(caseItem), [
     'green lion чехол iphone 15 pro max',
+    'чехол iphone 15 pro max',
     'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max',
   ])
   const caseUrl = 'https://05.ru/cat/x/p/chehol-green-lion-iphone-15-pro-max-123/'
@@ -144,6 +145,14 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/', title: 'iPhone 17 Pro 256 GB' },
     { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-512-gb-oranzheviy-3/', title: 'iPhone 17 Pro 512 GB' },
   ], 'iphone 17 pro 256', 12), ['https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/'])
+
+  const greenLion = 'https://05.ru/cat/cases/p/green-lion-tough-guard-iphone-15-pro-blue-777/'
+  const accessoryLinks = [
+    { url: 'https://05.ru/cat/cases/p/borasco-iphone-15-pro-black-1/', title: 'Чехол накладка Borasco Silicone Case для Apple iPhone 15 Pro черный' },
+    { url: 'https://05.ru/cat/cases/p/uniq-iphone-15-pro-smoke-2/', title: 'Чехол Uniq Lifepro Xtreme для Apple iPhone 15 Pro серый' },
+    { url: greenLion, title: 'Накладка Green Lion Tough Guard Case для iPhone 15 Pro Deep Blue' },
+  ]
+  assert.equal(rankSearchLinks(accessoryLinks, 'green lion чехол iphone 15 pro', 1)[0], greenLion)
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
@@ -574,6 +583,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     return fixture.snapshot
   }
   try {
+    parser.smartphoneCatalogLinks = async () => []
     const trace = {}
     const found = await parser.searchProducts('iPhone 17 Pro 256', 3, trace)
     assert.equal(found.length, 3)
@@ -614,6 +624,45 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(contexts, 5)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
+})
+
+test('Smartphone search merges the public category crawl when direct search returns the wrong variant', async () => {
+  const parser = new FiveRuParser()
+  const directWrong = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-1-tb-oranzheviy-34464/'
+  const categoryMatch = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-24007/'
+  let currentUrl = ''
+  const opened = []
+  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
+  parser.context = async () => ({
+    newPage: async () => ({
+      goto: async url => { currentUrl = url; return { status: () => 200 } },
+      url: () => currentUrl,
+      locator: () => ({
+        first: () => ({ waitFor: async () => {} }),
+        evaluateAll: async () => [{ url: directWrong, title: 'Смартфон Apple iPhone 17 Pro 1 ТБ оранжевый' }],
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  })
+  parser.smartphoneCatalogLinks = async () => [{
+    url: categoryMatch, title: 'Смартфон Apple iPhone 17 Pro 256 ГБ оранжевый',
+  }]
+  parser.open = async (_, url) => {
+    opened.push(url)
+    return { close: async () => {} }
+  }
+  parser.snapshot = async () => fixture.snapshot
+  try {
+    const trace = {}
+    const result = await parser.searchProducts('iPhone 17 Pro 256', 1, trace)
+    assert.deepEqual(opened, [categoryMatch])
+    assert.equal(result.length, 1)
+    assert.equal(trace.linksFound, 2)
+    assert.equal(trace.searchMode, 'direct+smartphone-catalog')
+  } finally {
+    await parser.onModuleDestroy()
+  }
 })
 
 test('Business price-list import links 1C products safely, never claims 05.ru verification and rolls back invalid rows', async () => {
@@ -668,6 +717,31 @@ test('Business price-list import links 1C products safely, never claims 05.ru ve
   await assert.rejects(() => monitor.importManualPrices({ rows: [
     { ...row, url: 'https://05.ru.evil.example/cat/test/p/fake/' },
   ] }), /05.ru/)
+})
+
+test('Product page reader retries transient 5xx and accepts Product JSON-LD without a visible h1', async () => {
+  const parser = new FiveRuParser()
+  const url = fixture.sourceUrl
+  let attempts = 0, closed = 0
+  const context = {
+    newPage: async () => ({
+      goto: async (_, options) => {
+        assert.equal(options.waitUntil, 'commit')
+        attempts++
+        return { status: () => attempts === 1 ? 503 : 200 }
+      },
+      url: () => url,
+      locator: selector => selector === 'h1'
+        ? { first: () => ({ waitFor: async () => { throw new Error('Timeout waiting for h1') } }) }
+        : { evaluateAll: async () => true },
+      waitForTimeout: async () => {},
+      close: async () => { closed++ },
+    }),
+  }
+  const page = await parser.open(context, url)
+  assert.equal(attempts, 2)
+  assert.equal(closed, 1)
+  await page.close()
 })
 
 test('Direct product checks use response commit and reuse Chromium across checks', async () => {
@@ -804,8 +878,9 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   assert.equal(indexJob.status, 'COMPLETED')
   assert.equal(indexJob.page, 2)
   assert.equal(indexJob.processed, 1)
-  assert.equal(indexCalls, 2)
+  assert.equal(indexCalls, 3) // The terminal empty page is retried before the index is marked complete.
   assert.equal(searchCalls, 0)
+  await monitor.tick() // The dependent 1C matching job starts only after the index is complete.
   assert.equal(parseCalls, 1)
   const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
   const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: base + '-0' } })
@@ -1043,8 +1118,21 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
   assert.equal(links.length, 1)
   const monitor = new PriceMonitorService({}, {}, {})
   const check = compareItems({name:names[0][0]}, {name:'Чехол Green Lion Other Series iPhone 15 Pro Max Blue'})
-  assert.equal(monitor.strongVariant(check), false)
-  assert(compareItems({name:names[0][0]}, {name:'Чехол G-Case iPhone 15 Pro Max Blue', brand:'G-Case'}).conflicts.includes('бренд'))
+  assert.equal(monitor.strongVariant(check), true)
+  assert.equal(check.canAutoConfirm, false) // Suggestion only; no GTIN/MPN proof.
+  const wrongMaker = compareItems({name:names[0][0]}, {name:'Чехол G-Case iPhone 15 Pro Max Blue', brand:'G-Case'})
+  assert.equal(monitor.strongVariant(wrongMaker), false)
+  assert(wrongMaker.conflicts.includes('бренд'))
+
+  const exactGtin = validGtin('4006381333931')
+  assert.ok(exactGtin)
+  const exactAccessory = compareItems(
+    { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
+    { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
+  )
+  assert.equal(exactAccessory.exactId, true)
+  assert.equal(monitor.strongVariant(exactAccessory), true)
+  assert.equal(exactAccessory.canAutoConfirm, true)
 })
 
 

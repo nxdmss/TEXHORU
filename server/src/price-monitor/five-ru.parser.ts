@@ -131,7 +131,7 @@ export class FiveRuParser implements OnModuleDestroy {
 
   private async browser() {
     const channel = process.platform === 'win32' && !existsSync(chromium.executablePath()) ? 'msedge' : 'chromium'
-    return chromium.launch({ channel, headless: process.env.FIVE_RU_HEADFUL !== 'true' })
+    return chromium.launch({ channel, headless: true })
   }
   private async context(browser: Browser, lightweight = false) {
     const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1440, height: 1000 } })
@@ -145,19 +145,49 @@ export class FiveRuParser implements OnModuleDestroy {
     return context
   }
   private async open(context: BrowserContext, url: string) {
-    const page = await context.newPage()
-    try {
-      // Slow first-party scripts can postpone DOMContentLoaded indefinitely.
-      // Accept the main response as soon as it commits, then require a real
-      // product heading before extracting any price/availability information.
-      const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
-      if (response && response.status() >= 400) throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
-      if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Карточка перенаправила на другой сайт')
-      await page.locator('h1').first().waitFor({ state: 'visible', timeout: 15_000 })
-      await page.waitForTimeout(300)
-      return page
-    } catch (error) { await page.close(); throw error }
+    let lastError: unknown
+    // Retry only a transient navigation/render failure. Explicit 403/429
+    // responses are surfaced immediately; access controls are never bypassed.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const page = await context.newPage()
+      try {
+        const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
+        if (response && response.status() >= 400) {
+          throw new Error(`05.ru ответил HTTP ${response.status()}. Проверка остановлена; обход защиты не выполняется.`)
+        }
+        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
+          throw new Error('Карточка перенаправила на другой сайт')
+        }
+
+        const hasHeading = await page.locator('h1').first()
+          .waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false)
+        if (!hasHeading) {
+          // Some product pages expose a valid Product JSON-LD record before
+          // their visible heading is hydrated. extractFiveRu can use it when
+          // there is exactly one Product object.
+          const hasProductJsonLd = await page.locator('script[type="application/ld+json"]')
+            .evaluateAll(nodes => nodes.some(node => {
+              const value = node.textContent || ''
+              return /"@type"\s*:\s*(?:"Product"|\[[^\]]*"Product")/.test(value)
+            })).catch(() => false)
+          if (!hasProductJsonLd) throw new Error('Карточка не отдала заголовок h1 или Product JSON-LD')
+        }
+        await page.waitForTimeout(300)
+        return page
+      } catch (error) {
+        await page.close()
+        lastError = error
+        const message = error instanceof Error ? error.message : String(error)
+        if (attempt === 0 && (/HTTP 5\d\d\b|Timeout|timeout|Карточка не отдала заголовок/i.test(message))) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+          continue
+        }
+        throw error
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Не удалось открыть карточку 05.ru')
   }
+
   private async snapshot(page: Page): Promise<ProductSnapshot> {
     await page.locator('.shop-info__link').first().waitFor({ timeout: 600 }).catch(() => undefined)
     return page.evaluate(() => {
@@ -194,44 +224,71 @@ export class FiveRuParser implements OnModuleDestroy {
   private async smartphoneCatalogLinks(context: BrowserContext) {
     const cached = this.smartphoneCatalogCache
     if (cached && cached.expires > Date.now()) return cached.links
+
     const found = new Map<string, { url: string; title: string }>()
-    const visited = new Set<string>()
+    const visitedUrls = new Set<string>()
+    const visitedPages = new Set<string>()
     let next: string | null = 'https://05.ru/cat/mc/396f7486/smartfony/'
-    for (let pageNo = 0; pageNo < 4 && next && found.size < 140; pageNo++) {
+
+    // The category is paginated. Crawl the public listing once and reuse the
+    // URL/title index for all smartphone variants in the current batch.
+    // Product prices are still read only from freshly opened product pages.
+    for (let pageNo = 0; pageNo < 50 && next && found.size < 1200; pageNo++) {
       const url = fiveRuUrl(next, 'catalog')
-      if (visited.has(url)) break
-      visited.add(url)
+      if (visitedUrls.has(url)) break
+      visitedUrls.add(url)
+
       const page = await context.newPage()
       try {
         const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
-        if (response && response.status() >= 400) throw new Error('05.ru ответил HTTP ' + response.status() + ' при открытии каталога смартфонов')
-        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Каталог 05.ru перенаправил на другой сайт')
+        if (response && response.status() >= 400) {
+          throw new Error('05.ru ответил HTTP ' + response.status() + ' при чтении каталога смартфонов')
+        }
+        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
+          throw new Error('Каталог смартфонов 05.ru перенаправил на другой сайт')
+        }
         await page.locator('a[href*="/p/"]').first().waitFor({ timeout: 8_000 }).catch(() => undefined)
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
         await page.waitForTimeout(350)
+
         const data = await page.evaluate(() => ({
           links: Array.from(document.querySelectorAll('a[href*="/p/"]')).map(node => ({
             url: (node as HTMLAnchorElement).href,
             title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
               node.querySelector('img')?.getAttribute('alt') ||
               node.closest('.product-card')?.textContent?.trim() ||
-              (node as HTMLElement).innerText?.trim() || '').slice(0, 180),
+              (node as HTMLElement).innerText?.trim() || '').slice(0, 220),
           })),
           next: (document.querySelector('.page-nav__arrow_right:not(.page-nav__arrow_disabled) a[href], a[rel="next"], a[aria-label="Следующая страница"], a[aria-label="Следующая"]') as HTMLAnchorElement | null)?.href || null,
         }))
+
+        if (!data.links.length) break
+        const signature = data.links.map(link => link.url).sort().join('\n')
+        if (visitedPages.has(signature)) break
+        visitedPages.add(signature)
+
         for (const link of data.links) {
           try {
             const productUrl = fiveRuUrl(link.url, 'product')
             if (!found.has(productUrl)) found.set(productUrl, { url: productUrl, title: link.title })
-          } catch { /* Product URL outside the official catalog is ignored. */ }
+          } catch { /* Ignore links outside valid public 05.ru product pages. */ }
         }
+
         next = null
-        if (data.next) { try { next = fiveRuUrl(data.next, 'catalog') } catch { /* Never follow another host. */ } }
-      } finally { await page.close() }
+        if (data.next) {
+          try { next = fiveRuUrl(data.next, 'catalog') }
+          catch { /* Never follow a link outside the official catalog. */ }
+        }
+      } finally {
+        await page.close()
+      }
     }
-    if (!found.size) throw new Error('05.ru: каталог смартфонов не вернул ссылки на товары. Возможно, сайт не загрузил карточки или ограничил доступ.')
+
+    if (!found.size) {
+      throw new Error('05.ru: публичный каталог смартфонов не вернул ссылки на товары.')
+    }
     const links = [...found.values()]
-    this.smartphoneCatalogCache = { expires: Date.now() + 15 * 60_000, links }
+    this.smartphoneCatalogCache = { expires: Date.now() + 30 * 60_000, links }
     return links
   }
 
@@ -297,11 +354,32 @@ export class FiveRuParser implements OnModuleDestroy {
                 if (!links.has(url)) links.set(url, { url, title: link.title })
               } catch { /* Ignore non-product or non-05.ru anchors. */ }
             }
+
+            let catalogUsed = false
+            // Search tiles are often incomplete or fuzzy. For smartphones,
+            // merge the site's public category listing before ranking candidates.
+            // This fallback runs even when direct search returned unrelated links.
+            if (identity({ name: text }).kind === 'smartphone') {
+              try {
+                const catalogLinks = await this.smartphoneCatalogLinks(context)
+                for (const link of catalogLinks) {
+                  if (!links.has(link.url)) links.set(link.url, link)
+                }
+                catalogUsed = catalogLinks.length > 0
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error)
+                if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
+                if (trace && trace.rejectedCards.length < 5) {
+                  trace.rejectedCards.push('Каталог смартфонов: ' + message.slice(0, 180))
+                }
+              }
+            }
+
             const unique = [...links.values()]
             if (trace) {
               trace.linksFound = unique.length
               trace.pageUrl = landed.toString()
-              trace.searchMode = 'direct-search'
+              trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
             }
             urls = rankSearchLinks(unique, text, limit)
             if (!urls.length) {
@@ -384,7 +462,7 @@ export class FiveRuParser implements OnModuleDestroy {
    * price claims are made from search snippets or catalog cards.
    */
   async indexCatalogPage(pageNumber: number): Promise<Array<{ url: string; title: string }>> {
-    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 2200) {
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 2400) {
       throw new BadRequestException('Страница публичного каталога вне допустимого диапазона')
     }
     const target = new URL('https://05.ru/cat/seller/05-ru-133/')

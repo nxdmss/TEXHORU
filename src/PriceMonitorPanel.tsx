@@ -115,7 +115,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     return grouped
   }, [items])
   const confirmed = phones.filter(p => byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
-  const active = jobs.find(j => j.status === 'RUNNING' || j.status === 'QUEUED')
+  // Prefer the job the worker is actually executing over a newer queued job.
+  const active = jobs.find(j => j.status === 'RUNNING')
+    ?? jobs.find(j => j.kind === 'INDEX_05RU' && j.status === 'QUEUED')
+    ?? jobs.find(j => j.status === 'QUEUED')
   const last = jobs.find(j => j.kind === 'MATCH_1C')
   const unlinked = items.filter(i => !i.product?.oneCId || !phones.some(p => p.id === i.product?.id))
   const level = pathSegments(path)
@@ -128,9 +131,13 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     await run('match', async () => {
       const number = Math.min(5000, scopeCount)
       if (!number) throw new Error('В этом разделе нет товаров из 1С с ценой')
-      const job = await api.monitorAutoFindOneC(displayPath, number, false, false)
-      setNotice('Поиск ' + job.queued + ' товаров запущен.')
-    }, 'Поиск запущен. Найденные связи и цены появятся в карточках.')
+      const useCatalogIndex = number >= 100
+      const onlyInStockSmartphones = /(?:смартфон|smartphone)/i.test(displayPath)
+      const job = await api.monitorAutoFindOneC(displayPath, number, useCatalogIndex, onlyInStockSmartphones)
+      setNotice(useCatalogIndex
+        ? 'Запущена сборка публичного каталога 05.ru. После индексации TEXHORU сопоставит товары 1С и проверит цены в карточках.'
+        : 'Поиск ' + job.queued + ' товаров запущен. Результаты появятся в карточках.')
+    })
   }
 
   async function updateAllPrices() {
@@ -264,9 +271,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
     {active && <div className="mp-progress" role="status">
-      <span>{active.kind === 'MATCH_1C' ? 'Поиск совпадений' : 'Проверка 05.ru'} · {active.processed} / {active.perPage || '…'}</span>
+      <span>{active.kind === 'INDEX_05RU'
+        ? 'Сбор каталога 05.ru · страница ' + active.page + ' / ' + active.maxPages + ' · карточек ' + active.processed
+        : (active.kind === 'MATCH_1C' ? 'Поиск совпадений' : 'Проверка 05.ru') + ' · ' + active.processed + ' / ' + (active.perPage || '…')}</span>
       <button disabled={Boolean(busy)} onClick={() => void run('stop', () => api.monitorJobAction(active.id, 'cancel'))}>Остановить</button>
-      <progress aria-label="Ход проверки" max={Math.max(1, active.perPage || active.processed || 1)} value={active.processed} />
+      <progress aria-label="Ход проверки" max={Math.max(1, active.kind === 'INDEX_05RU' ? active.maxPages : (active.perPage || active.processed || 1))}
+        value={active.kind === 'INDEX_05RU' ? active.page : active.processed} />
     </div>}
     {last && !active && <div className="mp-last">
       Последний поиск: {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
