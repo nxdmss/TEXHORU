@@ -75,7 +75,7 @@ export function identity(item: Item): Identity {
     || text.match(/\b(?:xiaomi\s+)?redmi\s+(?:note\s+)?\d{1,2}(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
     || text.match(/\bpoco\s+[a-z]\d{1,2}(?:\s+(?:pro|ultra|plus))?\b/)?.[0]
     // Smartwatch families and vendor model codes (e.g. XPAW002, C60).
-    || text.match(/\b(?:amazfit\s+)?active\s+2r\b/)?.[0]
+    || text.match(/\bactive\s+2r\b/)?.[0]
     || text.match(/\b(?:watch|часы)\s+[a-z]?\d{1,3}[a-z]?(?:\s+(?:active|pro|max|ultra|classic|plus|lite|fe|se))?\b/)?.[0]
     || text.match(/\b[a-z]{1,5}\d{2,5}[a-z]?\b/)?.[0]
     || undefined
