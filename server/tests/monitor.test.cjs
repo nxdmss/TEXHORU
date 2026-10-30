@@ -7,7 +7,7 @@ const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { compareItems, identity, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
-const { PriceMonitorService, oneCSearchQueries } = require('../dist/price-monitor/price-monitor.service')
+const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { ProductsService } = require('../dist/products/products.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
@@ -79,6 +79,14 @@ test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra o
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Samsung Galaxy S25 Ultra 12/256 черный' }), ['samsung galaxy s25 ultra 256', 'samsung galaxy s25 ultra'])
 })
 
+
+test('Counts only technical failures as errors; ordinary no-match outcomes require review', () => {
+  assert.equal(isExpectedReviewOutcome('05.ru: нет подтверждённого совпадения для Смарт-часы Mibro XPAW002'), true)
+  assert.equal(isExpectedReviewOutcome('05.ru: несколько близких совпадений для товара'), true)
+  assert.equal(isExpectedReviewOutcome('Карточка 05.ru уже связана с другим товаром'), true)
+  assert.equal(isExpectedReviewOutcome('Автопоиск 05.ru: Прямой поиск открылся, но не отдал ссылки'), false)
+  assert.equal(isExpectedReviewOutcome('Поиск 05.ru нашёл 12 ссылок, но карточки не прочитаны'), false)
+})
 
 test('Recognizes smartwatch model codes and keeps accessory searches separate from phones', () => {
   const mibro = { name: 'Смарт-часы Mibro XPAW002', brand: 'Mibro', category: 'Смарт-часы' }
