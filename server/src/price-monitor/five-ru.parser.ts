@@ -432,7 +432,7 @@ export class FiveRuParser implements OnModuleDestroy {
    * price claims are made from search snippets or catalog cards.
    */
   async indexCatalogPage(pageNumber: number): Promise<Array<{ url: string; title: string }>> {
-    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 2200) {
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > 2400) {
       throw new BadRequestException('Страница публичного каталога вне допустимого диапазона')
     }
     const target = new URL('https://05.ru/cat/seller/05-ru-133/')
