@@ -38,7 +38,7 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
 }
 
 export function isExpectedReviewOutcome(message: string) {
-  return /нет подтверждённого совпадения|несколько близких совпадений|карточка 05\\.ru уже связана|не найдено точное соответствие|товар исключён из выбранного раздела/i.test(message)
+  return /нет подтверждённого совпадения|несколько близких совпадений|карточка 05\.ru уже связана|не найдено точное соответствие|товар исключён из выбранного раздела/i.test(message)
 }
 
 @Injectable()
