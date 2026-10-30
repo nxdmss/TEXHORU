@@ -21,8 +21,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   }
   if (parsed.kind && accessoryType[parsed.kind]) {
     const focused = [parsed.brand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
-    const makerModel = [parsed.brand, parsed.model].filter(Boolean).join(' ')
-    return [...new Set([focused, makerModel, cleanName].filter(Boolean))]
+    const typeModel = [accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
+    return [...new Set([focused, typeModel, cleanName].filter(Boolean))]
   }
   if (parsed.kind === 'smartwatch') {
     const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
