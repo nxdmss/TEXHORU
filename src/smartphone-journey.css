@@ -14,7 +14,7 @@
 .phone-journey__back button:hover { color:#d00019; }
 .phone-journey__back strong { color:#555; font-weight:600; }
 .phone-journey__intro { text-align:center; margin:44px auto 24px; }
-.phone-journey__heading { view-transition-name:texhoru-catalog-focus; margin:0 auto; font-weight:820; font-size:clamp(54px,8vw,124px); line-height:.94; letter-spacing:-.078em; word-break:break-word; }
+.phone-journey__heading { margin:0 auto; font-weight:820; font-size:clamp(54px,8vw,124px); line-height:.94; letter-spacing:-.078em; word-break:break-word; }
 .phone-journey__subheading { color:#858580; font-size:12px; margin:12px 0 0; letter-spacing:.04em; }
 .phone-journey__brands { display:flex; flex-direction:row; align-items:center; justify-content:center; gap:clamp(16px,2.5vw,34px); width:100%; max-width:100%; margin:0 auto 30px; padding:0 0 16px; border-bottom:1px solid #deded9; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; }
 .phone-journey__brands::-webkit-scrollbar { display:none; }
@@ -40,9 +40,33 @@
   .phone-journey__brand { font-size:15px; }
 }
 @media(prefers-reduced-motion:reduce) { .phone-journey__brand { transition:none; } }
-@supports (view-transition-name:none) {
-  ::view-transition-old(texhoru-catalog-focus) { animation:.32s ease both fadeOutTitle; }
-  ::view-transition-new(texhoru-catalog-focus) { animation:.32s ease both fadeInTitle; }
-  @keyframes fadeOutTitle {from{opacity:1}to{opacity:0}}
-  @keyframes fadeInTitle {from{opacity:.4}to{opacity:1}}
+/* Animate the content surface; keep the header and footer visually stationary. */
+#top { view-transition-name: texhoru-catalog-content; }
+::view-transition-group(texhoru-catalog-content) { animation-duration: 300ms; animation-timing-function: cubic-bezier(.22,1,.36,1); }
+::view-transition-old(texhoru-catalog-content) { animation: phone-exit 150ms ease-out both; }
+::view-transition-new(texhoru-catalog-content) { animation: phone-enter 300ms cubic-bezier(.22,1,.36,1) both; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition { pointer-events: none; }
+@keyframes phone-enter { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes phone-exit { to { opacity:0; transform:translateY(-6px); } }
+.phone-journey__intro { animation:phone-enter 320ms cubic-bezier(.22,1,.36,1) both; }
+.phone-journey__inventory .product-card { animation:phone-enter 360ms cubic-bezier(.22,1,.36,1) both; }
+.phone-journey__inventory .product-card:nth-child(2) { animation-delay:25ms; }
+.phone-journey__inventory .product-card:nth-child(3) { animation-delay:50ms; }
+.phone-journey__inventory .product-card:nth-child(4) { animation-delay:75ms; }
+.phone-journey__inventory .product-card:nth-child(n+5) { animation-delay:90ms; }
+.phone-journey__brand { position:relative; transition:color 180ms ease, transform 180ms ease; }
+.phone-journey__brand::after { content:''; position:absolute; bottom:0; left:0; right:0; height:2px; background:#d00019; transform:scaleX(0); transform-origin:left; transition:transform 220ms cubic-bezier(.22,1,.36,1); }
+.phone-journey__brand:focus-visible { outline:2px solid #d00019; outline-offset:5px; }
+.phone-journey__brand:focus-visible::after { transform:scaleX(1); }
+.phone-journey__brand:active { transform:translateY(1px); }
+.phone-portal__visual img { transition:transform 420ms cubic-bezier(.22,1,.36,1); }
+@media(hover:hover) {
+ .phone-journey__brand:hover::after { transform:scaleX(1); }
+ .phone-portal__button:hover .phone-portal__visual img { transform:translateY(-5px) scale(1.025); }
+}
+@media(prefers-reduced-motion:reduce) {
+ ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation:none !important; }
+ .phone-journey__intro, .phone-journey__inventory .product-card { animation:none !important; }
+ .phone-journey__brand, .phone-journey__brand::after, .phone-portal__visual img { transition:none !important; transform:none !important; }
 }
