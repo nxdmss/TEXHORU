@@ -175,6 +175,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
   private strongVariant(check: ReturnType<typeof compareItems>): boolean {
+    if (check.exactId && !check.conflicts.length) return true
     const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
     const accessory = accessories.includes(check.ours.kind || '')
     const base = check.score >= 40 && !check.conflicts.length
