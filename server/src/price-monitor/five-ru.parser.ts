@@ -130,8 +130,12 @@ export class FiveRuParser implements OnModuleDestroy {
   }
 
   private async browser() {
-    const channel = process.platform === 'win32' && !existsSync(chromium.executablePath()) ? 'msedge' : 'chromium'
-    return chromium.launch({ channel, headless: true })
+    // Never fall back to the user's installed Edge. A dedicated Playwright
+    // Chromium binary keeps parser tabs isolated from the desktop session.
+    if (!existsSync(chromium.executablePath())) {
+      throw new Error('Фоновый Chromium не установлен. Закрой TEXHORU и запусти TEXHORU.exe ещё раз, чтобы завершить установку браузера.')
+    }
+    return chromium.launch({ headless: true })
   }
   private async context(browser: Browser, lightweight = false) {
     const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1440, height: 1000 } })
@@ -511,24 +515,41 @@ export class FiveRuParser implements OnModuleDestroy {
 
   async discover(raw: string, limit = 100) {
     const url = fiveRuUrl(raw, 'catalog')
-    let browser: Browser | undefined
     try {
-      browser = await this.browser()
-      const page = await this.open(await this.context(browser), url)
-      await page.locator('.product-card a[href*="/p/"]').first().waitFor({ timeout: 15000 })
-      for (let n = 0; n < 4; n++) { await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await page.waitForTimeout(400) }
-      const result = await page.evaluate(() => ({
-        links: Array.from(document.querySelectorAll('.product-card a[href]')).map(el => (el as HTMLAnchorElement).href),
-        next: (document.querySelector('.page-nav__arrow_right:not(.page-nav__arrow_disabled) a[href], a[rel="next"], a[aria-label="Следующая страница"], a[aria-label="Следующая"]') as HTMLAnchorElement | null)?.href || null,
-        title: document.querySelector('h1')?.textContent?.trim() || 'Каталог 05.ru',
-      }))
-      const all = [...new Set(result.links.flatMap(link => { try { return [fiveRuUrl(link, 'product')] } catch { return [] } }))]
-      if (!all.length) throw new Error('Не найдены ссылки на товары. Возможно, сайт изменил разметку или показал проверку доступа.')
-      let next: string | null = null
-      if (result.next) { try { next = fiveRuUrl(result.next, 'catalog') } catch {} }
-      const truncated = all.length > limit
-      return { urls: all.slice(0, limit), next: truncated ? null : next, truncated, discovered: all.length, title: result.title }
-    } catch (error) { throw new BadGatewayException(`Каталог 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`) }
-    finally { await browser?.close() }
+      return await this.withBrowser(async browser => {
+        const context = await this.context(browser)
+        try {
+          const page = await this.open(context, url)
+          try {
+            await page.locator('.product-card a[href*="/p/"]').first().waitFor({ timeout: 15000 })
+            for (let n = 0; n < 4; n++) {
+              await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+              await page.waitForTimeout(400)
+            }
+            const result = await page.evaluate(() => ({
+              links: Array.from(document.querySelectorAll('.product-card a[href]')).map(el => (el as HTMLAnchorElement).href),
+              next: (document.querySelector('.page-nav__arrow_right:not(.page-nav__arrow_disabled) a[href], a[rel="next"], a[aria-label="Следующая страница"], a[aria-label="Следующая"]') as HTMLAnchorElement | null)?.href || null,
+              title: document.querySelector('h1')?.textContent?.trim() || 'Каталог 05.ru',
+            }))
+            const all = [...new Set(result.links.flatMap(link => {
+              try { return [fiveRuUrl(link, 'product')] } catch { return [] }
+            }))]
+            if (!all.length) throw new Error('Не найдены ссылки на товары. Возможно, сайт изменил разметку или показал проверку доступа.')
+            let next: string | null = null
+            if (result.next) {
+              try { next = fiveRuUrl(result.next, 'catalog') } catch { /* Ignore external pagination links. */ }
+            }
+            const truncated = all.length > limit
+            return { urls: all.slice(0, limit), next: truncated ? null : next, truncated, discovered: all.length, title: result.title }
+          } finally {
+            await page.close()
+          }
+        } finally {
+          await context.close()
+        }
+      })
+    } catch (error) {
+      throw new BadGatewayException(`Каталог 05.ru: ${error instanceof Error ? error.message : 'Ошибка'}`)
+    }
   }
 }

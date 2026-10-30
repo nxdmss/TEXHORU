@@ -119,11 +119,22 @@ export async function prepareRuntime(root, logFile, report = console.log, signal
     if (needsSeed) await npm(['run', 'prisma:seed'], join(runtime, 'server'))
     writeFileSync(dbState, JSON.stringify({ schemaHash, database: db }))
   }
-  const browserCheck = await new Promise(done => {
-    const check = spawn(process.execPath, ['-e', "const fs=require('node:fs'); const {chromium}=require('playwright'); process.exit(fs.existsSync(chromium.executablePath()) ? 0 : 1)"], { cwd: join(runtime, 'server'), env: childEnv, stdio: 'ignore', windowsHide: true })
+  const hasChromium = () => new Promise(done => {
+    const check = spawn(process.execPath, ['-e', "const {chromium}=require('playwright'); chromium.launch({headless:true}).then(browser=>browser.close()).then(()=>process.exit(0)).catch(()=>process.exit(1))"], { cwd: join(runtime, 'server'), env: childEnv, stdio: 'ignore', windowsHide: true })
     check.once('error', () => done(false)); check.once('exit', code => done(code === 0))
   })
-  // Browser installation is optional: a stalled download must not block the store.
-  if (!browserCheck) report('Браузер парсера пока не установлен. Запускаю магазин без парсера.')
+  let browserCheck = await hasChromium()
+  if (!browserCheck) {
+    report('Устанавливаю отдельный Chromium для фонового парсера 05.ru…')
+    try {
+      // Do not open the user's Edge profile or fall back to a visible desktop browser.
+      await npm(['exec', '--', 'playwright', 'install', 'chromium'], join(runtime, 'server'))
+      browserCheck = await hasChromium()
+    } catch (error) {
+      report('Не удалось установить Chromium. Магазин запустится, но парсер останется выключен: ' +
+        (error instanceof Error ? error.message : 'ошибка установки'))
+    }
+  }
+  if (!browserCheck) report('Парсер 05.ru отключён: отдельный Chromium не установлен. Повтори запуск TEXHORU при доступном интернете.')
   return { runtime, env: childEnv, fingerprint, projectId: projectId(root), launchFingerprint: digest(fingerprint + digest(readFileSync(envFile))) }
 }
