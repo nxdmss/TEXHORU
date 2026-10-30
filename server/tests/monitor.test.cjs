@@ -5,9 +5,9 @@ const { resolve } = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
-const { compareItems, identity, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
+const { compareItems, identity, fingerprint, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
-const { PriceMonitorService, oneCSearchQueries } = require('../dist/price-monitor/price-monitor.service')
+const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { ProductsService } = require('../dist/products/products.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
@@ -79,6 +79,52 @@ test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra o
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Samsung Galaxy S25 Ultra 12/256 черный' }), ['samsung galaxy s25 ultra 256', 'samsung galaxy s25 ultra'])
 })
 
+
+test('Counts only technical failures as errors; ordinary no-match outcomes require review', () => {
+  assert.equal(isExpectedReviewOutcome('05.ru: нет подтверждённого совпадения для Смарт-часы Mibro XPAW002'), true)
+  assert.equal(isExpectedReviewOutcome('05.ru: несколько близких совпадений для товара'), true)
+  assert.equal(isExpectedReviewOutcome('Карточка 05.ru уже связана с другим товаром'), true)
+  assert.equal(isExpectedReviewOutcome('Автопоиск 05.ru: Прямой поиск открылся, но не отдал ссылки'), false)
+  assert.equal(isExpectedReviewOutcome('Поиск 05.ru нашёл 12 ссылок, но карточки не прочитаны'), false)
+})
+
+test('Recognizes smartwatch model codes and keeps accessory searches separate from phones', () => {
+  const mibro = { name: 'Смарт-часы Mibro XPAW002', brand: 'Mibro', category: 'Смарт-часы' }
+  const tecno = { name: 'Смарт-часы TECNO Watch 3 Active', brand: 'TECNO', category: 'Смарт-часы' }
+  const amazfit = { name: 'Умные часы Amazfit Active 2R', brand: 'Amazfit', category: 'Умные часы' }
+  const generic = { name: 'Умные часы C60 Gold Frame White Silicone Strap', category: 'Смарт-часы' }
+  assert.equal(identity(mibro).model, 'xpaw002')
+  assert.equal(identity(mibro).brand, 'mibro')
+  assert.equal(identity(mibro).kind, 'smartwatch')
+  assert.equal(identity(tecno).model, 'watch 3 active')
+  assert.equal(identity(amazfit).model, 'active 2r')
+  assert.equal(identity(generic).model, 'c60')
+  assert.deepEqual(oneCSearchQueries(mibro), ['mibro xpaw002', 'Смарт-часы Mibro XPAW002'])
+
+  const caseItem = { name: 'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max', brand: 'Green Lion', category: 'Аксессуары / Чехлы' }
+  const phoneItem = { name: 'Смартфон Apple iPhone 15 Pro Max 256 Гб', brand: 'Apple', category: 'Смартфоны' }
+  assert.equal(identity(caseItem).kind, 'case')
+  assert.equal(identity(caseItem).brand, 'green lion')
+  assert(compareItems(caseItem, phoneItem).conflicts.includes('тип товара'))
+  assert.deepEqual(oneCSearchQueries(caseItem), [
+    'green lion чехол iphone 15 pro max',
+    'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max',
+  ])
+  const caseUrl = 'https://05.ru/cat/x/p/chehol-green-lion-iphone-15-pro-max-123/'
+  const phoneUrl = 'https://05.ru/cat/x/p/smartfon-apple-iphone-15-pro-max-256-456/'
+  assert.deepEqual(rankSearchLinks([
+    { url: phoneUrl, title: 'Смартфон Apple iPhone 15 Pro Max 256 Гб' },
+    { url: caseUrl, title: 'Чехол Green Lion для iPhone 15 Pro Max' },
+  ], 'green lion чехол iphone 15 pro max', 10), [caseUrl])
+  assert.equal(fingerprint({ name: 'Xiaomi 15T Pro' }), fingerprint({ name: 'Xiaomi 15T Pro', category: 'Смартфоны' }))
+  const partialTitleUrl = 'https://05.ru/cat/x/p/smart-watch-mibro-123/'
+  assert.deepEqual(rankSearchLinks([
+    { url: partialTitleUrl, title: 'Смарт-часы Mibro' },
+  ], 'mibro xpaw002', 12), [partialTitleUrl])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Xiaomi 15T Pro 12/512' }), [
+    'xiaomi 15t pro 512', 'xiaomi 15t pro',
+  ])
+})
 
 test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links', () => {
   const target = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'

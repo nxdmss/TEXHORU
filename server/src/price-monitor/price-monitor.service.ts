@@ -11,13 +11,39 @@ import { OneCPriceSyncService } from '../integrations/price-sync.service'
 // Storefront search often fails on 1C-only labels such as "(EAC)" and the
 // 1C memory format "12/512". Start with model + capacity, then the model alone.
 // All returned product cards still undergo strict variant comparison.
-export function oneCSearchQueries(product: { name: string; brand?: string | null }) {
+export function oneCSearchQueries(product: { name: string; brand?: string | null; category?: string | { name?: string } | null }) {
   const parsed = identity(product)
-  if (!parsed.model) return [product.name.replace(/\s*\(EAC\)/gi, '').trim()]
+  // Remove internal 1C annotations, but preserve the product family.
+  const cleanName = product.name.replace(/\s*\(EAC\)/gi, '').replace(/\s+/g, ' ').trim()
+  const accessoryType: Record<string, string> = {
+    case: 'чехол', 'screen-protector': 'защитное стекло', 'watch-strap': 'ремешок',
+    charger: 'зарядное устройство', cable: 'кабель',
+  }
+  if (parsed.kind && accessoryType[parsed.kind]) {
+    const focused = [parsed.brand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
+    return [...new Set([focused, cleanName].filter(Boolean))]
+  }
+  if (parsed.kind === 'smartwatch') {
+    const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
+    return [...new Set([focused, cleanName].filter(Boolean))]
+  }
+  if (!parsed.model) return [cleanName]
+  if (parsed.kind !== 'smartphone') {
+    const focused = [parsed.brand, parsed.model, parsed.storage].filter(Boolean).join(' ')
+    return [...new Set([focused, cleanName].filter(Boolean))]
+  }
   const model = parsed.brand === 'samsung' && !parsed.model.startsWith('samsung ')
     ? 'samsung ' + parsed.model : parsed.model
-  // Storefront search must not receive internal 1C notes, slashes or EAC tags.
   return [...new Set([model + (parsed.storage ? ' ' + parsed.storage : ''), model])]
+}
+
+export function isExpectedReviewOutcome(message: string) {
+  const text = message.toLowerCase()
+  return text.includes('нет подтверждённого совпадения')
+    || text.includes('несколько близких совпадений')
+    || text.includes('карточка 05.ru уже связана')
+    || text.includes('не найдено точное соответствие')
+    || text.includes('товар исключён из выбранного раздела')
 }
 
 @Injectable()
@@ -106,7 +132,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       let matchStatus = existing?.matchStatus || 'UNMATCHED'
       let confirmedFingerprint = existing?.confirmedFingerprint || null
       let confirmedProductFingerprint = existing?.confirmedProductFingerprint || null
-      const theirs = { name: result.name, attributes: result.attributes }
+      const theirs = { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }
       if (matchStatus === 'CONFIRMED' && (fingerprint(theirs) !== confirmedFingerprint || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint)) matchStatus = 'REVIEW_REQUIRED'
       if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
         const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
@@ -638,7 +664,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 traces.push(trace)
                 const results = await this.fiveRu.searchProducts(query, 12, trace)
                 const checked = results.map(result => ({
-                  result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes }),
+                  result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
                 ranked = checked.filter(row => this.strongVariant(row.check))
                   .sort((a,b) => b.check.score - a.check.score)
@@ -696,7 +722,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             const diagnostic = job.kind === 'MATCH_1C'
               ? [job.lastError, message].filter(Boolean).join('\n').slice(-7000)
               : message
-            await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { errors: { increment: 1 }, lastError: diagnostic } })
+            // No safe match or several candidates means review, not a parser crash.
+            // The red counter is reserved for actual technical failures.
+            const expectedReview = isExpectedReviewOutcome(message)
+            await this.prisma.monitorJob.updateMany({
+              where: { id: job.id, status: 'RUNNING' },
+              data: { ...(expectedReview ? {} : { errors: { increment: 1 } }), lastError: diagnostic },
+            })
           }
           await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { pendingUrls: pending.slice(1), processed: { increment: 1 } } })
         }

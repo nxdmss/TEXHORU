@@ -30,12 +30,17 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     if (requestedStorage && ((parsed.storage && parsed.storage !== requestedStorage)
       || (slugVariant.storage && slugVariant.storage !== requestedStorage))) return null
     // Do not spend the limited card-read budget on unrelated models or phone accessories.
-    if (requested.model && parsed.model !== requested.model) return null
+    // Missing model text in a search tile is not proof of a mismatch.
+    // Keep that candidate for the product-page H1/specification check.
+    if (requested.model && parsed.model && parsed.model !== requested.model) return null
+    // Keep product families separate: a phone is not a match for its case.
+    if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
     if (requested.model && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)
       && !/(?:^|\s)(?:чехол|стекло|пленка|case|cover)(?=\s|$)/.test(normalize(query))) return null
     const words = new Set(combined.split(' '))
     let score = 0
     if (requested.model && parsed.model) score += requested.model === parsed.model ? 100 : -100
+    else if (requested.model) score += 8
     if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 35 : -35
     if (requested.color && parsed.color) score += requested.color === parsed.color ? 20 : -20
     for (const word of queryWords) if (words.has(word)) score += 5

@@ -75,7 +75,7 @@ export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuRes
   const additional = Array.isArray(product?.additionalProperty) ? product.additionalProperty as JsonObject[] : []
   const specs = [...snapshot.specs, ...additional.map(o => ({ label: String(o.name || ''), value: String(o.value || '') }))]
   const condition = String(single?.itemCondition || product?.itemCondition || '')
-  const attributes = identity({ name, brand, specs, attributes: { condition: /used|refurbished/i.test(condition) ? 'used' : /newcondition/i.test(condition) ? 'new' : undefined }, gtin: String(product?.gtin13 || product?.gtin14 || product?.gtin12 || product?.gtin8 || product?.gtin || ''), mpn: String(product?.mpn || '') })
+  const attributes = identity({ name, brand, specs, category: snapshot.category, attributes: { condition: /used|refurbished/i.test(condition) ? 'used' : /newcondition/i.test(condition) ? 'new' : undefined }, gtin: String(product?.gtin13 || product?.gtin14 || product?.gtin12 || product?.gtin8 || product?.gtin || ''), mpn: String(product?.mpn || '') })
   const old = priceNumber(snapshot.oldPrice)
   return {
     name, price: found.price, oldPrice: old && old > found.price ? old : null, inStock,

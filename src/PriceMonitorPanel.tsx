@@ -269,8 +269,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <button disabled={Boolean(busy)} onClick={() => void run('stop', () => api.monitorJobAction(active.id, 'cancel'))}>Остановить</button>
     </div>}
     {last && !active && <div className="mp-last">
-      Последний поиск: {last.processed} / {last.perPage || last.processed} · ошибок: {last.errors}
-      {last.lastError && <details><summary>Причины ошибок</summary><p>{last.lastError}</p></details>}
+      Последний поиск: {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
+      {last.lastError && <details><summary>Диагностика поиска</summary><p>{last.lastError}</p></details>}
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
     {notice && <p className="price-monitor__notice" role="status">{notice}</p>}
