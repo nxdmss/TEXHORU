@@ -194,44 +194,71 @@ export class FiveRuParser implements OnModuleDestroy {
   private async smartphoneCatalogLinks(context: BrowserContext) {
     const cached = this.smartphoneCatalogCache
     if (cached && cached.expires > Date.now()) return cached.links
+
     const found = new Map<string, { url: string; title: string }>()
-    const visited = new Set<string>()
+    const visitedUrls = new Set<string>()
+    const visitedPages = new Set<string>()
     let next: string | null = 'https://05.ru/cat/mc/396f7486/smartfony/'
-    for (let pageNo = 0; pageNo < 4 && next && found.size < 140; pageNo++) {
+
+    // The category is paginated. Crawl the public listing once and reuse the
+    // URL/title index for all smartphone variants in the current batch.
+    // Product prices are still read only from freshly opened product pages.
+    for (let pageNo = 0; pageNo < 60 && next && found.size < 1800; pageNo++) {
       const url = fiveRuUrl(next, 'catalog')
-      if (visited.has(url)) break
-      visited.add(url)
+      if (visitedUrls.has(url)) break
+      visitedUrls.add(url)
+
       const page = await context.newPage()
       try {
         const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
-        if (response && response.status() >= 400) throw new Error('05.ru ответил HTTP ' + response.status() + ' при открытии каталога смартфонов')
-        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) throw new Error('Каталог 05.ru перенаправил на другой сайт')
+        if (response && response.status() >= 400) {
+          throw new Error('05.ru ответил HTTP ' + response.status() + ' при чтении каталога смартфонов')
+        }
+        if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
+          throw new Error('Каталог смартфонов 05.ru перенаправил на другой сайт')
+        }
         await page.locator('a[href*="/p/"]').first().waitFor({ timeout: 8_000 }).catch(() => undefined)
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
         await page.waitForTimeout(350)
+
         const data = await page.evaluate(() => ({
           links: Array.from(document.querySelectorAll('a[href*="/p/"]')).map(node => ({
             url: (node as HTMLAnchorElement).href,
             title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
               node.querySelector('img')?.getAttribute('alt') ||
               node.closest('.product-card')?.textContent?.trim() ||
-              (node as HTMLElement).innerText?.trim() || '').slice(0, 180),
+              (node as HTMLElement).innerText?.trim() || '').slice(0, 220),
           })),
           next: (document.querySelector('.page-nav__arrow_right:not(.page-nav__arrow_disabled) a[href], a[rel="next"], a[aria-label="Следующая страница"], a[aria-label="Следующая"]') as HTMLAnchorElement | null)?.href || null,
         }))
+
+        if (!data.links.length) break
+        const signature = data.links.map(link => link.url).sort().join('\n')
+        if (visitedPages.has(signature)) break
+        visitedPages.add(signature)
+
         for (const link of data.links) {
           try {
             const productUrl = fiveRuUrl(link.url, 'product')
             if (!found.has(productUrl)) found.set(productUrl, { url: productUrl, title: link.title })
-          } catch { /* Product URL outside the official catalog is ignored. */ }
+          } catch { /* Ignore links outside valid public 05.ru product pages. */ }
         }
+
         next = null
-        if (data.next) { try { next = fiveRuUrl(data.next, 'catalog') } catch { /* Never follow another host. */ } }
-      } finally { await page.close() }
+        if (data.next) {
+          try { next = fiveRuUrl(data.next, 'catalog') }
+          catch { /* Never follow a link outside the official catalog. */ }
+        }
+      } finally {
+        await page.close()
+      }
     }
-    if (!found.size) throw new Error('05.ru: каталог смартфонов не вернул ссылки на товары. Возможно, сайт не загрузил карточки или ограничил доступ.')
+
+    if (!found.size) {
+      throw new Error('05.ru: публичный каталог смартфонов не вернул ссылки на товары.')
+    }
     const links = [...found.values()]
-    this.smartphoneCatalogCache = { expires: Date.now() + 15 * 60_000, links }
+    this.smartphoneCatalogCache = { expires: Date.now() + 30 * 60_000, links }
     return links
   }
 
@@ -297,11 +324,32 @@ export class FiveRuParser implements OnModuleDestroy {
                 if (!links.has(url)) links.set(url, { url, title: link.title })
               } catch { /* Ignore non-product or non-05.ru anchors. */ }
             }
+
+            let catalogUsed = false
+            // Search tiles are often incomplete or fuzzy. For smartphones,
+            // merge the site's public category listing before ranking candidates.
+            // This fallback runs even when direct search returned unrelated links.
+            if (identity({ name: text }).kind === 'smartphone') {
+              try {
+                const catalogLinks = await this.smartphoneCatalogLinks(context)
+                for (const link of catalogLinks) {
+                  if (!links.has(link.url)) links.set(link.url, link)
+                }
+                catalogUsed = catalogLinks.length > 0
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error)
+                if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
+                if (trace && trace.rejectedCards.length < 5) {
+                  trace.rejectedCards.push('Каталог смартфонов: ' + message.slice(0, 180))
+                }
+              }
+            }
+
             const unique = [...links.values()]
             if (trace) {
               trace.linksFound = unique.length
               trace.pageUrl = landed.toString()
-              trace.searchMode = 'direct-search'
+              trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
             }
             urls = rankSearchLinks(unique, text, limit)
             if (!urls.length) {
