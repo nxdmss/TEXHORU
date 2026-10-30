@@ -852,7 +852,7 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   assert.equal(indexJob.status, 'COMPLETED')
   assert.equal(indexJob.page, 2)
   assert.equal(indexJob.processed, 1)
-  assert.equal(indexCalls, 2)
+  assert.equal(indexCalls, 3) // The terminal empty page is retried before the index is marked complete.
   assert.equal(searchCalls, 0)
   assert.equal(parseCalls, 1)
   const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
