@@ -94,7 +94,7 @@ export function identity(item: Item): Identity {
   // Explicit 1C brand belongs to the product. Do not replace accessory makers
   // with Apple just because the title also contains an iPhone model.
   const brand = brandText && brandText !== 'без бренда' ? canonicalBrand(brandText) : inferredBrand
-  const kind = productKind(item)
+  const kind = attrs.kind || productKind(item)
   const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
@@ -111,7 +111,9 @@ export function validGtin(raw: string) {
 }
 
 export function fingerprint(item: Item) {
-  return createHash('sha256').update(JSON.stringify([normalize(item.name), identity(item)])).digest('hex')
+  // A category relation is not always loaded by every Prisma query. Keep
+  // confirmation fingerprints stable whether or not that relation is present.
+  return createHash('sha256').update(JSON.stringify([normalize(item.name), identity({ ...item, category: undefined })])).digest('hex')
 }
 
 export function compareItems(ours: Item, theirs: Item) {
