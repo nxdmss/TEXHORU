@@ -5287,3 +5287,47 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
 .catalog-strip button:focus-visible { outline:2px solid #c05850; outline-offset:5px; }
 .catalog > .section-head { border-bottom:0; }
 .catalog > .section-head .eyebrow { display:none; }
+
+
+/* v90 — full-width smartphone surfaces and a true bottom-anchored footer */
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+#top {
+  flex: 1 0 auto;
+  min-width: 0;
+}
+
+.footer {
+  margin-top: auto !important;
+}
+
+.phone-portal,
+.phone-journey {
+  width: min(var(--storefront-frame, 1580px), calc(100% - (var(--storefront-gutter, 24px) * 2))) !important;
+  max-width: none !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.phone-portal__button {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.phone-journey__inner,
+.phone-journey__inventory,
+.phone-journey__inventory .product-grid {
+  width: 100% !important;
+  max-width: none !important;
+}
