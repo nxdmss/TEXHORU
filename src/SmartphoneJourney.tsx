@@ -41,14 +41,14 @@ const photo = featuredPhoneImage('Apple iPhone 17 Pro 256 Гб оранжевы�
 
 export function SmartphonePortal({ onOpen }: { onOpen: OpenAction }) {
   return <section className="phone-portal" aria-label="Смартфоны">
-    <button type="button" className="phone-portal__button" onClick={e => onOpen('/catalog/smartphones', e.currentTarget.querySelector('strong'))}>
+    <button type="button" className="phone-portal__button" onClick={() => onOpen('/catalog/smartphones')}>
       <div className="phone-portal__visual">
-        <img src={photo} alt="Apple iPhone 17 Pro, настоящий внешний вид смартфона" loading="eager"
+        <img src={photo} alt="Apple iPhone 17 Pro" loading="eager"
           onError={e => { e.currentTarget.src='/products/phone.svg' }} />
       </div>
-      <div className="phone-portal__copy"><span className="phone-portal__eyebrow">Каталог / 01</span>
+      <div className="phone-portal__copy">
         <strong>СМАРТФОНЫ</strong>
-        <span className="phone-portal__link">Открыть раздел <span aria-hidden="true">↗</span></span>
+        <span className="phone-portal__link">Открыть раздел</span>
       </div>
     </button>
   </section>
@@ -59,28 +59,29 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
 }) {
   const inBrand = Boolean(activeBrand)
   const heading = activeBrand?.name || 'СМАРТФОНЫ'
-  return <section className="phone-journey" key={activeBrand?.slug || 'smartphones'}>
-    <nav className="phone-journey__back" aria-label="Путь по каталогу">
-      <button onClick={() => onOpen('/')} type="button">Главная</button>
-      <span>/</span>
-      {inBrand ? <button onClick={() => onOpen('/catalog/smartphones')} type="button">Смартфоны</button>
-        : <strong>Смартфоны</strong>}
-      {inBrand && <><span>/</span><strong>{heading}</strong></>}
-    </nav>
-    <header className="phone-journey__intro">
-      <p>TEXHORU / КАТАЛОГ</p>
-      <h1 className="phone-journey__heading">{heading}</h1>
-      {inBrand ? <p className="phone-journey__subheading">Смартфоны {heading} · {count ?? 0} товаров</p>
-        : <p className="phone-journey__subheading">Выбери производителя</p>}
-    </header>
-    {inBrand ? <div className="phone-journey__inventory">{children}</div>
-      : <nav className="phone-journey__brands" aria-label="Бренды смартфонов">
-        {brands.map(brand => <button className="phone-journey__brand" key={brand.slug} type="button"
+  const visibleBrands = brands.filter(brand => brand.slug !== activeBrand?.slug)
+  return <section className="phone-journey">
+    <div className="phone-journey__inner">
+      <nav className="phone-journey__back" aria-label="Путь по каталогу">
+        <button onClick={() => onOpen('/')} type="button">Главная</button>
+        <span>/</span>
+        {inBrand ? <button onClick={() => onOpen('/catalog/smartphones')} type="button">Смартфоны</button>
+          : <strong>Смартфоны</strong>}
+      </nav>
+      <header className="phone-journey__intro">
+        <h1 className="phone-journey__heading">{heading}</h1>
+        <p className="phone-journey__subheading">{inBrand ? (count ?? 0) + ' товаров' : (count ?? 0) + ' смартфонов'}</p>
+      </header>
+      <nav className="phone-journey__brands" aria-label="Фильтр по производителю">
+        {inBrand && <button className="phone-journey__brand phone-journey__brand--all" type="button"
+          onClick={() => onOpen('/catalog/smartphones')}>Все смартфоны</button>}
+        {visibleBrands.map(brand => <button className="phone-journey__brand" key={brand.slug} type="button"
           onClick={e => onOpen('/catalog/smartphones/' + encodeURIComponent(brand.slug), e.currentTarget.querySelector('span'))}>
           <span>{brand.name}</span>
-          <small>{brand.count}</small>
         </button>)}
         {brands.length === 0 && <p className="phone-journey__empty">Смартфоны появятся после загрузки каталога из 1С.</p>}
-      </nav>}
+      </nav>
+      <div className="phone-journey__inventory">{children}</div>
+    </div>
   </section>
 }
