@@ -131,7 +131,7 @@ export class FiveRuParser implements OnModuleDestroy {
 
   private async browser() {
     const channel = process.platform === 'win32' && !existsSync(chromium.executablePath()) ? 'msedge' : 'chromium'
-    return chromium.launch({ channel, headless: process.env.FIVE_RU_HEADFUL !== 'true' })
+    return chromium.launch({ channel, headless: true })
   }
   private async context(browser: Browser, lightweight = false) {
     const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1440, height: 1000 } })
