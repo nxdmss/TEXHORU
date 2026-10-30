@@ -168,7 +168,7 @@ export class FiveRuParser implements OnModuleDestroy {
           const hasProductJsonLd = await page.locator('script[type="application/ld+json"]')
             .evaluateAll(nodes => nodes.some(node => {
               const value = node.textContent || ''
-              return /@type/.test(value) && /Product/.test(value)
+              return /"@type"\s*:\s*(?:"Product"|\[[^\]]*"Product")/.test(value)
             })).catch(() => false)
           if (!hasProductJsonLd) throw new Error('Карточка не отдала заголовок h1 или Product JSON-LD')
         }
