@@ -178,7 +178,7 @@ export class FiveRuParser implements OnModuleDestroy {
         await page.close()
         lastError = error
         const message = error instanceof Error ? error.message : String(error)
-        if (attempt === 0 && (/HTTP 5\d\d\b|Timeout|timeout/i.test(message))) {
+        if (attempt === 0 && (/HTTP 5\d\d\b|Timeout|timeout|Карточка не отдала заголовок/i.test(message))) {
           await new Promise(resolve => setTimeout(resolve, 500))
           continue
         }
