@@ -5,6 +5,7 @@ const { resolve } = require('node:path')
 const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
+const { chromium } = require('playwright')
 const { compareItems, identity, fingerprint, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
@@ -717,6 +718,68 @@ test('Business price-list import links 1C products safely, never claims 05.ru ve
   await assert.rejects(() => monitor.importManualPrices({ rows: [
     { ...row, url: 'https://05.ru.evil.example/cat/test/p/fake/' },
   ] }), /05.ru/)
+})
+
+test('05.ru parser launches only its dedicated bundled Chromium in headless mode', async () => {
+  const parser = new FiveRuParser()
+  const oldPath = chromium.executablePath
+  const oldLaunch = chromium.launch
+  let options
+  chromium.executablePath = () => process.execPath
+  chromium.launch = async launchOptions => {
+    options = launchOptions
+    return { close: async () => {} }
+  }
+  try {
+    const browser = await parser.browser()
+    assert.equal(options.headless, true)
+    assert.equal(Object.hasOwn(options, 'channel'), false)
+    await browser.close()
+  } finally {
+    chromium.executablePath = oldPath
+    chromium.launch = oldLaunch
+  }
+})
+
+test('Catalog discovery reuses the shared browser and closes its page and context', async () => {
+  const parser = new FiveRuParser()
+  let launches = 0, pageClosed = 0, contextClosed = 0, evaluations = 0
+  const page = {
+    locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
+    evaluate: async () => {
+      evaluations++
+      if (evaluations <= 4) return
+      return {
+        links: ['https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-123/'],
+        next: null,
+        title: 'Тестовый каталог',
+      }
+    },
+    waitForTimeout: async () => {},
+    close: async () => { pageClosed++ },
+  }
+  const context = {
+    newPage: async () => page,
+    close: async () => { contextClosed++ },
+  }
+  const browser = {
+    isConnected: () => true,
+    newContext: async () => context,
+    close: async () => {},
+  }
+  parser.browser = async () => { launches++; return browser }
+  parser.context = async () => context
+  parser.open = async () => page
+  try {
+    const result = await parser.discover('https://05.ru/cat/x/test/')
+    assert.equal(result.urls.length, 1)
+    assert.equal(result.title, 'Тестовый каталог')
+    assert.equal(launches, 1)
+    assert.equal(pageClosed, 1)
+    assert.equal(contextClosed, 1)
+  } finally {
+    await parser.onModuleDestroy()
+  }
 })
 
 test('Product page reader retries transient 5xx and accepts Product JSON-LD without a visible h1', async () => {
