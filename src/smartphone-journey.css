@@ -89,3 +89,17 @@ html { scrollbar-gutter:stable; }
  ::view-transition-group(phone-brand-title), ::view-transition-old(phone-brand-title), ::view-transition-new(phone-brand-title),
  ::view-transition-old(phone-inventory), ::view-transition-new(phone-inventory) { animation:none !important; }
 }
+
+/* The moving label keeps exactly the typography and intrinsic box of its button. */
+.phone-journey__heading,
+.phone-journey__brand {
+ font-size:clamp(14px,1.2vw,18px); font-weight:620;
+ line-height:1.2; letter-spacing:-.025em;
+}
+.phone-journey__heading { width:max-content; max-width:100%; }
+.phone-journey__intro { min-height:100px; display:flex; flex-direction:column; justify-content:center; }
+.phone-brand-switch::view-transition-old(phone-brand-title) { animation:none; opacity:1; mix-blend-mode:normal; }
+.phone-brand-switch::view-transition-new(phone-brand-title) { animation:none; opacity:0; }
+@media(max-width:650px) {
+ .phone-journey__heading, .phone-journey__brand { font-size:15px; }
+}

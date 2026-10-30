@@ -58,7 +58,7 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
   brands: ShopBrand[]; activeBrand?: ShopBrand; onOpen: OpenAction; children?: ReactNode; count?: number
 }) {
   const inBrand = Boolean(activeBrand)
-  const heading = activeBrand?.name || 'СМАРТФОНЫ'
+  const heading = activeBrand?.name || 'Все смартфоны'
   const visibleBrands = brands.filter(brand => brand.slug !== activeBrand?.slug)
   return <section className="phone-journey">
     <div className="phone-journey__inner" key={activeBrand?.slug || "all"}>
