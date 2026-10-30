@@ -203,7 +203,7 @@ export class FiveRuParser implements OnModuleDestroy {
     // The category is paginated. Crawl the public listing once and reuse the
     // URL/title index for all smartphone variants in the current batch.
     // Product prices are still read only from freshly opened product pages.
-    for (let pageNo = 0; pageNo < 60 && next && found.size < 1800; pageNo++) {
+    for (let pageNo = 0; pageNo < 50 && next && found.size < 1200; pageNo++) {
       const url = fiveRuUrl(next, 'catalog')
       if (visitedUrls.has(url)) break
       visitedUrls.add(url)
