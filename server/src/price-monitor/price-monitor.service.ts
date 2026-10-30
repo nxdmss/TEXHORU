@@ -127,7 +127,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw error
     } finally { this.parsing = false }
   }
-  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number) {
+  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false) {
     return this.prisma.$transaction(async tx => {
       const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
       let productId = existing?.productId || suggestedProductId || null
@@ -137,16 +137,22 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const theirs = { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }
       if (matchStatus === 'CONFIRMED' && (fingerprint(theirs) !== confirmedFingerprint || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint)) matchStatus = 'REVIEW_REQUIRED'
       if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
-        const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
-        const candidates = products.map(product => ({ product, check: compareItems(product, theirs) })).filter(c => c.check.score >= 20).sort((a,b) => b.check.score - a.check.score)
-        const exact = candidates.filter(c => c.check.canAutoConfirm)
-        if (exact.length === 1) {
-          productId = exact[0].product.id; matchStatus = 'CONFIRMED'
-          confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
-        } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
+        if (forceReview) {
+          // Ambiguous candidates remain unlinked; never auto-confirm one by
+          // re-running the global matcher on each candidate page.
+          matchStatus = 'UNMATCHED'
+        } else {
+          const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
+          const candidates = products.map(product => ({ product, check: compareItems(product, theirs) })).filter(c => c.check.score >= 20).sort((a,b) => b.check.score - a.check.score)
+          const exact = candidates.filter(c => c.check.canAutoConfirm)
+          if (exact.length === 1) {
+            productId = exact[0].product.id; matchStatus = 'CONFIRMED'
+            confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
+          } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
+        }
       } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') matchStatus = 'SUGGESTED'
       // Re-check the actual assigned product; suggestions used to bypass auto-confirmation.
-      if (productId && (existing?.productId || suggestedProductId) && matchStatus !== 'CONFIRMED') {
+      if (!forceReview && productId && (existing?.productId || suggestedProductId) && matchStatus !== 'CONFIRMED') {
         const assigned = await tx.product.findUnique({ where: { id: productId } })
         if (assigned?.status === 'ACTIVE' && compareItems(assigned, theirs).canAutoConfirm) {
           matchStatus = 'CONFIRMED'
@@ -372,18 +378,19 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       await this.save(exact[0].result, source.id, product.id)
       return true
     }
-    if (verified.length === 1) {
-      // A single plausible accessory/variant is useful as SUGGESTED, but save()
-      // will not confirm it without the required exact identifier.
-      await this.save(verified[0].result, source.id, product.id)
+
+    verified.sort((a, b) => b.check.score - a.check.score)
+    const top = verified[0]
+    const runnerUp = verified[1]
+    if (verified.length === 1 || (top && runnerUp && top.check.score - runnerUp.check.score >= 10)) {
+      // A clear but non-exact candidate is attached as SUGGESTED, never confirmed.
+      await this.save(top.result, source.id, product.id)
       return true
     }
 
-    // Keep a small shortlist for manual review instead of throwing away every
-    // candidate just because several product pages share a compatible model.
-    verified.sort((a, b) => b.check.score - a.check.score)
+    // Several close candidates are kept unlinked for explicit human review.
     for (const option of verified.slice(0, 3)) {
-      await this.save(option.result, source.id)
+      await this.save(option.result, source.id, undefined, true)
     }
     return true
   }
@@ -747,7 +754,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 // Keep plausible 05.ru cards in the monitor for manual review,
                 // but do NOT choose a winner or apply a price automatically.
                 const source = await this.source()
-                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id)
+                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id, undefined, true)
                 throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
               }
               const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
