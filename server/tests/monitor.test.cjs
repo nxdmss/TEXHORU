@@ -108,6 +108,7 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
   assert(compareItems(caseItem, phoneItem).conflicts.includes('тип товара'))
   assert.deepEqual(oneCSearchQueries(caseItem), [
     'green lion чехол iphone 15 pro max',
+    'чехол iphone 15 pro max',
     'Накладка силиконовая Green Lion Case for iPhone 15 Pro Max',
   ])
   const caseUrl = 'https://05.ru/cat/x/p/chehol-green-lion-iphone-15-pro-max-123/'
@@ -854,6 +855,7 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
   assert.equal(indexJob.processed, 1)
   assert.equal(indexCalls, 3) // The terminal empty page is retried before the index is marked complete.
   assert.equal(searchCalls, 0)
+  await monitor.tick() // The dependent 1C matching job starts only after the index is complete.
   assert.equal(parseCalls, 1)
   const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
   const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: base + '-0' } })
