@@ -8,7 +8,7 @@ import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, featuredPhoneImage, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
-import { activeOrders, orderHistory } from './data'
+
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
 const money = new Intl.NumberFormat('ru-RU')
@@ -942,7 +942,8 @@ function App() {
   }
 
   const renderHome = () => <>
-    <>{smartphoneBrands.length > 0 && <SmartphonePortal onOpen={openJourney}/>}</>
+    {catalogProducts.some(product => isSmartphone(product) && (product.stockQty ?? 0) > 0) &&
+      <SmartphonePortal onOpen={openJourney} featured={catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)} />}
     {sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
       <div className="storefront-carousel__layout">
         <div
@@ -993,7 +994,15 @@ function App() {
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={/iphone\s*\d+/i.test(product.name) ? featuredPhoneImage(product.name, product.image) : product.image} alt={product.name} onError={e => { e.currentTarget.src='/products/phone.svg' }} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
 
-  const renderAccountPage = () => <section className="account-page"><div className="account-page__top"><button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> В магазин</button><div className="account-simple-head"><div><p className="eyebrow">TEXHORU</p><h1>Личный кабинет</h1></div><div className="account-simple-user"><strong>Умар Мутаев</strong><span>+7 999 123-45-67</span></div></div></div><nav className="account-simple-tabs"><button className={accountTab === 'active' ? 'active' : ''} onClick={() => setAccountTab('active')}>Активные заказы <span>{activeOrders.length}</span></button><button className={accountTab === 'history' ? 'active' : ''} onClick={() => setAccountTab('history')}>История</button><button className={accountTab === 'profile' ? 'active' : ''} onClick={() => setAccountTab('profile')}>Мои данные</button></nav><div className="account-page__content account-page__content--simple">{accountTab === 'active' && <div className="order-list order-list--page">{activeOrders.map((order) => <OrderCard key={order.id} order={order} />)}</div>}{accountTab === 'history' && <div className="order-list order-list--page">{orderHistory.map((order) => <OrderCard key={order.id} order={order} />)}</div>}{accountTab === 'profile' && <div className="profile-simple"><div><span>Имя</span><strong>Умар Мутаев</strong></div><div><span>Телефон</span><strong>+7 999 123-45-67</strong></div><div><span>Email</span><strong>umar@example.com</strong></div><div><span>Город</span><strong>Кизилюрт, Дагестан</strong></div></div>}</div></section>
+  const renderAccountPage = () => <section className="account-page">
+    <div className="account-page__top">
+      <button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> В магазин</button>
+      <div className="account-simple-head"><div><p className="eyebrow">TEXHORU</p><h1>Личный кабинет</h1></div></div>
+    </div>
+    <div className="account-page__content account-page__content--simple">
+      <div className="empty-search">Личный кабинет подключим после завершения парсера. Тестовых заказов и выдуманных данных здесь нет.</div>
+    </div>
+  </section>
 
   const tokenFromQuery = new URLSearchParams(window.location.search).get('token') || ''
   let content
