@@ -37,13 +37,12 @@ export function shopBrands(products: Product[]): ShopBrand[] {
 }
 
 type OpenAction = (path: string, source?: HTMLElement | null) => void
-const photo = featuredPhoneImage('Apple iPhone 17 Pro 256 Гб оранжевый')
-
-export function SmartphonePortal({ onOpen }: { onOpen: OpenAction }) {
+export function SmartphonePortal({ onOpen, featured }: { onOpen: OpenAction; featured?: Product }) {
+  const photo = featured ? featuredPhoneImage(featured.name, featured.image) : '/products/phone.svg'
   return <section className="phone-portal" aria-label="Смартфоны">
     <button type="button" className="phone-portal__button" onClick={() => onOpen('/catalog/smartphones')}>
       <div className="phone-portal__visual">
-        <img src={photo} alt="Apple iPhone 17 Pro" loading="eager"
+        <img src={photo} alt={featured?.name || "Смартфоны"} loading="eager"
           onError={e => { e.currentTarget.src='/products/phone.svg' }} />
       </div>
       <div className="phone-portal__copy">
