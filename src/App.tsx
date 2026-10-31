@@ -5,24 +5,16 @@ import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { AdminCategoryTree } from './AdminCategoryTree'
 import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSmartphone } from './SmartphoneJourney'
 import { flushSync } from 'react-dom'
-import { storefrontPath, featuredIphones, featuredPhoneImage, browseLabel } from './catalog-navigation'
+import { storefrontPath, featuredProducts, featuredPhoneImage, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
-import { activeOrders, orderHistory, products as fallbackProducts } from './data'
+import { activeOrders, orderHistory } from './data'
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
 const money = new Intl.NumberFormat('ru-RU')
 type AccountTab = 'active' | 'history' | 'profile'
 type AdminTab = 'overview' | 'products' | 'content' | 'prices' | 'orders' | 'notifications' | 'sync' | 'audit'
 type CreatedOrder = { number: number; trackingToken: string; paymentMethod: 'ONLINE' | 'ON_RECEIPT' }
-
-const defaultPromos: PromoBanner[] = [
-  { id: 'fallback-new', kicker: 'НОВИНКА', title: 'iPhone 18 Pro', body: 'Новая Pro-линейка Apple. Большой акцент на камеру, производительность и автономность.', ctaLabel: 'Смотреть смартфоны', category: 'Смартфоны', image: '/products/phone.svg', tone: 'light', sortOrder: 0, isActive: true },
-  { id: 'fallback-sale', kicker: 'АКЦИИ', title: 'Телевизоры выгоднее', body: 'Подборка моделей со сниженной ценой и предложениями на большие диагонали.', ctaLabel: 'Перейти к акции', category: 'Телевизоры', image: '/products/tv.svg', tone: 'dark', sortOrder: 1, isActive: true },
-  { id: 'fallback-installment', kicker: 'РАССРОЧКА', title: 'Ноутбук сейчас. Платёж потом.', body: 'MacBook и Windows-ноутбуки в одной подборке без лишних переходов.', ctaLabel: 'Выбрать ноутбук', category: 'Ноутбуки', image: '/products/laptop.svg', tone: 'red', sortOrder: 2, isActive: true },
-  { id: 'fallback-audio', kicker: 'АУДИО', title: 'Sony WH-1000XM5', body: 'Наушники и портативное аудио.', ctaLabel: 'Смотреть аудио', category: 'Аудио', image: '/products/headphones.svg', tone: 'dark', sortOrder: 3, isActive: true },
-  { id: 'fallback-home', kicker: 'ДЛЯ ДОМА', title: 'Dyson V12 Detect Slim', body: 'Техника для дома и уборки.', ctaLabel: 'Смотреть для дома', category: 'Для дома', image: '/products/vacuum.svg', tone: 'light', sortOrder: 4, isActive: true },
-]
 
 const statusLabels: Record<string, string> = {
   NEW: 'Заказ создан', AWAITING_PAYMENT: 'Ожидает оплаты', PAID: 'Оплачен', ASSEMBLING: 'Собирается', READY: 'Готов к выдаче', DELIVERING: 'В доставке', COMPLETED: 'Получен', CANCELLED: 'Отменён',
@@ -790,8 +782,8 @@ function App() {
   const [storeSection, setStoreSection] = useState('')
   const [storeLimit, setStoreLimit] = useState(24)
   const [query, setQuery] = useState('')
-  const [catalogProducts, setCatalogProducts] = useState<Product[]>(fallbackProducts)
-  const [promos, setPromos] = useState<PromoBanner[]>(defaultPromos)
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
+  const [promos, setPromos] = useState<PromoBanner[]>([])
   const [promosLoaded, setPromosLoaded] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return JSON.parse(localStorage.getItem('texhoru_cart') || '[]') } catch { return [] } })
@@ -806,7 +798,7 @@ function App() {
   const [sliderIsDragging, setSliderIsDragging] = useState(false)
   const sliderDrag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
 
-  const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos(defaultPromos); setPromosLoaded(false) })
+  const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
 
   useEffect(() => {
     api.products().then((items) => { setCatalogProducts(items); setCart((current) => current.filter((line) => items.some((item) => item.id === line.product.id)).map((line) => ({ ...line, product: items.find((item) => item.id === line.product.id)! }))); setApiOnline(true) }).catch(() => setApiOnline(false))
@@ -874,7 +866,7 @@ function App() {
   const folderOnly = false
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q && !storeSection && category === 'Все') return featuredIphones(catalogProducts, 10)
+    if (!q && !storeSection && category === 'Все') return featuredProducts(catalogProducts, 10)
     return catalogProducts.filter(product => {
       const virtualPath = storefrontPath(product.category, product.name)
       return (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
@@ -882,7 +874,7 @@ function App() {
         (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))
     })
   }, [category, query, catalogProducts, storeSection, selectedBrowsePath, browseChildren.length])
-  const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : defaultPromos, [promos, promosLoaded])
+  const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : [], [promos, promosLoaded])
   useEffect(() => {
     if (path !== '/' || sliderItems.length < 2) return
     const timer = window.setInterval(() => setSlideIndex((current) => (current + 1) % sliderItems.length), 6000)
@@ -950,7 +942,7 @@ function App() {
   }
 
   const renderHome = () => <>
-    <SmartphonePortal onOpen={openJourney}/>
+    <>{smartphoneBrands.length > 0 && <SmartphonePortal onOpen={openJourney}/>}</>
     {sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
       <div className="storefront-carousel__layout">
         <div
@@ -994,7 +986,7 @@ function App() {
         {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogProducts.length} товаров</button>}
         {!isFeaturedView && filtered.length > storeLimit &&
           <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}
-        {filtered.length === 0 && <div className="empty-search">Ничего не найдено. Выбери другой подраздел или измени поиск.</div>}
+        {filtered.length === 0 && <div className="empty-search">Каталог пока пуст. Загрузите товары из 1С или выберите другой раздел.</div>}
       </>}
     </section>
   </>
