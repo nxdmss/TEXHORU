@@ -5,7 +5,8 @@
 export function storefrontPath(category: string, name: string): string {
   const base = (category || 'Без категории').trim()
   const last = base.split(' / ').at(-1) || ''
-  const isPhoneLeaf = /смартфон|iphone/i.test(last) && !/аксессуар|чехл|стекл/i.test(base)
+  const isPhoneLeaf = (/смартфон|iphone/i.test(last) || /(?:^| \/ )смартфоны?(?: \/|$)/i.test(base))
+    && !/аксессуар|чехл|стекл/i.test(base)
   if (!isPhoneLeaf) return base
   const iphone = name.match(/\b(?:Apple\s+)?iPhone\s*(\d{1,2})(?:\s*(Pro\s+Max|Pro|Plus|Air|Mini|e))?\b/i)
   if (iphone) {
