@@ -14,11 +14,11 @@ if not "%CONFIRM%"=="RESET-TEXHORU" (
   exit /b 0
 )
 set "NODE_EXE="
-for /f "delims=" %%I in ('where node.exe 2^>nul') do if not defined NODE_EXE set "NODE_EXE=%%I"
+for /d %%D in ("%LOCALAPPDATA%\TEXHORU\runtime\node-v22*-win-x64") do (
+  if exist "%%~fD\node.exe" set "NODE_EXE=%%~fD\node.exe"
+)
 if not defined NODE_EXE (
-  for /d %%D in ("%LOCALAPPDATA%\TEXHORU\runtime\node-v22*-win-x64") do (
-    if exist "%%~fD\node.exe" set "NODE_EXE=%%~fD\node.exe"
-  )
+  for /f "delims=" %%I in ('where node.exe 2^>nul') do if not defined NODE_EXE set "NODE_EXE=%%I"
 )
 if not defined NODE_EXE (
   echo Node.js ne nayden. Zapusti TEXHORU.exe odin raz ili ustanovi Node.js 22.
