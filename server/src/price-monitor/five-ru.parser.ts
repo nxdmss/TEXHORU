@@ -444,7 +444,9 @@ export class FiveRuParser implements OnModuleDestroy {
       // Reuse Chromium between cards, keeping every request in an isolated
       // context. Launching a fresh browser for each 1C product is expensive.
       return await this.withBrowser(async browser => {
-        const context = await this.context(browser)
+        // Product prices are read from HTML/JSON-LD; avoid downloading images,
+        // fonts and video for every item in a bulk price refresh.
+        const context = await this.context(browser, true)
         try {
           const page = await this.open(context, url)
           try { return extractFiveRu(await this.snapshot(page), url) }

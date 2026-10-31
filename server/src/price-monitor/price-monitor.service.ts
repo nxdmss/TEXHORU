@@ -116,6 +116,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const url = fiveRuUrl(dto.url, 'product')
     if (this.parsing) throw new ConflictException('Парсер занят. Дождись текущей проверки.')
     if (dto.productId && !await this.prisma.product.findUnique({ where: { id: dto.productId } })) throw new NotFoundException('Товар TEXHORU не найден')
+    if (dto.productId) {
+      const claimed = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: url } })
+      if (claimed?.productId && claimed.productId !== dto.productId) {
+        throw new ConflictException('Эта карточка 05.ru уже связана с другим товаром. Сначала сними прежнюю привязку.')
+      }
+      const other = await this.prisma.competitorProduct.findFirst({
+        where: { productId: dto.productId, matchStatus: 'CONFIRMED', externalUrl: { not: url } },
+      })
+      if (other) throw new ConflictException('У товара уже есть подтверждённая ссылка 05.ru. Сними старую привязку перед заменой.')
+    }
     const source = await this.source()
     this.parsing = true
     try {
@@ -583,10 +593,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
       throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
     }
-    const selected = scoped.slice(0, limit)
-    // Small diagnostic runs keep the existing direct search. Bulk runs index
-    // the catalog once instead of repeating an unreliable search 2,000 times.
-    // Direct search is the default; the unverified full-site crawl is opt-in only.
+    const confirmed = dto.onlyUnlinked
+      ? await this.prisma.competitorProduct.findMany({
+          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { not: null } },
+          select: { productId: true },
+        })
+      : []
+    const linkedIds = new Set(confirmed.map(link => link.productId))
+    const eligible = dto.onlyUnlinked ? scoped.filter(product => !linkedIds.has(product.id)) : scoped
+    if (!eligible.length) throw new BadRequestException('В этом разделе все товары уже привязаны. Используй «Обновить цены 05.ru».')
+    const selected = eligible.slice(0, limit)
+    // Discover only missing links during first setup. Daily refresh uses direct URLs.
     const useIndex = dto.indexCatalog === true
     if (useIndex) await this.ensureIndexJob()
     const job = await this.prisma.monitorJob.create({
@@ -594,7 +611,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         pendingUrls: selected.map(p => 'product:' + p.id),
         visitedUrls: [...(useIndex ? ['INDEX_MATCH'] : []), ...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])] },
     })
-    return { ...job, eligible: scoped.length, queued: selected.length }
+    return { ...job, eligible: eligible.length, queued: selected.length }
   }
 
   private async ensureIndexJob() {
@@ -613,9 +630,76 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async checkAll() {
-    const links = await this.prisma.competitorProduct.findMany({ where: { source: { key: '05ru' } }, select: { externalUrl: true } })
-    if (!links.length) throw new BadRequestException('Сначала добавь карточки или собери раздел каталога')
-    return this.prisma.monitorJob.create({ data: { kind: 'RECHECK', pendingUrls: links.map(row => row.externalUrl) } })
+    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+      throw new ConflictException('Мониторинг уже запущен. Дождись завершения или останови текущую задачу.')
+    }
+    // Daily updates must use only explicitly confirmed, persisted 1C links.
+    // Discovery/search is a separate operation, never part of a price refresh.
+    const links = await this.prisma.competitorProduct.findMany({
+      where: {
+        source: { key: '05ru' }, matchStatus: 'CONFIRMED',
+        product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
+      },
+      select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
+    })
+    if (!links.length) throw new BadRequestException('Нет привязанных товаров. Сначала найди или вручную привяжи карточки 05.ru.')
+    return this.prisma.monitorJob.create({
+      data: { kind: 'RECHECK', perPage: links.length, pendingUrls: links.map(row => row.externalUrl) },
+    })
+  }
+
+  // Parse several saved URLs at once, then commit snapshots one by one.
+  // Serial SQLite writes avoid lock contention; one slow 05.ru page does not block
+  // the other reads. No fuzzy product search is performed in this path.
+  private async recheckBatch(jobId: string, pending: string[], previousError: string | null = null) {
+    const batch = pending.slice(0, 4)
+    const results = await Promise.allSettled(batch.map(url => this.fiveRu.parse(url)))
+    const source = await this.source()
+    const deferred: string[] = []
+    const problems: string[] = []
+    let processed = 0
+    let errors = 0
+    let blocked = false
+    for (const [index, item] of results.entries()) {
+      const url = batch[index]
+      try {
+        if (item.status === 'rejected') throw item.reason
+        // A user may have removed a link while the pages were loading.
+        const linked = await this.prisma.competitorProduct.findUnique({
+          where: { externalUrl: url }, select: { productId: true, matchStatus: true },
+        })
+        if (linked?.productId && linked.matchStatus === 'CONFIRMED') {
+          await this.save(item.value, source.id)
+        }
+        processed++
+      } catch (error) {
+        const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000)
+        if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) {
+          blocked = true
+          deferred.push(url)
+          problems.push(url + ': сайт ограничил запросы, задача остановлена')
+          continue
+        }
+        await this.prisma.competitorProduct.updateMany({
+          where: { externalUrl: url },
+          data: { lastCheckedAt: new Date(), lastError: message },
+        })
+        errors++
+        processed++
+        if (problems.length < 5) problems.push(url + ': ' + message.slice(0, 200))
+      }
+    }
+    const remaining = [...deferred, ...pending.slice(batch.length)]
+    const done = !blocked && remaining.length === 0
+    await this.prisma.monitorJob.updateMany({
+      where: { id: jobId, status: 'RUNNING' },
+      data: {
+        pendingUrls: remaining, processed: { increment: processed }, errors: { increment: errors },
+        lastError: [previousError, ...problems].filter(Boolean).join('\n').slice(-7000) || null,
+        status: blocked ? 'FAILED' : done ? 'COMPLETED' : 'QUEUED',
+        leaseUntil: null, finishedAt: blocked || done ? new Date() : null,
+      },
+    })
   }
   async cancelJob(id: string) { return this.prisma.monitorJob.updateMany({ where: { id, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', finishedAt: new Date() } }) }
   async retryJob(id: string) {
@@ -632,7 +716,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.monitorJob.updateMany({ where: { status: 'RUNNING', leaseUntil: { lt: now } }, data: { status: 'QUEUED' } })
       const settings = await this.settings()
       if (settings.intervalMinutes && settings.nextRunAt && settings.nextRunAt <= now && !await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
-        const links = await this.prisma.competitorProduct.count({ where: { source: { key: '05ru' } } })
+        const links = await this.prisma.competitorProduct.count({
+          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { not: null } },
+        })
         if (links) await this.checkAll()
         await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
       }
@@ -648,6 +734,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (!claimed.count) return
       let pending = this.strings(job.pendingUrls)
       try {
+        if (job.kind === 'RECHECK') {
+          if (!pending.length) {
+            await this.prisma.monitorJob.updateMany({
+              where: { id: job.id, status: 'RUNNING' },
+              data: { status: 'COMPLETED', leaseUntil: null, finishedAt: new Date() },
+            })
+          } else {
+            await this.recheckBatch(job.id, pending, job.lastError)
+          }
+          return
+        }
         if (job.kind === 'INDEX_05RU') {
           // Progress is persisted every page. A restart resumes from job.page.
           const pageNumber = job.page + 1

@@ -200,9 +200,9 @@ export const api = {
   monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
   monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
-  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false) {
+  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false) {
     return request<MonitorJob & { eligible: number; queued: number }>('/admin/price-monitor/auto-find-1c',
-      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones }) })
+      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones, onlyUnlinked }) })
   },
   monitorScan(url: string, maxPages: number) { return request<MonitorJob>('/admin/price-monitor/scan', { method: 'POST', body: JSON.stringify({ url, maxPages }) }) },
   monitorCheckAll() { return request<MonitorJob>('/admin/price-monitor/check-all', { method: 'POST' }) },

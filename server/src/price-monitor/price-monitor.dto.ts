@@ -31,6 +31,7 @@ export class AutoFindOneCSectionDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(5000) maxItems?: number
   @IsOptional() @IsBoolean() indexCatalog?: boolean
   @IsOptional() @IsBoolean() onlyInStockSmartphones?: boolean
+  @IsOptional() @IsBoolean() onlyUnlinked?: boolean
 }
 
 // Site-only manual price update, guarded by current values and explicit risk acknowledgements.
