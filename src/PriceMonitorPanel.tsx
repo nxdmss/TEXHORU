@@ -323,7 +323,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     </div>}
     {lastRecheck && !active && <div className="mp-last">
       Последнее обновление цен: {lastRecheck.processed} / {lastRecheck.perPage || lastRecheck.processed} · ошибок: {lastRecheck.errors}
-      {lastRecheck.status === 'FAILED' && ' · остановлено из-за ошибки доступа'}
+      {lastRecheck.status === 'FAILED' && <>
+        {' · остановлено из-за ошибки доступа. '}
+        <button disabled={Boolean(busy)} onClick={() => void run('retry', () => api.monitorJobAction(lastRecheck.id, 'retry'),
+          'Проверка продолжена с оставшихся ссылок.')}>Продолжить обновление</button>
+      </>}
       {lastRecheck.lastError && <details><summary>Ошибки проверки</summary><p>{lastRecheck.lastError}</p></details>}
     </div>}
     {last && !active && <div className="mp-last">
