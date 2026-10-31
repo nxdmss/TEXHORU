@@ -871,7 +871,7 @@ test('Business price-list import links 1C products safely, never claims 05.ru ve
   ] }), /05.ru/)
 })
 
-test('05.ru parser launches only its dedicated bundled Chromium in headless mode', async () => {
+test('05.ru parser uses headless installed Edge on Windows or Playwright Chromium elsewhere', async () => {
   const parser = new FiveRuParser()
   const oldPath = chromium.executablePath
   const oldLaunch = chromium.launch
@@ -884,7 +884,8 @@ test('05.ru parser launches only its dedicated bundled Chromium in headless mode
   try {
     const browser = await parser.browser()
     assert.equal(options.headless, true)
-    assert.equal(Object.hasOwn(options, 'channel'), false)
+    if (process.platform === 'win32') assert.equal(options.channel, 'msedge')
+    else assert.equal(Object.hasOwn(options, 'channel'), false)
     await browser.close()
   } finally {
     chromium.executablePath = oldPath
@@ -892,16 +893,17 @@ test('05.ru parser launches only its dedicated bundled Chromium in headless mode
   }
 })
 
-test('Missing bundled Chromium never falls back to the installed desktop Edge', async () => {
+test('Missing browser reports a clear error without downloading Chromium', async () => {
   const parser = new FiveRuParser()
   const oldPath = chromium.executablePath
   const oldLaunch = chromium.launch
-  let launched = false
+  const launches = []
   chromium.executablePath = () => 'Z:\\missing\\playwright\\chromium.exe'
-  chromium.launch = async () => { launched = true; throw new Error('Should not launch') }
+  chromium.launch = async options => { launches.push(options); throw new Error('Browser unavailable') }
   try {
-    await assert.rejects(() => parser.browser(), /Фоновый Chromium не установлен/)
-    assert.equal(launched, false)
+    await assert.rejects(() => parser.browser(), /Не найден браузер для фонового парсера/)
+    assert.equal(launches.length, process.platform === 'win32' ? 1 : 0)
+    if (process.platform === 'win32') assert.equal(launches[0].channel, 'msedge')
   } finally {
     chromium.executablePath = oldPath
     chromium.launch = oldLaunch
