@@ -521,6 +521,157 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: secondId } })).price, 90000)
 })
 
+test('Daily price refresh queues only confirmed links and never discovers products', async () => {
+  const sourceUrls = [
+    'https://05.ru/cat/a/p/test-linked-a-101/',
+    'https://05.ru/cat/a/p/test-linked-b-102/',
+  ]
+  let observedQuery, savedJob
+  const prismaStub = {
+    monitorJob: {
+      count: async () => 0,
+      create: async input => { savedJob = input.data; return { id: 'job-recheck', ...input.data } },
+    },
+    competitorProduct: {
+      findMany: async input => { observedQuery = input.where; return sourceUrls.map(externalUrl => ({ externalUrl })) },
+    },
+  }
+  const parser = { searchProducts: async () => { throw Error('Search must not run') } }
+  const monitor = new PriceMonitorService(prismaStub, parser, {})
+  const job = await monitor.checkAll()
+  assert.equal(job.kind, 'RECHECK')
+  assert.equal(savedJob.perPage, 2)
+  assert.deepEqual(savedJob.pendingUrls, sourceUrls)
+  assert.equal(observedQuery.matchStatus, 'CONFIRMED')
+  assert.equal(observedQuery.product.is.oneCId.not, null)
+})
+
+test('Four direct price reads run concurrently; SQLite snapshots are saved serially', async () => {
+  const urls = Array.from({ length: 6 }, (_, i) => 'https://05.ru/cat/a/p/saved-' + i + '/')
+  let reads = 0, maxReads = 0, writes = 0, maxWrites = 0, searchCalls = 0
+  let savedJob
+  const parser = {
+    parse: async url => {
+      reads++
+      maxReads = Math.max(reads, maxReads)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      reads--
+      return { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }
+    },
+    searchProducts: async () => { searchCalls++; return [] },
+  }
+  const prismaStub = {
+    competitorProduct: {
+      findUnique: async () => ({ productId: 1, matchStatus: 'CONFIRMED' }),
+      updateMany: async () => ({ count: 1 }),
+    },
+    monitorJob: { updateMany: async input => { savedJob = input.data; return { count: 1 } } },
+  }
+  const monitor = new PriceMonitorService(prismaStub, parser, {})
+  monitor.source = async () => ({ id: '05ru' })
+  monitor.save = async () => {
+    writes++
+    maxWrites = Math.max(maxWrites, writes)
+    await new Promise(resolve => setTimeout(resolve, 3))
+    writes--
+  }
+  await monitor.recheckBatch('job', urls)
+  assert.equal(maxReads, 4)
+  assert.equal(maxWrites, 1)
+  assert.equal(searchCalls, 0)
+  assert.deepEqual(savedJob.pendingUrls, urls.slice(4))
+  assert.equal(savedJob.processed.increment, 4)
+  assert.equal(savedJob.errors.increment, 0)
+  assert.equal(savedJob.status, 'QUEUED')
+})
+
+test('Site rate limit pauses direct price refresh and retains only blocked URLs', async () => {
+  const urls = Array.from({ length: 5 }, (_, i) => 'https://05.ru/cat/a/p/saved-blocked-' + i + '/')
+  let savedJob, successes = 0, errors = 0
+  const parser = { parse: async url => {
+    if (url === urls[1]) throw Error('HTTP 429')
+    return { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }
+  } }
+  const prismaStub = {
+    competitorProduct: {
+      findUnique: async () => ({ productId: 1, matchStatus: 'CONFIRMED' }),
+      updateMany: async () => { errors++; return { count: 1 } },
+    },
+    monitorJob: { updateMany: async input => { savedJob = input.data; return { count: 1 } } },
+  }
+  const monitor = new PriceMonitorService(prismaStub, parser, {})
+  monitor.source = async () => ({ id: '05ru' })
+  monitor.save = async () => { successes++ }
+  await monitor.recheckBatch('job', urls)
+  assert.equal(successes, 3)
+  assert.equal(errors, 0)
+  assert.equal(savedJob.status, 'FAILED')
+  assert.equal(savedJob.processed.increment, 3)
+  assert.equal(savedJob.errors.increment, 0)
+  assert.deepEqual(savedJob.pendingUrls, [urls[1], urls[4]])
+  assert.match(savedJob.lastError, /ограничил запросы/)
+})
+
+test('One failed product retains its previous price and batch finishes other links', async () => {
+  const urls = Array.from({ length: 3 }, (_, i) => 'https://05.ru/cat/a/p/saved-timeout-' + i + '/')
+  const failed = []
+  let savedJob, successes = 0
+  const parser = { parse: async url => {
+    if (url === urls[1]) throw Error('Timeout 20000ms exceeded')
+    return { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }
+  } }
+  const prismaStub = {
+    competitorProduct: {
+      findUnique: async () => ({ productId: 1, matchStatus: 'CONFIRMED' }),
+      updateMany: async input => { failed.push(input); return { count: 1 } },
+    },
+    monitorJob: { updateMany: async input => { savedJob = input.data; return { count: 1 } } },
+  }
+  const monitor = new PriceMonitorService(prismaStub, parser, {})
+  monitor.source = async () => ({ id: '05ru' })
+  monitor.save = async () => { successes++ }
+  await monitor.recheckBatch('job', urls)
+  assert.equal(successes, 2)
+  assert.equal(failed.length, 1)
+  assert.equal(failed[0].where.externalUrl, urls[1])
+  assert.equal(Object.hasOwn(failed[0].data, 'latestPrice'), false)
+  assert.equal(savedJob.status, 'COMPLETED')
+  assert.equal(savedJob.processed.increment, 3)
+  assert.equal(savedJob.errors.increment, 1)
+  assert.deepEqual(savedJob.pendingUrls, [])
+})
+
+test('Manual URL binding rejects a product URL already assigned elsewhere', async () => {
+  const monitor = new PriceMonitorService({
+    product: { findUnique: async () => ({ id: 1001 }) },
+    competitorProduct: { findUnique: async () => ({ productId: 2002 }) },
+  }, { parse: async () => { throw Error('Must not parse') } }, {})
+  await assert.rejects(
+    () => monitor.check({ url: fixture.sourceUrl, productId: 1001 }),
+    /уже связана с другим товаром/,
+  )
+})
+
+test('Unlinked-only discovery excludes products already mapped to 05.ru', async () => {
+  const products = [
+    { id: 1, name: 'Apple iPhone 17 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '1', status: 'ACTIVE', price: 99000 },
+    { id: 2, name: 'Apple iPhone 18 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '2', status: 'ACTIVE', price: 109000 },
+  ]
+  let created
+  const monitor = new PriceMonitorService({
+    product: { findMany: async () => products },
+    competitorProduct: { findMany: async () => [{ productId: 1 }] },
+    monitorJob: {
+      count: async () => 0,
+      create: async input => { created = input.data; return { id: 'discovery', ...input.data } },
+    },
+  }, {}, {})
+  const job = await monitor.autoFindOneCSection({ categoryPath: 'Смартфоны', maxItems: 10, onlyUnlinked: true })
+  assert.equal(job.eligible, 1)
+  assert.equal(job.queued, 1)
+  assert.deepEqual(created.pendingUrls, ['product:2'])
+})
+
 test('Direct 05.ru search URL returns unique ranked product links, checks live cards and caches repeat queries', async () => {
   const parser = new FiveRuParser()
   const orange256 = fixture.sourceUrl
