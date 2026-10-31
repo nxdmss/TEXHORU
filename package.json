@@ -17,7 +17,8 @@
     "db:local:push": "npm --prefix server run prisma:local:push",
     "data:export": "npm --prefix server run data:export",
     "data:import": "npm --prefix server run data:import",
-    "test:startup": "node --test tests/startup.test.mjs"
+    "test:startup": "node --test tests/startup.test.mjs",
+    "reset:local": "node scripts/reset-local.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.0.4",
