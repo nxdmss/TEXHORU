@@ -1,9 +1,26 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
-const compiled = ts.transpileModule(readFileSync(new URL('../src/catalog-groups.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { catalogPath, catalogBranches, inCatalogSection } = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'))
+
+function loadTs(path, dependencies = {}) {
+  const compiled = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  const loaded = { exports: {} }
+  const require = name => {
+    if (Object.hasOwn(dependencies, name)) return dependencies[name]
+    throw new Error('Unexpected test dependency: ' + name)
+  }
+  new Function('module', 'exports', 'require', compiled)(loaded, loaded.exports, require)
+  return loaded.exports
+}
+const tree = loadTs('../src/onec-category-tree.ts')
+const { catalogPath, catalogBranches, inCatalogSection } = loadTs('../src/catalog-groups.ts', { './onec-category-tree': tree })
+const { featuredProducts, storefrontPath } = loadTs('../src/catalog-navigation.ts')
+const { categoryTree, childrenAtPath } = tree
 test('imports in a broad category are separated by product type; accessories stay separate', () => {
   assert.deepEqual(catalogPath({ name: 'Фотография товара Ноутбук Apple MacBook 8/512', categoryName: 'Товары 05.ru' }), ['computers', 'Ноутбуки'])
   assert.deepEqual(catalogPath({ name: 'Чехол для iPhone 17', categoryName: 'Смартфоны' }), ['accessories', 'Чехлы, зарядки и кабели'])
@@ -21,10 +38,7 @@ test('every product belongs to exactly one leaf, including unknown categories', 
   assert.equal(catalogBranches([]).length, 0)
 })
 
-const navCompiled = ts.transpileModule(readFileSync(new URL('../src/catalog-navigation.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { featuredProducts, storefrontPath } = await import('data:text/javascript;base64,' + Buffer.from(navCompiled).toString('base64'))
-const treeCompiled = ts.transpileModule(readFileSync(new URL('../src/onec-category-tree.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { categoryTree, childrenAtPath } = await import('data:text/javascript;base64,' + Buffer.from(treeCompiled).toString('base64'))
+
 test('clean catalog has no invented popular products or folders', () => {
   assert.deepEqual(featuredProducts([]), [])
   assert.deepEqual(categoryTree([]), [])
@@ -47,4 +61,16 @@ test('1C group paths stay intact while nested tile navigation follows hierarchy'
   assert.deepEqual(roots.map(n => n.title), ['МОБИЛЬНАЯ СВЯЗЬ', 'ТЕЛЕВИЗОРЫ'])
   assert.deepEqual(childrenAtPath(roots, 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны').map(n => n.title), ['Apple', 'Xiaomi'])
   assert.equal(storefrontPath(paths[0], 'Apple iPhone 17 Pro'), paths[0] + ' / iPhone 17 Pro')
+})
+
+test('reset without explicit confirmation changes nothing', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const result = spawnSync(process.execPath, ['scripts/reset-local.mjs'], { cwd: root, encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /подтверждения|confirm|RESET-TEXHORU/i)
+})
+test('fresh database seed does not create fake 1C groups or promotional data', () => {
+  const seed = readFileSync(new URL('../server/prisma/seed.ts', import.meta.url), 'utf8')
+  assert(!seed.includes('defaultPromos'))
+  assert(!seed.includes('categorySlugs'))
 })
