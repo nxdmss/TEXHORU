@@ -50,8 +50,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const polling = useRef(false)
   const loadingMatch = useRef(0)
   const [matchLoading, setMatchLoading] = useState(false)
+  const [visibleLimit, setVisibleLimit] = useState(80)
+  const [showUnlinked, setShowUnlinked] = useState(false)
+  const [unlinkedLimit, setUnlinkedLimit] = useState(80)
 
   useEffect(() => { setStock(products) }, [products])
+  useEffect(() => { setVisibleLimit(80) }, [path, search])
   const refresh = useCallback(async (includeProducts = false) => {
     const [list, tasks, inventory] = await Promise.all([
       api.adminPriceMonitor(), api.monitorJobs(),
@@ -359,14 +363,17 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       </div>}
       {visiblePhones.length > 0 && <>
         <div className="mp-group-title"><h3>Товары</h3><span>{visiblePhones.length}</span></div>
-        <div className="mp-card-grid">{visiblePhones.map(renderPhone)}</div>
+        <div className="mp-card-grid">{visiblePhones.slice(0, visibleLimit).map(renderPhone)}</div>
+        {visiblePhones.length > visibleLimit && <button className="mp-more-button"
+          onClick={() => setVisibleLimit(n => n + 80)}>Показать ещё 80 из {visiblePhones.length}</button>}
       </>}
       {!visiblePhones.length && !folders.length &&
         <p className="mp-empty">{phones.length ? 'В этом разделе нет товаров в наличии.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
     </section>
 
-    {unlinked.length > 0 && <details className="mp-extra"><summary>Не разобрано: {unlinked.length} карточек 05.ru</summary>
-      <div className="mp-extra-grid">{unlinked.map(item => <div key={item.id} className="mp-extra-card">
+    {unlinked.length > 0 && <details className="mp-extra" onToggle={e => setShowUnlinked(e.currentTarget.open)}>
+      <summary>Не разобрано: {unlinked.length} карточек 05.ru</summary>
+      {showUnlinked && <div className="mp-extra-grid">{unlinked.slice(0, unlinkedLimit).map(item => <div key={item.id} className="mp-extra-card">
         <b>{cleanName(item.externalName || 'Без названия')}</b>
         <p>{item.latestPrice ? rub(item.latestPrice) : 'Цена неизвестна'} · {item.matchStatus === 'CONFIRMED' ? 'связано' : 'не сопоставлено'}</p>
         <button onClick={() => void expand(item)}>{opened === item.id ? 'Скрыть' : 'Сопоставить'}</button>
@@ -379,7 +386,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
             <button disabled={!selected || Boolean(busy) || Boolean(active)} onClick={() => void confirm(item)}>Подтвердить</button>
           </>}
         </div>}
-      </div>)}</div>
+      </div>)}
+      {unlinked.length > unlinkedLimit && <button className="mp-more-button"
+        onClick={() => setUnlinkedLimit(n => n + 80)}>Показать ещё 80 из {unlinked.length}</button>}
+      </div>}
     </details>}
 
     <details className="mp-extra" open={advanced} onToggle={e => setAdvanced(e.currentTarget.open)}>
