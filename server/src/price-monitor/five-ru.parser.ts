@@ -130,10 +130,19 @@ export class FiveRuParser implements OnModuleDestroy {
   }
 
   private async browser() {
-    // Never fall back to the user's installed Edge. A dedicated Playwright
-    // Chromium binary keeps parser tabs isolated from the desktop session.
+    // On Windows, reuse the installed Microsoft Edge executable in headless
+    // mode. Playwright creates a temporary isolated profile; it never opens
+    // or changes the employee's regular Edge profile. This avoids a large
+    // first-run Chromium download on restricted office networks.
+    if (process.platform === 'win32') {
+      try {
+        return await chromium.launch({ channel: 'msedge', headless: true })
+      } catch {
+        // A bundled Playwright Chromium remains a supported fallback.
+      }
+    }
     if (!existsSync(chromium.executablePath())) {
-      throw new Error('Фоновый Chromium не установлен. Закрой TEXHORU и запусти TEXHORU.exe ещё раз, чтобы завершить установку браузера.')
+      throw new Error('Не найден браузер для фонового парсера 05.ru. На Windows установи Microsoft Edge и перезапусти TEXHORU.')
     }
     return chromium.launch({ headless: true })
   }
