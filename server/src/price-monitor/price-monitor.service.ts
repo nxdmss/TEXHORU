@@ -651,7 +651,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // Parse several saved URLs at once, then commit snapshots one by one.
   // Serial SQLite writes avoid lock contention; one slow 05.ru page does not block
   // the other reads. No fuzzy product search is performed in this path.
-  private async recheckBatch(jobId: string, pending: string[]) {
+  private async recheckBatch(jobId: string, pending: string[], previousError: string | null = null) {
     const batch = pending.slice(0, 4)
     const results = await Promise.allSettled(batch.map(url => this.fiveRu.parse(url)))
     const source = await this.source()
@@ -695,7 +695,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       where: { id: jobId, status: 'RUNNING' },
       data: {
         pendingUrls: remaining, processed: { increment: processed }, errors: { increment: errors },
-        lastError: problems.length ? problems.join('\n').slice(0, 7000) : null,
+        lastError: [previousError, ...problems].filter(Boolean).join('\n').slice(-7000) || null,
         status: blocked ? 'FAILED' : done ? 'COMPLETED' : 'QUEUED',
         leaseUntil: null, finishedAt: blocked || done ? new Date() : null,
       },
@@ -741,7 +741,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               data: { status: 'COMPLETED', leaseUntil: null, finishedAt: new Date() },
             })
           } else {
-            await this.recheckBatch(job.id, pending)
+            await this.recheckBatch(job.id, pending, job.lastError)
           }
           return
         }
