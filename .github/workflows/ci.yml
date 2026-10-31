@@ -24,5 +24,6 @@ jobs:
       - run: npm --prefix server run prisma:local:push
         env:
           DATABASE_URL: file:./dev-local.db
+      - run: node --test tests/catalog-groups.test.mjs
       - run: npm run build:all
       - run: npm --prefix server run test:monitor

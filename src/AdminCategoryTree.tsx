@@ -39,7 +39,7 @@ export function AdminCategoryTree({ categoryNames, productCategoryNames, selecte
         <span className="admin-tree-count">{count(child.path)}</span>
         <span className="admin-tree-arrow" aria-hidden="true">›</span>
       </button>)}
-      {!folders.length && <div className="admin-tree-leaf">В этой папке — товары. Выбери карточку справа.</div>}
+      {!folders.length && <div className="admin-tree-leaf">{!total ? 'Каталог пока пуст. Загрузите реальную выгрузку 1С: группы и подгруппы появятся автоматически.' : 'В этой папке — товары. Выбери карточку справа.'}</div>}
     </div>
     {selectedPath && <button type="button" className="admin-tree-root" onClick={() => onSelect('')}>Все категории</button>}
   </nav>

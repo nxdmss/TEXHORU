@@ -5,7 +5,8 @@
 export function storefrontPath(category: string, name: string): string {
   const base = (category || 'Без категории').trim()
   const last = base.split(' / ').at(-1) || ''
-  const isPhoneLeaf = /смартфон|iphone/i.test(last) && !/аксессуар|чехл|стекл/i.test(base)
+  const isPhoneLeaf = (/смартфон|iphone/i.test(last) || /(?:^| \/ )смартфоны?(?: \/|$)/i.test(base))
+    && !/аксессуар|чехл|стекл/i.test(base)
   if (!isPhoneLeaf) return base
   const iphone = name.match(/\b(?:Apple\s+)?iPhone\s*(\d{1,2})(?:\s*(Pro\s+Max|Pro|Plus|Air|Mini|e))?\b/i)
   if (iphone) {
@@ -28,33 +29,33 @@ export type FeaturedPhone = {
   id: number; name: string; category: string; stockQty?: number; image: string
 }
 
-/** Curated from REAL 1C inventory, not invented products or stale 05.ru prices. */
-export function featuredIphones<T extends FeaturedPhone>(products: T[], take = 10): T[] {
-  const rank = (name: string) => /iphone\s*17\s*pro\s*max/i.test(name) ? 0
-    : /iphone\s*17\s*pro\b/i.test(name) ? 1
-    : /iphone\s*17\b/i.test(name) ? 2
-    : /iphone\s*16\s*pro\s*max/i.test(name) ? 3
-    : /iphone\s*16\s*pro\b/i.test(name) ? 4
-    : 5
-  const variants = products.filter(p => /iphone\s*\d+/i.test(p.name)
-    && (p.stockQty === undefined || p.stockQty > 0))
-    .sort((a,b) => rank(a.name)-rank(b.name) || a.id-b.id)
-  // A balanced first two rows, rather than ten almost-identical Pro Max SKUs.
-  const quotas = [3, 4, 2, 1, 1, take]
-  const selected: T[] = []
-  const used = new Set<number>()
-  for (let group = 0; group < quotas.length; group++) {
-    for (const item of variants.filter(v => rank(v.name) === group).slice(0, quotas[group])) {
-      if (selected.length >= take) break
-      selected.push(item)
-      used.add(item.id)
-    }
+/** Popular is an inventory-based, deterministic display selection, not a sales statistic.
+ * No fake products or out-of-stock SKUs are shown. Distribute spots across
+ * brands so the first screen is not ten variants of the same iPhone.
+ */
+export function featuredProducts<T extends { id: number; name: string; category: string; brand?: string; stockQty?: number }>(products: T[], take = 10): T[] {
+  const eligible = products.filter(product =>
+    product.stockQty === undefined || product.stockQty > 0)
+    .filter(product => !/чехол|стекл|кабел|зарядк|адаптер|переходник|держател|защитн.*пленк/i.test(product.name))
+    .sort((a, b) => {
+      const priority = (name: string) => /iphone|смартфон|galaxy|xiaomi|redmi|poco/i.test(name) ? 0
+        : /ноутбук|macbook|планшет|ipad/i.test(name) ? 1 : 2
+      return priority(a.name) - priority(b.name) || a.id - b.id
+    })
+  const result: T[] = []
+  const seenBrands = new Map<string, number>()
+  for (const item of eligible) {
+    if (result.length >= take) break
+    const brand = (item.brand || item.name.split(/\s+/)[0] || 'Другое').toLowerCase()
+    if ((seenBrands.get(brand) || 0) >= 2) continue
+    seenBrands.set(brand, (seenBrands.get(brand) || 0) + 1)
+    result.push(item)
   }
-  for (const item of variants) {
-    if (selected.length >= take) break
-    if (!used.has(item.id)) { selected.push(item); used.add(item.id) }
+  for (const item of eligible) {
+    if (result.length >= take) break
+    if (!result.some(selected => selected.id === item.id)) result.push(item)
   }
-  return selected
+  return result
 }
 
 /** Actual Apple product photography, rather than custom SVG approximations.
