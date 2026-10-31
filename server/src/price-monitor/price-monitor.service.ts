@@ -593,10 +593,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
       throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
     }
-    const selected = scoped.slice(0, limit)
-    // Small diagnostic runs keep the existing direct search. Bulk runs index
-    // the catalog once instead of repeating an unreliable search 2,000 times.
-    // Direct search is the default; the unverified full-site crawl is opt-in only.
+    const confirmed = dto.onlyUnlinked
+      ? await this.prisma.competitorProduct.findMany({
+          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { not: null } },
+          select: { productId: true },
+        })
+      : []
+    const linkedIds = new Set(confirmed.map(link => link.productId))
+    const eligible = dto.onlyUnlinked ? scoped.filter(product => !linkedIds.has(product.id)) : scoped
+    if (!eligible.length) throw new BadRequestException('В этом разделе все товары уже привязаны. Используй «Обновить цены 05.ru».')
+    const selected = eligible.slice(0, limit)
+    // Discover only missing links during first setup. Daily refresh uses direct URLs.
     const useIndex = dto.indexCatalog === true
     if (useIndex) await this.ensureIndexJob()
     const job = await this.prisma.monitorJob.create({
@@ -604,7 +611,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         pendingUrls: selected.map(p => 'product:' + p.id),
         visitedUrls: [...(useIndex ? ['INDEX_MATCH'] : []), ...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])] },
     })
-    return { ...job, eligible: scoped.length, queued: selected.length }
+    return { ...job, eligible: eligible.length, queued: selected.length }
   }
 
   private async ensureIndexJob() {
