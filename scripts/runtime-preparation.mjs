@@ -119,22 +119,24 @@ export async function prepareRuntime(root, logFile, report = console.log, signal
     if (needsSeed) await npm(['run', 'prisma:seed'], join(runtime, 'server'))
     writeFileSync(dbState, JSON.stringify({ schemaHash, database: db }))
   }
-  const hasChromium = () => new Promise(done => {
-    const check = spawn(process.execPath, ['-e', "const {chromium}=require('playwright'); chromium.launch({headless:true}).then(browser=>browser.close()).then(()=>process.exit(0)).catch(()=>process.exit(1))"], { cwd: join(runtime, 'server'), env: childEnv, stdio: 'ignore', windowsHide: true })
+  // Prefer the Microsoft Edge already installed on Windows. Playwright launches
+  // it headlessly with a temporary isolated profile; the employee's normal
+  // Edge profile is never opened. Do not download a second browser at startup.
+  const hasBrowser = () => new Promise(done => {
+    const script = [
+      "const {chromium}=require('playwright');",
+      "(async()=>{",
+      "const candidates=process.platform==='win32'?[{channel:'msedge'},{}]:[{}];",
+      "for(const options of candidates){let browser;try{browser=await chromium.launch({headless:true,...options});await browser.close();process.exit(0);return}catch{}finally{if(browser)await browser.close().catch(()=>{})}}",
+      "process.exit(1)",
+      "})()",
+    ].join('')
+    const check = spawn(process.execPath, ['-e', script], { cwd: join(runtime, 'server'), env: childEnv, stdio: 'ignore', windowsHide: true })
     check.once('error', () => done(false)); check.once('exit', code => done(code === 0))
   })
-  let browserCheck = await hasChromium()
-  if (!browserCheck) {
-    report('Устанавливаю отдельный Chromium для фонового парсера 05.ru…')
-    try {
-      // Do not open the user's Edge profile or fall back to a visible desktop browser.
-      await npm(['exec', '--', 'playwright', 'install', 'chromium'], join(runtime, 'server'))
-      browserCheck = await hasChromium()
-    } catch (error) {
-      report('Не удалось установить Chromium. Магазин запустится, но парсер останется выключен: ' +
-        (error instanceof Error ? error.message : 'ошибка установки'))
-    }
-  }
-  if (!browserCheck) report('Парсер 05.ru отключён: отдельный Chromium не установлен. Повтори запуск TEXHORU при доступном интернете.')
+  const browserCheck = await hasBrowser()
+  if (!browserCheck) report(process.platform === 'win32'
+    ? 'Парсер 05.ru отключён: не найден Microsoft Edge. Установи Edge, затем перезапусти TEXHORU.'
+    : 'Парсер 05.ru отключён: не найден установленный браузер Playwright Chromium. Сам магазин продолжит работу.')
   return { runtime, env: childEnv, fingerprint, projectId: projectId(root), launchFingerprint: digest(fingerprint + digest(readFileSync(envFile))) }
 }
