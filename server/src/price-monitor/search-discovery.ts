@@ -47,6 +47,9 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     // Missing brand on a search tile is not proof of a mismatch; the product
     // page will be opened and checked before a candidate can be suggested.
     if (requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    // For cases/protectors, the phone brand is compatibility, not the accessory maker.
+    if (requested.compatibleBrand && parsed.compatibleBrand
+      && requested.compatibleBrand !== parsed.compatibleBrand) return null
     if (requested.color && parsed.color && requested.color !== parsed.color) return null
 
     const words = new Set(combined.split(' '))
@@ -54,6 +57,9 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     if (requested.model && parsed.model) score += requested.model === parsed.model ? 100 : -100
     else if (requested.model) score += 8
     if (requested.brand && parsed.brand) score += requested.brand === parsed.brand ? 60 : -60
+    if (requested.compatibleBrand && parsed.compatibleBrand) {
+      score += requested.compatibleBrand === parsed.compatibleBrand ? 60 : -60
+    }
     if (requested.kind && parsed.kind) score += requested.kind === parsed.kind ? 30 : -30
     if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 35 : -35
     if (requested.color && parsed.color) score += requested.color === parsed.color ? 20 : -20
