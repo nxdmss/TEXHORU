@@ -1058,7 +1058,9 @@ test('05.ru seller index reads distinct product pages using observed ?page=N pag
   } finally { await parser.onModuleDestroy() }
 })
 
-test('Bulk 1C matching automatically builds persistent 05.ru index and links a verified product without manual URLs', async () => {
+test('Bulk 1C matching starts live 05.ru search without waiting for the global catalog index', async () => {
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
   await prisma.competitorCatalogEntry.deleteMany()
   const catId = randomUUID(), base = randomUUID(), size = 125
   const categoryPath = 'BUSINESS 2000 ' + base
@@ -1080,59 +1082,41 @@ test('Bulk 1C matching automatically builds persistent 05.ru index and links a v
     h1: fixture.snapshot.h1.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro'),
     scripts: fixture.snapshot.scripts.map(script => script.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
   }
-  let searchCalls = 0, parseCalls = 0, indexCalls = 0
+  let searchCalls = 0, indexCalls = 0
   const parser = {
-    indexCatalogPage: async page => {
-      indexCalls++
-      return page === 1 ? [{ url, title: 'Смартфон Apple iPhone 18 Pro 256 Гб' }] : []
+    indexCatalogPage: async () => { indexCalls++; throw new Error('05.ru: первая страница каталога дважды не отдала товары') },
+    searchProducts: async () => {
+      searchCalls++
+      return [{ ...extractFiveRu(currentSnapshot, url), url }]
     },
-    searchProducts: async () => { searchCalls++; return [] },
-    parse: async link => {
-      parseCalls++
-      assert.equal(link, url)
-      return { ...extractFiveRu(currentSnapshot, fixture.sourceUrl), url }
-    },
+    parse: async link => { throw new Error('Unexpected product-page reparse: ' + link) },
   }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000, indexCatalog: true })
   assert.equal(enqueued.eligible, size)
   assert.equal(enqueued.queued, size)
-  let indexJob = await prisma.monitorJob.findFirstOrThrow({
-    where: { kind: 'INDEX_05RU', status: 'QUEUED' }, orderBy: { createdAt: 'desc' },
-  })
-  assert.equal(indexJob.page, 0)
-  // Use a new instance at every tick to verify persisted progress.
-  for (let i = 0; i < 3; i++) {
-    const worker = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
-    await worker.tick()
-  }
-  indexJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: indexJob.id } })
-  assert.equal(indexJob.status, 'COMPLETED')
-  assert.equal(indexJob.page, 2)
-  assert.equal(indexJob.processed, 1)
-  assert.equal(indexCalls, 3) // The terminal empty page is retried before the index is marked complete.
-  assert.equal(searchCalls, 0)
-  await monitor.tick() // The dependent 1C matching job starts only after the index is complete.
-  assert.equal(parseCalls, 1)
+  assert.equal(await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU', status: 'QUEUED' } }), 0)
+
+  // A legacy queued index must not block the direct 1C matching job.
+  const legacyIndex = await prisma.monitorJob.create({ data: {
+    kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
+    page: 0, maxPages: 2300, perPage: 24,
+  } })
+  await monitor.tick()
+  assert.equal(searchCalls, 1)
+  assert.equal(indexCalls, 0)
   const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
   const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: base + '-0' } })
   assert.equal(linked.productId, ours.id)
   assert.equal(ours.price, 92000)
-  assert.equal((await prisma.competitorCatalogEntry.count()), 1)
+  assert.equal(await prisma.competitorCatalogEntry.count(), 0)
   const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
   assert.equal(matchJob.processed, 1)
   assert.equal(matchJob.status, 'QUEUED')
-  await monitor.tick()
-  assert(searchCalls > 0, 'Missing index entry must fall back to live search')
-  assert.equal((await prisma.monitorJob.findUniqueOrThrow({where:{id:matchJob.id}})).processed, 2)
+  assert.equal((await prisma.monitorJob.findUniqueOrThrow({ where: { id: legacyIndex.id } })).status, 'QUEUED')
   await monitor.cancelJob(matchJob.id)
-  const indexedCount = await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } })
-  const direct = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000 })
-  assert.equal(direct.queued, size)
-  assert.deepEqual(direct.visitedUrls, [])
-  assert.equal(await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU' } }), indexedCount)
+  await monitor.cancelJob(legacyIndex.id)
 })
-
 
 test('1C smartphones appear on the storefront only with available stock, and batch pricing is confirmed, atomic and fresh', async () => {
   // Previous test scenarios leave queued jobs; isolate these admin operations.
