@@ -349,6 +349,16 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: iphone17Fallback, title: 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый' },
     { url: iphone13Exact, title: 'Смартфон Apple iPhone 13 128 Гб синий' },
   ], 'iphone 13 128', 10), [iphone13Exact])
+
+  // The URL slug is the identity of the linked product. Surrounding card text
+  // can contain a sibling/recommendation and must not overwrite the slug.
+  const iphone14Slug = 'https://05.ru/cat/6a303413/p/smartfon-apple-iphone-14-512-gb-chernyy-bez-rustore-42671/'
+  assert.deepEqual(rankSearchLinks([
+    { url: iphone14Slug, title: 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый' },
+  ], 'apple iphone 14 256 черный', 10), [iphone14Slug])
+  assert.deepEqual(rankSearchLinks([
+    { url: iphone17Fallback, title: 'Смартфон Apple iPhone 14 256 Гб черный' },
+  ], 'apple iphone 14 256 черный', 10), [])
   const greenLion = 'https://05.ru/cat/cases/p/green-lion-tough-guard-iphone-15-pro-blue-777/'
   const accessoryLinks = [
     { url: 'https://05.ru/cat/cases/p/borasco-iphone-15-pro-black-1/', title: 'Чехол накладка Borasco Silicone Case для Apple iPhone 15 Pro черный' },

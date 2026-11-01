@@ -37,8 +37,13 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     // value is commonly present twice and can be mistaken for RAM + storage.
     const fromTitle = identity({ name: candidate.title || '' })
     const fromSlug = identity({ name: rawSlug })
-    const parsed = { ...fromSlug } as Identity
-    for (const [key, value] of Object.entries(fromTitle)) {
+    // The product URL slug belongs to this exact product. The extracted
+    // "title" can be the whole surrounding card (or even a nested sibling),
+    // so it must only fill fields that the slug does not identify. Letting
+    // card text overwrite the slug turned real iPhone 14 URLs into iPhone 17
+    // candidates and caused the strict model gate to discard every result.
+    const parsed = { ...fromTitle } as Identity
+    for (const [key, value] of Object.entries(fromSlug)) {
       if (value !== undefined && value !== '') (parsed as Record<string, unknown>)[key] = value
     }
 
