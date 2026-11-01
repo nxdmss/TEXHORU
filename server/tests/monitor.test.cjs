@@ -49,6 +49,9 @@ test('Identifies Apple variants across Russian/English; flags memory, colour, SI
 test('A missing SIM label does not block an otherwise exact phone variant; explicit SIM conflicts still block', () => {
   const ours = { name: 'Смартфон Apple iPhone 16 256 Гб черный', brand: 'Apple' }
   const listed = { name: 'Смартфон Apple iPhone 16 8 Гб/256 Гб черный (E-Sim, без RuStore)', brand: 'Apple' }
+  assert.equal(identity(ours).storage, '256')
+  assert.equal(identity(ours).ram, undefined)
+  assert.equal(identity({ name: 'Смартфон Apple iPhone 12 128 Гб синий' }).ram, undefined)
   const same = compareItems(ours, listed)
   assert.deepEqual(same.conflicts, [])
   assert.equal(same.canAutoConfirm, true)
@@ -1805,7 +1808,7 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
 })
 
 
-test('Complete smartphone variants auto-confirm; incomplete or conflicting variants do not', () => {
+test('Complete smartphone variants auto-confirm; missing SIM metadata is tolerated but explicit conflicts are blocked', () => {
   const complete = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
   assert.equal(compareItems(complete, complete).canAutoConfirm, true)
   for (const name of ['Apple iPhone 17 Pro 12GB/256GB Cosmic Orange',
@@ -1820,7 +1823,7 @@ test('Complete smartphone variants auto-confirm; incomplete or conflicting varia
   const exactNoSim = { name: 'Смартфон Apple iPhone 13 4 Гб/128 Гб черный (без RuStore)', brand: 'Apple' }
   assert.equal(compareItems(noSim, exactNoSim).canAutoConfirm, true)
   assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб белый',brand:'Apple'}).canAutoConfirm, false)
-  assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб черный eSIM',brand:'Apple'}).canAutoConfirm, false)
+  assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб черный eSIM',brand:'Apple'}).canAutoConfirm, true)
   assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб черный (замена платы)',brand:'Apple'}).canAutoConfirm, false)
   assert.equal(identity({name:'Смартфон Apple iPhone 13 128 Гб черный (замена платы)'}).condition, 'defective')
 })
