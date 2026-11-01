@@ -667,12 +667,12 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const finished = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
   assert.equal(finished.status, 'COMPLETED')
   assert.equal(finished.processed, 1)
-  assert.equal(searches, 2)
+  assert.equal(searches, 3) // All three smartphone search variants are checked.
   const matched = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: sourceUrl } })
   const original = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   assert.equal(matched.productId, original.id)
   assert.equal(original.price, 99990)
-  assert.equal(matched.matchStatus, 'SUGGESTED')
+  assert.equal(matched.matchStatus, 'CONFIRMED') // One exact full variant is linked automatically.
   await monitor.confirm(matched.id, original.id)
   assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: matched.id } })).matchStatus, 'CONFIRMED')
 })
@@ -749,7 +749,7 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal(newest.status, 'COMPLETED')
   assert.equal(newest.processed, 2)
   assert.equal(newest.errors, 1)
-  assert.equal(searchCallsAfterTimeout, 1)
+  assert.equal(searchCallsAfterTimeout, 3) // Search all smartphone variants before deciding.
   assert.match(newest.lastError, /повторная проверка не удалась/)
   assert.match(last.lastError, /Timeout 30000ms exceeded/)
   assert.equal(last.latestPrice, 94990)

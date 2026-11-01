@@ -294,7 +294,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (autoConfirmed) {
         await tx.auditLog.create({ data: {
           action: 'AUTO_CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: row.id,
-          details: { productId: suggestedProductId, basis: 'exact brand/model/storage/colour and compatible SIM data' },
+          details: { productId: suggestedProductId ?? null, basis: 'exact brand/model/storage/colour and compatible SIM data' },
         } })
       }
       return this.decorated(row)
