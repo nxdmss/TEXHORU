@@ -131,8 +131,11 @@ export function identity(item: Item): Identity {
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : capacities.length > 1 ? capacities[0]
     : compactMemory ? text.match(/\b(4|6|8|12|16|18|24|32)\s+(?:128|256|512|1024)\b/)?.[1] : undefined
+  const partNumberSource = [rawName, attrs.productCode, item.mpn,
+    spec(/part number|p\/n|код производителя|артикул производителя|модель производителя/i)]
+    .filter(Boolean).join(' ')
   const partNumber = kind === 'laptop'
-    ? laptopPartNumber(rawName, brandText || (/\bapple\b/i.test(rawName) ? 'apple' : undefined))
+    ? laptopPartNumber(partNumberSource, brandText || (/\bapple\b/i.test(rawName) ? 'apple' : undefined))
     : undefined
   const laptopFamily = kind === 'laptop'
     ? text.match(/\b(?:macbook\s+(?:air|pro)|aspire(?:\s+\d)?|vivobook(?:\s+\d)?|ideapad(?:\s+\d)?|thinkpad(?:\s+[a-z0-9]+)?|matebook(?:\s+[a-z]?\s*\d{1,2})?|pavilion(?:\s+[a-z0-9]+)?|inspiron(?:\s+[a-z0-9]+)?|latitude(?:\s+[a-z0-9]+)?|zenbook(?:\s+[a-z0-9]+)?|elitebook(?:\s+[a-z0-9]+)?|probook(?:\s+[a-z0-9]+)?|predator(?:\s+[a-z0-9]+)?|nitro(?:\s+[a-z0-9]+)?|swift(?:\s+\d)?|thin(?:\s+\d{1,2})?)\b/)?.[0]
