@@ -155,7 +155,6 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const level = pathSegments(path)
   // Searching filters tiles only; never widen a price-changing scope silently.
   const displayPath = path
-  const scopeCount = scopedPhones.length
 
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
@@ -259,11 +258,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   }
 
   function itemStatus(item?: PriceMonitorItem) {
-    if (!item) return { label: 'Нет связи', className: 'missing' }
+    if (!item) return { label: 'Без кандидата', className: 'missing' }
     if (item.matchStatus === 'CONFIRMED' && isFresh(item)) return { label: 'Совпало', className: 'ready' }
     if (item.matchStatus === 'CONFIRMED') return { label: item.lastError ? 'Ошибка проверки' : 'Привязано', className: 'pending' }
     if (item.matchStatus === 'SUGGESTED' || item.matchStatus === 'REVIEW_REQUIRED') return { label: 'Проверить', className: 'pending' }
-    return { label: 'Без связи', className: 'missing' }
+    return { label: 'Не сопоставлено', className: 'missing' }
   }
 
   function renderPhone(p: ApiProduct) {
@@ -284,7 +283,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
             {opened === linked.id ? 'Скрыть детали' : linked.matchStatus === 'CONFIRMED' ? 'Детали' : 'Проверить'}
           </button>
-        : <span className="mp-no-match">Совпадение ещё не найдено</span>}
+        : <span className="mp-no-match">Подходящая карточка 05.ru пока не найдена</span>}
       {linked?.matchStatus !== 'CONFIRMED' && <>
         <button className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
           onClick={() => { setLinkingProduct(linkingProduct === p.id ? null : p.id); setLinkUrl('') }}>
@@ -313,6 +312,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
                 </option>)}
               </select>
             </label>
+            {chosen?.reasons?.length ? <p className="mp-match-reasons">Совпало по: {chosen.reasons.join(', ')}</p> : null}
             {chosen?.missing.length ? <p>Не хватает данных: {chosen.missing.join(', ')}. Проверь вручную.</p> : null}
             {chosen?.manualBlockers.length ? <p className="form-error">
               Нельзя подтвердить: {chosen.manualBlockers.join(', ')}. Выбери другую карточку.
@@ -351,6 +351,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     <div className="mp-summary">
       <span><b>{confirmed}</b> привязано</span>
       <span><b>{needsReview}</b> требуют подтверждения</span>
+      <span><b>{unlinkedInScope}</b> без кандидата</span>
       <span><b>{phones.filter(p => byProduct.get(p.id)?.some(isFresh)).length}</b> свежих цен</span>
     </div>
 
@@ -358,10 +359,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !confirmed}
         onClick={() => void refreshSavedPrices()}>{busy === 'refresh' ? 'Запуск…' : 'Обновить цены 05.ru'}</button>
       <button disabled={Boolean(busy) || Boolean(active) || !unlinkedInScope}
-        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти непривязанные (' + unlinkedInScope + ')'}</button>
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти совпадения (' + unlinkedInScope + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">После подтверждения товар больше не ищется: цена проверяется по сохранённой ссылке. В 1С и на сайте ничего не меняется без отдельного подтверждения.</p>
+    <p className="mp-helper">Автопривязка создаётся только при одном полном совпадении. Спорные варианты остаются на проверку. После подтверждения цена читается по сохранённой ссылке; цены 1С и сайта не меняются без отдельного действия.</p>
     <label className="mp-schedule">
       <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
         onChange={e => void setAutomaticChecks(e.target.checked)}/>
@@ -391,7 +392,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     </div>}
     {last && !active && <div className="mp-last">
       Последний поиск: {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
-      {last.lastError && <details><summary>Диагностика поиска</summary><p>{last.lastError}</p></details>}
+      {last.lastError && <details className="mp-diagnostic"><summary>Диагностика поиска</summary><pre>{last.lastError}</pre></details>}
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
     {notice && <p className="price-monitor__notice" role="status">{notice}</p>}
