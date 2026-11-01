@@ -433,7 +433,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // a real product before reading its specifications.
     const ranked = options.map(link => ({ link, check: compareItems(product, { name: link.title }) }))
       .filter(option => !option.check.conflicts.length
-        && (!requested.model || option.check.theirs.model === requested.model))
+        && (!requested.model || option.check.theirs.model === requested.model
+          || Boolean(requested.productCode && option.check.theirs.productCode === requested.productCode)))
       .sort((a, b) => b.check.score - a.check.score).slice(0, 8)
     const verified: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
     for (const { link } of ranked) {
