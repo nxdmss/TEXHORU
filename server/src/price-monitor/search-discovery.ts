@@ -55,7 +55,11 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
       && requested.compatibleBrand === parsed.compatibleBrand)
 
     if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
-    if (requested.model && parsed.model && !sameModel && requested.kind !== 'smartphone') return null
+    if (requested.model && parsed.model && !sameModel) return null
+    // A smartphone query with a known model must never fall back to another
+    // Apple/Samsung/etc. model, or to a card whose model is not identifiable.
+    // That fallback was opening iPhone Air / iPhone 17 Pro for iPhone 13 queries.
+    if (requested.kind === 'smartphone' && requested.model && !parsed.model) return null
 
     // Never send a phone search to accessory cards or another phone brand.
     if (requested.kind === 'smartphone' && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
@@ -96,14 +100,6 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     return { ...candidate, score, sameModel, parsedModel: parsed.model, brandMatch, meaningfulOverlap }
   }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
     .sort((a, b) => b.score - a.score || a.index - b.index)
-    .filter((candidate, _index, all) => {
-      if (requested.kind !== 'smartphone') return true
-      const hasExactModel = all.some(item => item.sameModel)
-      // When exact model links exist, keep those and model-less same-brand
-      // cards only. When none exist, inspect same-brand candidates rather than
-      // reporting "0 candidates" before opening a single product page.
-      return !hasExactModel || candidate.sameModel
-        || (!candidate.parsedModel && candidate.brandMatch && candidate.meaningfulOverlap >= 1)
-    })
+    .filter(candidate => requested.kind !== 'smartphone' || !requested.model || candidate.sameModel)
     .slice(0, Math.max(0, limit)).map(candidate => candidate.url)
 }

@@ -126,6 +126,9 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Xiaomi 15T Pro 12/512' }), [
     'xiaomi 15t pro 512', 'xiaomi 15t pro',
   ])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 13 128 Гб синий' }), [
+    'apple iphone 13 128 синий', 'apple iphone 13 128', 'apple iphone 13',
+  ])
 })
 
 test('Accessory compatibility is separate from manufacturer and watch housings are not misclassified as cases', () => {
@@ -329,11 +332,19 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
   const broadPhoneUrl = 'https://05.ru/cat/x/p/smartfon-apple-128-gb-123/'
   assert.deepEqual(rankSearchLinks([
     { url: broadPhoneUrl, title: 'Смартфон Apple 128 ГБ' },
-  ], 'iphone 13 128', 10), [broadPhoneUrl]) // Open the page even when its tile omits the model.
+  ], 'iphone 13 128', 10), []) // A brand/capacity-only card cannot prove the requested model.
   const wrongModelFallback = 'https://05.ru/cat/x/p/smartfon-apple-iphone-14-128-gb-124/'
   assert.deepEqual(rankSearchLinks([
     { url: wrongModelFallback, title: 'Смартфон Apple iPhone 14 128 ГБ' },
-  ], 'iphone 13 128', 10), [wrongModelFallback]) // No exact-model links: inspect a bounded same-brand fallback.
+  ], 'iphone 13 128', 10), []) // A different iPhone model is never a fallback.
+  const airFallback = 'https://05.ru/cat/x/p/smartfon-apple-iphone-air-12-gb-256-gb-123/'
+  const iphone17Fallback = 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-456/'
+  const iphone13Exact = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-13-128-gb-siniy-bez-rustore-11197/'
+  assert.deepEqual(rankSearchLinks([
+    { url: airFallback, title: 'Смартфон Apple iPhone Air 12 Гб/256 Гб голубой' },
+    { url: iphone17Fallback, title: 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый' },
+    { url: iphone13Exact, title: 'Смартфон Apple iPhone 13 128 Гб синий' },
+  ], 'iphone 13 128', 10), [iphone13Exact])
   const greenLion = 'https://05.ru/cat/cases/p/green-lion-tough-guard-iphone-15-pro-blue-777/'
   const accessoryLinks = [
     { url: 'https://05.ru/cat/cases/p/borasco-iphone-15-pro-black-1/', title: 'Чехол накладка Borasco Silicone Case для Apple iPhone 15 Pro черный' },

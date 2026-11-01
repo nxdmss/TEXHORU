@@ -53,7 +53,18 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   }
   const model = parsed.brand === 'samsung' && !parsed.model.startsWith('samsung ')
     ? 'samsung ' + parsed.model : parsed.model
-  return [...new Set([model + (parsed.storage ? ' ' + parsed.storage : ''), model])]
+  const modelWithoutBrand = parsed.brand && model.startsWith(parsed.brand + ' ')
+    ? model.slice(parsed.brand.length + 1) : model
+  const searchColor: Record<string, string> = {
+    black: 'черный', white: 'белый', blue: 'синий', gray: 'серый',
+    silver: 'серебристый', gold: 'золотой', green: 'зеленый',
+    pink: 'розовый', purple: 'фиолетовый', orange: 'оранжевый',
+  }
+  const byColor = [parsed.brand, modelWithoutBrand, parsed.storage, parsed.color ? searchColor[parsed.color] : undefined]
+    .filter(Boolean).join(' ')
+  const byStorage = [parsed.brand, modelWithoutBrand, parsed.storage].filter(Boolean).join(' ')
+  const byModel = [parsed.brand, modelWithoutBrand].filter(Boolean).join(' ')
+  return [...new Set([byColor, byStorage, byModel].filter(Boolean))]
 }
 
 export function isExpectedReviewOutcome(message: string) {
