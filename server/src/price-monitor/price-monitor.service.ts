@@ -186,8 +186,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
   // Missing/ambiguous fields are review candidates, never automatic matches.
-  private reviewVariant(check: ReturnType<typeof compareItems>): boolean {
+  private reviewVariant(check: ReturnType<typeof compareItems>, ourName = '', externalName = ''): boolean {
     if (check.conflicts.length) return false
+    // Prevent soft matching different charger powers even when the usual
+    // 1C/05.ru metadata is incomplete.
+    const watts = (name: string) => name.match(/(?:^|[^a-z0-9а-я])(\d{1,3})\s*(?:w|вт)(?![a-z0-9а-я])/i)?.[1]
+    const ourWatts = watts(ourName), theirWatts = watts(externalName)
+    if (ourWatts && theirWatts && ourWatts !== theirWatts) return false
     const a = check.ours, b = check.theirs
     if (a.kind && b.kind && a.kind !== b.kind) return false
     if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)) return false
@@ -871,7 +876,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 }))
                 for (const row of checked) {
                   const strong = this.strongVariant(row.check)
-                  if (!strong && !this.reviewVariant(row.check)) continue
+                  if (!strong && !this.reviewVariant(row.check, product.name, row.result.name)) continue
                   const previous = rankedByUrl.get(row.result.url)
                   if (!previous || (strong && !previous.strong) || row.check.score > previous.check.score) {
                     rankedByUrl.set(row.result.url, { ...row, strong })
