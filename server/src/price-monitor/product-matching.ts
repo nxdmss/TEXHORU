@@ -41,7 +41,7 @@ function productKind(item: Item): string | undefined {
   if (/(?:чехол|чехлы|накладка|бампер|case|cover|bumper)/.test(text)) return 'case'
   if (/(?:защитн\w* стекл\w*|стекл\w*|пленк\w*|screen protector|tempered glass|protector)/.test(text)) return 'screen-protector'
   if (/(?:ремеш\w*|strap|watch band)/.test(text)) return 'watch-strap'
-  if (/(?:зарядн\w*|\bсзу\b|charger|адаптер питания|power adapter)/.test(text)) return 'charger'
+  if (/(?:зарядн\w*|(?:^|\s)сзу(?:\s|$)|charger|адаптер питания|power adapter)/.test(text)) return 'charger'
   if (/(?:кабель|cable|провод usb)/.test(text)) return 'cable'
   if (/(?:наушник|headphone|earbud|гарнитур)/.test(text)) return 'headphones'
   if (/(?:смарт часы|умные часы|smartwatch|smart watch|watch|часы)/.test(text)) return 'smartwatch'
