@@ -51,6 +51,12 @@ export class MonitorExchangeService {
         await this.prisma.monitorDelivery.update({ where: { id: row.id }, data: { status: 'CANCELLED', lastError: 'Сопоставление изменилось; результат исключён из обмена' } })
         continue
       }
+      // Old versions queued every observation, including unchanged baselines.
+      // Never deliver those legacy snapshots as a new price proposal.
+      if (typeof payload.previousPrice !== 'number' || payload.previousPrice === payload.price) {
+        await this.prisma.monitorDelivery.update({ where: { id: row.id }, data: { status: 'CANCELLED', lastError: 'Цена не изменилась; повторная отправка не требуется' } })
+        continue
+      }
       result.push({ id: row.id, ...payload })
     }
     return { schemaVersion: 1, items: result }
