@@ -291,13 +291,24 @@ export function compareItems(ours: Item, theirs: Item) {
     && a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model)
     && a.storage && b.storage && a.storage === b.storage
     && a.color && b.color && a.color === b.color
-    // SIM is optional only when neither source specifies it. If one side
-    // identifies eSIM/physical SIM and the other does not, keep it for review.
-    && ((!a.sim && !b.sim) || (a.sim && b.sim && a.sim === b.sim))
+    // An omitted SIM type is not a contradiction. Explicit physical/eSIM
+    // differences are already captured in conflicts above.
+    && (!a.sim || !b.sim || a.sim === b.sim)
+  )
+  const laptopVariantComplete = Boolean(
+    laptop && a.kind === 'laptop' && b.kind === 'laptop'
+    && a.brand && b.brand && a.brand === b.brand
+    && a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model)
+    && a.cpu && b.cpu && a.cpu === b.cpu
+    && a.ram && b.ram && a.ram === b.ram
+    && a.storage && b.storage && a.storage === b.storage
+    && a.screenSize && b.screenSize && a.screenSize === b.screenSize
+    && (!a.color || (b.color && a.color === b.color))
+    && (!a.gpu || (b.gpu && a.gpu === b.gpu))
   )
   return {
     score, reasons, conflicts, missing, exactId,
-    canAutoConfirm: Boolean(!conflicts.length && (exactId || phoneVariantComplete)),
+    canAutoConfirm: Boolean(!conflicts.length && (exactId || phoneVariantComplete || laptopVariantComplete)),
     ours: a, theirs: b,
   }
 }
