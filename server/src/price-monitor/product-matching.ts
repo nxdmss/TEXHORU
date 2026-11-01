@@ -144,13 +144,22 @@ export function fingerprint(item: Item) {
   return createHash('sha256').update(JSON.stringify([normalize(item.name), parsed])).digest('hex')
 }
 
+export function canonicalModel(value?: string) {
+  return value?.replace(/^galaxy\s+/, '')
+}
+
 export function compareItems(ours: Item, theirs: Item) {
   const a = identity(ours), b = identity(theirs)
   const reasons: string[] = [], conflicts: string[] = [], missing: string[] = []
-  const labels: Record<string, string> = { brand: 'бренд производителя', compatibleBrand: 'совместимость', model: 'модель', storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM', gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара' }
+  const labels: Record<string, string> = { brand: 'бренд', compatibleBrand: 'совместимость', model: 'модель', storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM', gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара' }
   const nameA = identity({ name: ours.name }), nameB = identity({ name: theirs.name })
   for (const key of ['model', 'storage', 'color', 'sim'] as Array<keyof Identity>) {
-    if ((nameA[key] && a[key] && nameA[key] !== a[key]) || (nameB[key] && b[key] && nameB[key] !== b[key])) conflicts.push(`${labels[key]}: название противоречит характеристикам`)
+    const differs = (left?: string, right?: string) => key === 'model'
+      ? canonicalModel(left) !== canonicalModel(right)
+      : left !== right
+    if ((nameA[key] && a[key] && differs(nameA[key], a[key])) || (nameB[key] && b[key] && differs(nameB[key], b[key]))) {
+      conflicts.push(`${labels[key]}: название противоречит характеристикам`)
+    }
   }
   for (const key of Object.keys(labels) as Array<keyof Identity>) {
     if (key === 'brand' && (
@@ -160,7 +169,10 @@ export function compareItems(ours: Item, theirs: Item) {
       (a.brand && a.compatibleBrand && a.brand === a.compatibleBrand)
       || (b.brand && b.compatibleBrand && b.brand === b.compatibleBrand)
     )) continue
-    if (a[key] && b[key]) (a[key] === b[key] ? reasons : conflicts).push(labels[key])
+    if (a[key] && b[key]) {
+      const same = key === 'model' ? canonicalModel(a.model) === canonicalModel(b.model) : a[key] === b[key]
+      ;(same ? reasons : conflicts).push(labels[key])
+    }
   }
   if ((a.condition === 'used') !== (b.condition === 'used')) conflicts.push('новый / восстановленный')
   const exactId = Boolean((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn))
