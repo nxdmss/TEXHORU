@@ -992,6 +992,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + (trace.rankedLinks ?? 0) + ' кандидатов, ' + trace.cardsParsed + ' карточек прочитано' +
                     (trace.cached ? ' (кеш)' : '') +
+                    (trace.searchPages ? ' · страниц поиска: ' + trace.searchPages : '') +
                     (trace.pageUrl ? ' · страница ' + new URL(trace.pageUrl).pathname : '') +
                     (trace.searchMode ? ' · режим ' + trace.searchMode : '')
                 ).join('; ')

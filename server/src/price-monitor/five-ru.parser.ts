@@ -11,7 +11,8 @@ export type FiveRuResult = {
   attributes: Identity; seller: string | null; region: string | null; priceSource: string
 }
 export type FiveRuSearchTrace = {
-  query: string; linksFound: number; rankedLinks: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean; pageUrl?: string; searchMode?: string
+  query: string; linksFound: number; rankedLinks: number; cardsParsed: number; rejectedCards: string[]
+  cached?: boolean; pageUrl?: string; searchMode?: string; searchPages?: number
 }
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
@@ -90,7 +91,10 @@ export class FiveRuParser implements OnModuleDestroy {
   private sharedBrowser?: Promise<Browser>
   private browserUsers = 0
   private browserIdleTimer?: NodeJS.Timeout
-  private readonly queryCache = new Map<string, { expires: number; results: FiveRuResult[] }>()
+  private readonly queryCache = new Map<string, {
+    expires: number; results: FiveRuResult[];
+    trace: { linksFound: number; rankedLinks: number; searchPages: number; pageUrl?: string; searchMode?: string }
+  }>()
   private smartphoneCatalogCache?: { expires: number; links: Array<{ url: string; title: string }> }
 
   // Browser startup dominates short searches: reuse one process, but keep
@@ -241,7 +245,8 @@ export class FiveRuParser implements OnModuleDestroy {
     const found = new Map<string, { url: string; title: string }>()
     const visitedUrls = new Set<string>()
     const visitedPages = new Set<string>()
-    let next: string | null = 'https://05.ru/cat/mc/396f7486/smartfony/'
+    const catalogBase = 'https://05.ru/cat/mc/396f7486/smartfony/'
+    let next: string | null = catalogBase + '?page=0'
 
     // The category is paginated. Crawl the public listing once and reuse the
     // URL/title index for all smartphone variants in the current batch.
@@ -255,6 +260,7 @@ export class FiveRuParser implements OnModuleDestroy {
       try {
         const response = await page.goto(url, { waitUntil: 'commit', timeout: 20_000 })
         if (response && response.status() >= 400) {
+          if (pageNo > 0 && [404, 410].includes(response.status())) break
           throw new Error('05.ru ответил HTTP ' + response.status() + ' при чтении каталога смартфонов')
         }
         if (!['05.ru', 'www.05.ru'].includes(new URL(page.url()).hostname)) {
@@ -292,6 +298,13 @@ export class FiveRuParser implements OnModuleDestroy {
           try { next = fiveRuUrl(data.next, 'catalog') }
           catch { /* Never follow a link outside the official catalog. */ }
         }
+        // Some 05.ru catalog layouts omit a rel/arrow next link. The public
+        // category uses a zero-based page parameter, so continue explicitly.
+        if (!next || visitedUrls.has(next)) {
+          const fallback = new URL(catalogBase)
+          fallback.searchParams.set('page', String(pageNo + 1))
+          next = fallback.toString()
+        }
       } finally {
         await page.close()
       }
@@ -319,7 +332,7 @@ export class FiveRuParser implements OnModuleDestroy {
     if (trace) Object.assign(trace, { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [], cached: false })
     const cached = this.queryCache.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
-      if (trace) Object.assign(trace, { linksFound: cached.results.length, rankedLinks: cached.results.length, cardsParsed: cached.results.length, cached: true })
+      if (trace) Object.assign(trace, cached.trace, { cardsParsed: cached.results.length, cached: true })
       return cached.results
     }
     try {
@@ -329,44 +342,61 @@ export class FiveRuParser implements OnModuleDestroy {
           const searchPage = await context.newPage()
           let urls: string[]
           try {
-            // Confirmed from the live 05.ru search UI: /search/?q=...&page=1.
-            // Opening the homepage and pressing Enter was timing out, even
-            // though this route displays product cards in a normal browser.
-            const searchUrl = new URL('https://05.ru/search/')
-            searchUrl.searchParams.set('q', text)
-            searchUrl.searchParams.set('page', '1')
-            const response = await searchPage.goto(searchUrl.toString(), {
-              waitUntil: 'commit', timeout: 20_000,
-            })
-            if (response && response.status() >= 400) {
-              throw new Error('05.ru ответил HTTP ' + response.status() + ' на странице поиска; обход защиты не выполняется')
-            }
-            const landed = new URL(searchPage.url())
-            if (!['05.ru', 'www.05.ru'].includes(landed.hostname)
-              || !['/search', '/search/'].includes(landed.pathname)) {
-              throw new Error('05.ru перенаправил поиск на другую страницу: ' + landed.pathname)
-            }
-            // The storefront renders the cards after the document response.
-            // The real search page contains repeated anchors to each card;
-            // deduplicate canonical product URLs before opening their pages.
-            await searchPage.locator('a[href*="/p/"]').first()
-              .waitFor({ state: 'attached', timeout: 12_000 }).catch(() => undefined)
-            const rawLinks = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
-              nodes.map(node => ({
-                url: (node as HTMLAnchorElement).href,
-                title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
-                  node.querySelector('img')?.getAttribute('alt') ||
-                  node.closest('.product-card')?.textContent?.trim() ||
-                  (node as HTMLElement).innerText?.trim() || '').slice(0, 200),
-              }))
-            )
+            // Search results are paginated. Reading only page=1 silently misses
+            // older and sold-out product cards that remain publicly accessible.
+            // Read a bounded five-page window, deduplicate product URLs, and stop
+            // when the site repeats a page or returns no more product links.
+            const searchBase = new URL('https://05.ru/search/')
+            searchBase.searchParams.set('q', text)
             const links = new Map<string, { url: string; title: string }>()
-            for (const link of rawLinks) {
-              try {
-                const url = fiveRuUrl(link.url, 'product')
-                if (!links.has(url)) links.set(url, { url, title: link.title })
-              } catch { /* Ignore non-product or non-05.ru anchors. */ }
+            const pageSignatures = new Set<string>()
+            let landed = new URL(searchBase)
+            let searchPages = 0
+            for (let pageNo = 1; pageNo <= 5; pageNo++) {
+              const searchUrl = new URL(searchBase)
+              searchUrl.searchParams.set('page', String(pageNo))
+              const response = await searchPage.goto(searchUrl.toString(), {
+                waitUntil: 'commit', timeout: 20_000,
+              })
+              if (response && response.status() >= 400) {
+                if (pageNo > 1 && [404, 410].includes(response.status())) break
+                throw new Error('05.ru ответил HTTP ' + response.status() + ' на странице поиска; обход защиты не выполняется')
+              }
+              const current = new URL(searchPage.url())
+              if (!['05.ru', 'www.05.ru'].includes(current.hostname)
+                || !['/search', '/search/'].includes(current.pathname)) {
+                if (pageNo > 1) break
+                throw new Error('05.ru перенаправил поиск на другую страницу: ' + current.pathname)
+              }
+              if (pageNo === 1) landed = current
+              await searchPage.locator('a[href*="/p/"]').first()
+                .waitFor({ state: 'attached', timeout: pageNo === 1 ? 12_000 : 5_000 }).catch(() => undefined)
+              const rawLinks = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
+                nodes.map(node => ({
+                  url: (node as HTMLAnchorElement).href,
+                  title: (node.getAttribute('title') || node.getAttribute('aria-label') ||
+                    node.querySelector('img')?.getAttribute('alt') ||
+                    node.closest('.product-card')?.textContent?.trim() ||
+                    (node as HTMLElement).innerText?.trim() || '').slice(0, 200),
+                }))
+              )
+              const pageLinks = new Map<string, { url: string; title: string }>()
+              for (const link of rawLinks) {
+                try {
+                  const url = fiveRuUrl(link.url, 'product')
+                  if (!pageLinks.has(url)) pageLinks.set(url, { url, title: link.title })
+                } catch { /* Ignore non-product or non-05.ru anchors. */ }
+              }
+              if (!pageLinks.size) break
+              const signature = [...pageLinks.keys()].sort().join('\n')
+              if (pageSignatures.has(signature)) break
+              pageSignatures.add(signature)
+              searchPages++
+              for (const [url, link] of pageLinks) {
+                if (!links.has(url)) links.set(url, link)
+              }
             }
+            if (trace) trace.searchPages = searchPages
 
             let catalogUsed = false
             // Search tiles are often incomplete or fuzzy. For smartphones,
@@ -392,6 +422,7 @@ export class FiveRuParser implements OnModuleDestroy {
             if (trace) {
               trace.linksFound = unique.length
               trace.pageUrl = landed.toString()
+              trace.searchPages = searchPages
               trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
             }
             urls = rankSearchLinks(unique, text, limit)
@@ -436,7 +467,16 @@ export class FiveRuParser implements OnModuleDestroy {
           }
           if (results.length && !trace?.rejectedCards.length) {
             if (this.queryCache.size >= 100) this.queryCache.delete(this.queryCache.keys().next().value!)
-            this.queryCache.set(cacheKey, { expires: Date.now() + 5 * 60_000, results })
+            this.queryCache.set(cacheKey, {
+              expires: Date.now() + 5 * 60_000, results,
+              trace: {
+                linksFound: trace?.linksFound ?? urls.length,
+                rankedLinks: trace?.rankedLinks ?? urls.length,
+                searchPages: trace?.searchPages ?? 1,
+                pageUrl: trace?.pageUrl,
+                searchMode: trace?.searchMode,
+              },
+            })
           }
           return results
         } finally {

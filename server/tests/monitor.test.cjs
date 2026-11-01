@@ -1015,7 +1015,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
           const parsed = new URL(url)
           assert.equal(parsed.origin, 'https://05.ru')
           assert.equal(parsed.pathname, '/search/')
-          assert.equal(parsed.searchParams.get('page'), '1')
+          assert(['1', '2', '3', '4', '5'].includes(parsed.searchParams.get('page')))
           assert(parsed.searchParams.has('q'))
           return { status: () => responseStatus }
         },
@@ -1048,12 +1048,14 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(trace.rankedLinks, 3) // candidates selected after title/variant ranking
     assert.equal(trace.searchMode, 'direct-search')
     assert.equal(trace.cardsParsed, 3)
+    assert.equal(trace.searchPages, 1) // The mocked second page repeats page one and is ignored.
     assert.equal(opened[0], orange256) // not the first 1TB card in the feed
     assert.equal(cardOpens, 3)
     assert.equal(maxActive, 3)
     assert.equal(launches, 1)
     assert.equal(pageCloses, 1)
     assert.equal(new URL(navigations[0]).searchParams.get('q'), 'iPhone 17 Pro 256')
+    assert.deepEqual(navigations.slice(0, 2).map(url => new URL(url).searchParams.get('page')), ['1', '2'])
     const again = await parser.searchProducts('  iPhone 17 Pro 256  ', 3, {})
     assert.equal(again.length, 3)
     assert.equal(cardOpens, 3) // cache avoids extra site requests
@@ -1083,6 +1085,45 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(contexts, 5)
   } finally { await parser.onModuleDestroy() }
   assert.equal(closings, 1)
+})
+
+test('Search discovery reads later result pages when the exact smartphone is not on page one', async () => {
+  const parser = new FiveRuParser()
+  const wrong = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-90001/'
+  const exact = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-13-128-gb-siniy-bez-rustore-11197/'
+  let currentUrl = ''
+  const opened = []
+  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
+  parser.context = async () => ({
+    newPage: async () => ({
+      goto: async url => { currentUrl = url; return { status: () => 200 } },
+      url: () => currentUrl,
+      locator: () => ({
+        first: () => ({ waitFor: async () => {} }),
+        evaluateAll: async () => new URL(currentUrl).searchParams.get('page') === '1'
+          ? [{ url: wrong, title: 'Смартфон Apple iPhone 17 Pro 256 ГБ оранжевый' }]
+          : new URL(currentUrl).searchParams.get('page') === '2'
+            ? [{ url: exact, title: 'Смартфон Apple iPhone 13 128 ГБ синий' }]
+            : [],
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  })
+  parser.smartphoneCatalogLinks = async () => []
+  parser.open = async (_, url) => { opened.push(url); return { close: async () => {} } }
+  parser.snapshot = async () => fixture.snapshot
+  try {
+    const trace = {}
+    const results = await parser.searchProducts('iphone 13 128', 1, trace)
+    assert.deepEqual(opened, [exact])
+    assert.equal(results.length, 1)
+    assert.equal(trace.linksFound, 2)
+    assert.equal(trace.rankedLinks, 1)
+    assert.equal(trace.searchPages, 2)
+  } finally {
+    await parser.onModuleDestroy()
+  }
 })
 
 test('Smartphone search merges the public category crawl when direct search returns the wrong variant', async () => {
