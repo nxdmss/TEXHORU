@@ -37,15 +37,25 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     // value is commonly present twice and can be mistaken for RAM + storage.
     const fromTitle = identity({ name: candidate.title || '' })
     const fromSlug = identity({ name: rawSlug })
-    // The product URL slug belongs to this exact product. The extracted
-    // "title" can be the whole surrounding card (or even a nested sibling),
-    // so it must only fill fields that the slug does not identify. Letting
-    // card text overwrite the slug turned real iPhone 14 URLs into iPhone 17
-    // candidates and caused the strict model gate to discard every result.
+    // The product URL slug is the strongest source for the phone model and
+    // variant. The extracted "title" can be the whole surrounding card (or a
+    // nested sibling), so its model/storage/colour must not override the slug.
+    // Keep product type and manufacturer from the title: accessory slugs often
+    // contain a compatible iPhone model but do not name the accessory maker.
     const parsed = { ...fromTitle } as Identity
-    for (const [key, value] of Object.entries(fromSlug)) {
+    const slugVariantFields: Array<keyof Identity> = [
+      'model', 'storage', 'ram', 'color', 'sim', 'productCode', 'mpn', 'gtin',
+    ]
+    for (const key of slugVariantFields) {
+      const value = fromSlug[key]
       if (value !== undefined && value !== '') (parsed as Record<string, unknown>)[key] = value
     }
+    if (!parsed.kind && fromSlug.kind) parsed.kind = fromSlug.kind
+    if (!parsed.brand && fromSlug.brand) parsed.brand = fromSlug.brand
+    if (!parsed.compatibleBrand && fromSlug.compatibleBrand) parsed.compatibleBrand = fromSlug.compatibleBrand
+    // A product slug that explicitly says "smartfon" is authoritative for
+    // the item type; accessory slugs may mention iPhone only as compatibility.
+    if (/\\b(?:smartfon|smartphone)\\b/.test(normalize(rawSlug))) parsed.kind = 'smartphone'
 
     const sameModel = Boolean(requested.model && parsed.model
       && canonicalModel(requested.model) === canonicalModel(parsed.model))
