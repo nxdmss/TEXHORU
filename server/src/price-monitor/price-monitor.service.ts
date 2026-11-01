@@ -96,7 +96,19 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const link = await tx.competitorProduct.findUnique({ where: { id } })
       const product = await tx.product.findUnique({ where: { id: productId } })
       if (!link || !product || product.status !== 'ACTIVE') throw new NotFoundException('Карточка или активный товар не найдены')
-      if (!link.externalName || !link.lastSuccessAt || link.lastError) throw new BadRequestException('Сначала успешно проверь карточку')
+      if (!link.externalName || !link.lastSuccessAt || link.lastError || link.latestPrice == null) {
+        throw new BadRequestException('Сначала успешно проверь карточку и получи цену')
+      }
+      if (link.matchStatus === 'CONFIRMED' && link.productId && link.productId !== productId) {
+        throw new ConflictException('Эта ссылка уже подтверждена для другого товара. Сначала сними прежнюю привязку.')
+      }
+      const other = await tx.competitorProduct.findFirst({
+        where: { sourceId: link.sourceId, productId, matchStatus: 'CONFIRMED', id: { not: id } },
+        select: { id: true, externalUrl: true },
+      })
+      if (other) {
+        throw new ConflictException('У этого товара уже есть подтверждённая ссылка 05.ru. Сначала сними старую привязку.')
+      }
       const check = compareItems(product, { name: link.externalName, attributes: link.attributes })
       if (check.conflicts.length) throw new BadRequestException(`Характеристики расходятся: ${check.conflicts.join(', ')}. Исправь данные товара перед подтверждением.`)
       if (link.productId === productId && link.matchStatus === 'CONFIRMED' && link.confirmedFingerprint === fingerprint({ name: link.externalName, attributes: link.attributes }) && link.confirmedProductFingerprint === fingerprint(product)) {
@@ -104,13 +116,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
       // Explicit user confirmation is allowed with missing fields; the UI lists them.
       await tx.monitorDelivery.updateMany({ where: { linkId: id, status: 'PENDING' }, data: { status: 'CANCELLED', lastError: 'Связь подтверждена заново' } })
-      // A changed mapping needs a fresh observation, even if the price is unchanged.
-      const history = await tx.competitorPriceHistory.create({ data: { competitorProductId: id, price: link.latestPrice!, oldPrice: link.oldPrice, inStock: link.inStock, checkedAt: link.lastSuccessAt } })
+      // The first confirmed observation is the baseline, not a price-change
+      // proposal. save() normally created it; backfill only legacy links.
+      const baseline = await tx.competitorPriceHistory.findFirst({
+        where: { competitorProductId: id }, orderBy: { checkedAt: 'desc' },
+      })
+      if (!baseline) {
+        await tx.competitorPriceHistory.create({
+          data: { competitorProductId: id, price: link.latestPrice, oldPrice: null, inStock: link.inStock, checkedAt: link.lastSuccessAt },
+        })
+      }
       const row = await tx.competitorProduct.update({ where: { id }, data: {
         productId, matchStatus: 'CONFIRMED', confirmedAt: new Date(),
         confirmedFingerprint: fingerprint({ name: link.externalName, attributes: link.attributes }), confirmedProductFingerprint: fingerprint(product),
       }, include: { product: true, source: true } })
-      await this.exchange.enqueue(id, tx, history.id)
       await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing } } })
       return row
     })
@@ -160,27 +179,23 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (matchStatus === 'CONFIRMED' && (fingerprint(theirs) !== confirmedFingerprint || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint)) matchStatus = 'REVIEW_REQUIRED'
       if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
         if (forceReview) {
-          // Ambiguous candidates remain unlinked; never auto-confirm one by
-          // re-running the global matcher on each candidate page.
+          // Uncertain discoveries remain unlinked unless the 1C product was
+          // explicitly supplied by the current one-product discovery job.
           matchStatus = 'UNMATCHED'
         } else {
           const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
-          const candidates = products.map(product => ({ product, check: compareItems(product, theirs) })).filter(c => c.check.score >= 20).sort((a,b) => b.check.score - a.check.score)
-          const exact = candidates.filter(c => c.check.canAutoConfirm)
-          if (exact.length === 1) {
-            productId = exact[0].product.id; matchStatus = 'CONFIRMED'
-            confirmedFingerprint = fingerprint(theirs); confirmedProductFingerprint = fingerprint(exact[0].product)
-          } else if (candidates.length) { productId = candidates[0].product.id; matchStatus = 'SUGGESTED' }
+          const candidates = products.map(product => ({ product, check: compareItems(product, theirs) }))
+            .filter(c => c.check.score >= 20 && !c.check.conflicts.length)
+            .sort((a,b) => b.check.score - a.check.score)
+          if (candidates.length) {
+            // Even a mathematically exact candidate is only a suggestion.
+            // A person confirms the URL-to-1C relationship once.
+            productId = candidates[0].product.id
+            matchStatus = 'SUGGESTED'
+          }
         }
-      } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') matchStatus = 'SUGGESTED'
-      // Re-check the actual assigned product; suggestions used to bypass auto-confirmation.
-      if (!forceReview && productId && (existing?.productId || suggestedProductId) && matchStatus !== 'CONFIRMED') {
-        const assigned = await tx.product.findUnique({ where: { id: productId } })
-        if (assigned?.status === 'ACTIVE' && compareItems(assigned, theirs).canAutoConfirm) {
-          matchStatus = 'CONFIRMED'
-          confirmedFingerprint = fingerprint(theirs)
-          confirmedProductFingerprint = fingerprint(assigned)
-        }
+      } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') {
+        matchStatus = 'SUGGESTED'
       }
       const now = new Date()
       const data = { sourceId, productId, externalName: result.name, externalSku: result.externalSku,
@@ -215,20 +230,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // Reuse only cards already assigned to this exact 1C product. Unlinked
     // review candidates must not block a fresh catalog/search discovery run.
     const saved = await this.prisma.competitorProduct.findMany({
-      where: { source: { key: '05ru' }, productId: product.id, externalName: { not: null } },
+      where: { source: { key: '05ru' }, productId: product.id, matchStatus: 'CONFIRMED', externalName: { not: null } },
       orderBy: { lastSuccessAt: 'desc' }, take: 50,
     })
-    const possible = saved.map(link => ({
-      link, check: compareItems(product, { name: link.externalName || '', attributes: link.attributes }),
-    })).filter(row => this.strongVariant(row.check))
-    const assigned = possible.filter(row => row.link.matchStatus === 'CONFIRMED')
-    const eligible = assigned.length ? assigned : possible
-    if (!eligible.length) return false
-    if (eligible.length !== 1) throw new Error(
-      '05.ru: найдено несколько сохранённых карточек для ' + product.name +
-      '. Не выбираем автоматически — проверь соответствия вручную.'
+    // Only a confirmed mapping is a reusable monitoring key. Suggestions are
+    // handled by the one-time review flow and must not silently become links.
+    if (!saved.length) return false
+    if (saved.length !== 1) throw new Error(
+      'У товара ' + product.name + ' несколько подтверждённых ссылок 05.ru. Исправь привязки вручную.'
     )
-    const url = eligible[0].link.externalUrl
+    const url = saved[0].externalUrl
     // Do not re-use the stored observation from 26.10 as if it was checked today.
     let fresh: FiveRuResult
     try { fresh = await this.fiveRu.parse(url) }
@@ -607,7 +618,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }
     const confirmed = dto.onlyUnlinked
       ? await this.prisma.competitorProduct.findMany({
-          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { not: null } },
+          where: { source: { key: '05ru' }, productId: { not: null } },
           select: { productId: true },
         })
       : []
@@ -730,7 +741,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const settings = await this.settings()
       if (settings.intervalMinutes && settings.nextRunAt && settings.nextRunAt <= now && !await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
         const links = await this.prisma.competitorProduct.count({
-          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { not: null } },
+          where: {
+            source: { key: '05ru' }, matchStatus: 'CONFIRMED',
+            product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
+          },
         })
         if (links) await this.checkAll()
         await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
