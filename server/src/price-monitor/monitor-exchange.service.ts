@@ -9,7 +9,7 @@ export const jsonValue = (value: unknown) => JSON.parse(JSON.stringify(value)) a
 export class MonitorExchangeService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async enqueue(linkId: string, tx: Prisma.TransactionClient = this.prisma, historyId?: string) {
+  async enqueue(linkId: string, tx: Prisma.TransactionClient = this.prisma, historyId?: string, observedPreviousPrice?: number | null) {
     const link = await tx.competitorProduct.findUnique({ where: { id: linkId }, include: { product: true, source: true } })
     if (!link?.product?.oneCId || link.product.status !== 'ACTIVE' || link.matchStatus !== 'CONFIRMED' || link.lastError) return null
     if (fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint || fingerprint(link.product) !== link.confirmedProductFingerprint) return null
@@ -27,10 +27,11 @@ export class MonitorExchangeService {
     if (!history || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000) return null
     const currentIndex = recent.findIndex(row => row.id === history.id)
     const previous = currentIndex >= 0 ? recent[currentIndex + 1] : undefined
-    if (!previous || previous.price === history.price) return null
+    const previousPrice = observedPreviousPrice ?? previous?.price ?? null
+    if (previousPrice === null || previousPrice === history.price) return null
     const payload = jsonValue({
       schemaVersion: 1, historyId: history.id, linkId, oneCId: link.product.oneCId,
-      previousPrice: previous.price, priceChange: history.price - previous.price,
+      previousPrice, priceChange: history.price - previousPrice,
       siteProductId: link.product.id, ourSku: link.product.sku, ourName: link.product.name,
       competitor: link.source.name, url: link.externalUrl, name: link.externalName,
       price: history.price, oldPrice: history.oldPrice, inStock: history.inStock,
