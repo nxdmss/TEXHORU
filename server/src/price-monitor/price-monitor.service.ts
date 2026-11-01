@@ -337,8 +337,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return base && (check.exactId || exactHardware)
     }
     // Smartphone auto-linking requires a complete, conflict-free variant.
-    // SIM may be absent in both sources; if only one side specifies it,
-    // compareItems keeps the candidate in manual review.
+    // SIM may be omitted by either source; only an explicit SIM disagreement
+    // blocks confirmation. Model, storage and colour must still match.
     if (check.ours.kind === 'smartphone' || check.theirs.kind === 'smartphone') {
       return check.canAutoConfirm
     }
