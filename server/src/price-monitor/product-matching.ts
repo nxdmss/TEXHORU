@@ -142,7 +142,7 @@ export function identity(item: Item): Identity {
     ? laptopPartNumber(partNumberSource, brandText || (/\bapple\b/i.test(rawName) ? 'apple' : undefined))
     : undefined
   const laptopFamily = kind === 'laptop'
-    ? text.match(/\b(?:macbook\s+(?:air|pro)|aspire(?:\s+\d)?|vivobook(?:\s+\d)?|ideapad(?:\s+\d)?|thinkpad(?:\s+[a-z0-9]+)?|matebook(?:\s+[a-z]?\s*\d{1,2})?|pavilion(?:\s+[a-z0-9]+)?|inspiron(?:\s+[a-z0-9]+)?|latitude(?:\s+[a-z0-9]+)?|zenbook(?:\s+[a-z0-9]+)?|elitebook(?:\s+[a-z0-9]+)?|probook(?:\s+[a-z0-9]+)?|predator(?:\s+[a-z0-9]+)?|nitro(?:\s+[a-z0-9]+)?|swift(?:\s+\d)?|thin(?:\s+\d{1,2})?)\b/)?.[0]
+    ? text.match(/\b(?:macbook\s+(?:air|pro)|aspire(?:\s+\d)?|vivobook(?:\s+\d)?|ideapad(?:\s+\d)?|thinkpad(?:\s+[a-z0-9]+)?|matebook(?:\s+[a-z]?\s*\d{1,2})?|magicbook(?:\s+x?\s*\d{1,2})?|pavilion(?:\s+[a-z0-9]+)?|inspiron(?:\s+[a-z0-9]+)?|latitude(?:\s+[a-z0-9]+)?|zenbook(?:\s+[a-z0-9]+)?|elitebook(?:\s+[a-z0-9]+)?|probook(?:\s+[a-z0-9]+)?|predator(?:\s+[a-z0-9]+)?|nitro(?:\s+[a-z0-9]+)?|swift(?:\s+\d)?|thin(?:\s+\d{1,2})?)\b/)?.[0]
     : undefined
   const genericCode = text.match(/\b[a-z]{1,5}\d{2,5}[a-z]?\b/)?.[0]
   const safeGenericCode = genericCode && !/^(?:n\d{4}|i[3579]\d{4,5}[a-z]{0,2})$/i.test(genericCode) ? genericCode : undefined
