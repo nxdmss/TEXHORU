@@ -50,6 +50,8 @@ function productKind(item: Item): string | undefined {
   if (/(?:смартфон|smartphone|iphone|galaxy|(?:xiaomi|redmi|poco|samsung|honor|huawei|realme|oneplus|tecno|infinix|oppo|vivo|pixel|motorola|nothing)\s+(?:\d|[a-z]\d|note|spark|camon|pova))/i.test(text)) return 'smartphone'
   if (/(?:планшет|tablet|ipad)/.test(text)) return 'tablet'
   if (/(?:ноутбук|laptop|macbook|aspire|vivobook|ideapad|thinkpad|matebook|pavilion|inspiron|latitude|zenbook|elitebook|probook|predator|nitro|swift)/.test(text)) return 'laptop'
+  if (/\b(?:acer|asus|lenovo|msi|dell|hp)\b/.test(text)
+    && /\b(?:[a-z]{1,4}\d{2,4}[a-z]{0,3}(?:-[a-z0-9]{2,8})+|\d{2}[a-z]{2}\d{2}[a-z0-9]{2,4}|\d{5}[a-z]{3})\b/i.test(item.name)) return 'laptop'
   return undefined
 }
 
@@ -111,6 +113,7 @@ export function identity(item: Item): Identity {
   const attrs = item.attributes && typeof item.attributes === 'object' ? item.attributes as Identity : {}
   const specs = Array.isArray(item.specs) ? item.specs as Array<{ label: string; value: string }> : []
   const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label.trim()))?.value
+  const brandText = normalize(attrs.brand || item.brand || '')
   const kind = attrs.kind || productKind(item)
   const units = (value: string) => {
     const m = value.match(/(\d+(?:[.,]\d+)?)\s*(tb|тб|gb|гб)/i)
@@ -127,7 +130,9 @@ export function identity(item: Item): Identity {
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : capacities.length > 1 ? capacities[0]
     : compactMemory ? text.match(/\b(4|6|8|12|16|18|24|32)\s+(?:128|256|512|1024)\b/)?.[1] : undefined
-  const partNumber = kind === 'laptop' ? laptopPartNumber(rawName, brandText || item.brand?.toLowerCase()) : undefined
+  const partNumber = kind === 'laptop'
+    ? laptopPartNumber(rawName, brandText || (/\bapple\b/i.test(rawName) ? 'apple' : undefined))
+    : undefined
   const laptopFamily = kind === 'laptop'
     ? text.match(/\b(?:macbook\s+(?:air|pro)|aspire|vivobook|ideapad|thinkpad|matebook|pavilion|inspiron|latitude|zenbook|elitebook|probook|predator|nitro|swift)\s*[a-z0-9-]*/)?.[0]
     : undefined
@@ -155,8 +160,7 @@ export function identity(item: Item): Identity {
   const hasEsim = /e\s*sim|esim/.test(simText)
   const physical = /nano\s*sim|physical|физическ|\bsim\s*(?:\+|и)?\s*e\s*sim/.test(simText)
   const sim = hasEsim && physical ? 'physical+esim' : hasEsim ? 'esim' : /nano\s*sim|dual sim|2 sim/.test(simText) ? 'physical' : undefined
-  const brandText = normalize(attrs.brand || item.brand || '')
-  const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf', 'acer', 'asus', 'lenovo', 'msi', 'dell', 'hp'].find(b => text.includes(b))
+  const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf', 'acer', 'asus', 'lenovo', 'msi', 'dell', 'hp'].find(b => text.split(' ').includes(b))
   const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
   const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
   const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
