@@ -262,6 +262,22 @@ test('MacBook Air model family ignores year/chip wording but keeps screen size a
   assert.deepEqual(manualConfirmationBlockers(ours, fiveRu), [])
 })
 
+test('HONOR MagicBook X14 Plus is recognized as a laptop model and exact hardware match', () => {
+  const ours = {
+    name: 'Ноутбук HONOR MagicBook X14 Plus 2025 14" Intel Core 5 220H ОЗУ/16 ГБ, SSD/512 ГБ Windows 11 Home',
+    brand: 'HONOR',
+  }
+  const listed = {
+    name: 'Ноутбук HONOR MagicBook X14 Plus 14" Intel Core 5 220H 16GB/512GB SSD',
+    brand: 'HONOR',
+  }
+  assert.equal(identity(ours).model, 'magicbook x14')
+  assert.equal(identity(listed).model, 'magicbook x14')
+  const same = compareItems(ours, listed)
+  assert.deepEqual(same.conflicts, [], JSON.stringify(same))
+  assert.equal(same.canAutoConfirm, true)
+})
+
 test('Laptop matching uses manufacturer part numbers and hardware configuration', () => {
   const acer = {
     name: 'Ноутбук 15.6" FHD Acer Aspire AL15-31P-C1CS silver (Cel N4500/8Gb/256Gb SSD/VGA int/noOS)',
