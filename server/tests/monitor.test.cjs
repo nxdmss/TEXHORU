@@ -1112,6 +1112,40 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
   assert.equal(closings, 1)
 })
 
+test('Smartphone category crawl starts on page 1 and advances to page 2 when no next link is exposed', async () => {
+  const parser = new FiveRuParser()
+  const base = 'https://05.ru/cat/mc/396f7486/smartfony/'
+  const first = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-13-128-gb-siniy-11197/'
+  const second = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-16-256-gb-rozoviy-17743/'
+  const navigations = []
+  const pages = new Map([
+    [base, { links: [{ url: first, title: 'Смартфон Apple iPhone 13 128 Гб синий' }], next: null }],
+    [base + '?page=2', { links: [{ url: second, title: 'Смартфон Apple iPhone 16 256 Гб розовый' }], next: null }],
+    [base + '?page=3', { links: [], next: null }],
+  ])
+  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
+  parser.context = async () => ({
+    newPage: async () => {
+      let currentUrl = ''
+      return {
+        goto: async url => { currentUrl = url; navigations.push(url); return { status: () => 200 } },
+        url: () => currentUrl,
+        locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
+        evaluate: async fn => fn.toString().includes('scrollTo') ? undefined : pages.get(currentUrl),
+        close: async () => {},
+      }
+    },
+    close: async () => {},
+  })
+  try {
+    const links = await parser.smartphoneCatalogLinks({})
+    assert.deepEqual(links.map(link => link.url), [first, second])
+    assert.deepEqual(navigations, [base, base + '?page=2', base + '?page=3'])
+  } finally {
+    await parser.onModuleDestroy()
+  }
+})
+
 test('Search discovery reads later result pages when the exact smartphone is not on page one', async () => {
   const parser = new FiveRuParser()
   const wrong = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-oranzheviy-90001/'

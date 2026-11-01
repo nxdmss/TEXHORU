@@ -246,12 +246,15 @@ export class FiveRuParser implements OnModuleDestroy {
     const visitedUrls = new Set<string>()
     const visitedPages = new Set<string>()
     const catalogBase = 'https://05.ru/cat/mc/396f7486/smartfony/'
-    let next: string | null = catalogBase + '?page=0'
+    // 05.ru uses the unparameterized URL for page 1 and ?page=2 for page 2.
+    // Starting at ?page=0 can alias page 1; the duplicate-page guard then
+    // stops the crawl before it ever reaches older smartphone listings.
+    let next: string | null = catalogBase
 
     // The category is paginated. Crawl the public listing once and reuse the
     // URL/title index for all smartphone variants in the current batch.
     // Product prices are still read only from freshly opened product pages.
-    for (let pageNo = 0; pageNo < 50 && next && found.size < 1200; pageNo++) {
+    for (let pageNo = 1; pageNo <= 50 && next && found.size < 1200; pageNo++) {
       const url = fiveRuUrl(next, 'catalog')
       if (visitedUrls.has(url)) break
       visitedUrls.add(url)
