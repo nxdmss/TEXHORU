@@ -209,8 +209,11 @@ export const api = {
   monitorJobAction(id: string, action: 'retry' | 'cancel') { return request(`/admin/price-monitor/jobs/${id}/${action}`, { method: 'POST' }) },
   monitorQueue() { return request<{ queued: number }>('/admin/price-monitor/queue-1c', { method: 'POST' }) },
   monitorDeliveries() { return request<MonitorDelivery[]>('/admin/price-monitor/deliveries') },
-  monitorSettings() { return request<{ catalogUrl: string; intervalMinutes: number }>('/admin/price-monitor/settings') },
-  monitorSaveSettings(catalogUrl: string, intervalMinutes: number) { return request('/admin/price-monitor/settings', { method: 'POST', body: JSON.stringify({ catalogUrl, intervalMinutes }) }) },
+  monitorSettings() { return request<{ catalogUrl: string; intervalMinutes: number; nextRunAt: string | null }>('/admin/price-monitor/settings') },
+  monitorSaveSettings(catalogUrl: string, intervalMinutes: number) {
+    return request<{ catalogUrl: string; intervalMinutes: number; nextRunAt: string | null }>('/admin/price-monitor/settings',
+      { method: 'POST', body: JSON.stringify({ catalogUrl, intervalMinutes }) })
+  },
   monitorExport() { return request<{ schemaVersion: number; items: Array<Record<string, unknown>> }>('/admin/price-monitor/export-1c') },
   monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
   adminImportOneC(data: unknown) { return request('/admin/integrations/1c/catalog', { method: 'POST', body: JSON.stringify(data) }) },
