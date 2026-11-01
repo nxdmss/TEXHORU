@@ -263,17 +263,26 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal(nestedCategory.name, 'Электроника / Смартфоны')
   const ours = await prisma.product.findUnique({ where: { oneCId } })
   let link = await monitor.check({ url })
-  assert.equal(link.matchStatus, 'CONFIRMED')
-  assert.equal((await exchange.pending()).items.length, 1)
+  assert.equal(link.matchStatus, 'SUGGESTED')
+  assert.equal((await exchange.pending()).items.length, 0)
   assert.equal((await monitor.candidates(link.id))[0].product.id, ours.id)
   await monitor.confirm(link.id, ours.id)
   await monitor.confirm(link.id, ours.id)
   await exchange.queueConfirmed()
+  assert.equal((await exchange.pending()).items.length, 0) // Initial mapping is a baseline.
+  const baselineCount = await prisma.competitorPriceHistory.count({ where: { competitorProductId: link.id } })
+  await monitor.check({ url }) // Same price: no proposal and no duplicate history row.
+  assert.equal((await exchange.pending()).items.length, 0)
+  assert.equal(await prisma.competitorPriceHistory.count({ where: { competitorProductId: link.id } }), baselineCount)
+  parsed = { ...parsed, price: 95990 }
+  await monitor.check({ url }) // Only a real price change enters the 1C queue.
   const pending = (await exchange.pending()).items
   assert.equal(pending.length, 1)
   assert.equal(pending[0].oneCId, oneCId)
-  assert.equal(pending[0].price, 96990)
-  assert.equal(pending[0].recommendedPrice, 96490)
+  assert.equal(pending[0].price, 95990)
+  assert.equal(pending[0].previousPrice, 96990)
+  assert.equal(pending[0].priceChange, -1000)
+  assert.equal(pending[0].recommendedPrice, 95490)
   assert.equal((await exchange.pending()).items[0].id, pending[0].id)
   await exchange.ack(pending[0].id, 'Тест: сеть недоступна')
   assert.equal((await exchange.pending()).items.length, 1)
@@ -282,20 +291,20 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal((await exchange.pending()).items.length, 0)
   assert.equal(await prisma.syncLog.count({ where: { entity: 'PRICE_MONITOR', status: 'SUCCESS' } }), 1)
   assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 99990)
-  const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 96990,
-    targetPrice: 96490, acceptUnknownCost: false, acceptLargeChange: false }
+  const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 95990,
+    targetPrice: 95490, acceptUnknownCost: false, acceptLargeChange: false }
   await assert.rejects(() => monitor.applyRecommended(link.id, { ...applyDto, expectedCurrentPrice: 90000 }))
   const applied = await monitor.applyRecommended(link.id, applyDto)
-  assert.equal(applied.newPrice, 96490)
+  assert.equal(applied.newPrice, 95490)
   assert.equal(applied.siteOnly, true)
-  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 96490)
+  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 95490)
   assert.equal(await prisma.auditLog.count({ where: { action: 'APPLY_MONITOR_SITE_PRICE', entityId: String(ours.id) } }), 1)
   await prisma.product.update({ where: { id: ours.id }, data: { price: 99990 } }) // reset fixture
 
   failure = 'HTTP 403'
   await assert.rejects(() => monitor.check({ url }))
   link = (await monitor.list())[0]
-  assert.equal(link.latestPrice, 96990)
+  assert.equal(link.latestPrice, 95990)
   assert.equal(link.recommendedPrice, null)
   failure = null
   parsed = { ...parsed, name: name.replace('256', '512'), attributes: { ...parsed.attributes, storage: '512' } }
@@ -305,7 +314,8 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   await assert.rejects(() => monitor.confirm(link.id, ours.id))
   parsed = extractFiveRu(fixture.snapshot, url)
   await monitor.check({ url }); await monitor.confirm(link.id, ours.id)
-  assert.equal((await exchange.pending()).items.length, 1)
+  await exchange.queueConfirmed()
+  assert.equal((await exchange.pending()).items.length, 0) // Re-confirmation resets baseline; old deltas are not replayed.
   await integration.importCatalog({ ...catalog, products: [{ ...catalog.products[0], name: product.name.replace('256', '512') }] })
   assert.equal((await monitor.list())[0].matchStatus, 'REVIEW_REQUIRED')
   assert.equal((await exchange.pending()).items.length, 0)
@@ -493,7 +503,9 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const original = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   assert.equal(matched.productId, original.id)
   assert.equal(original.price, 99990)
-  assert.equal(matched.matchStatus, 'CONFIRMED')
+  assert.equal(matched.matchStatus, 'SUGGESTED')
+  await monitor.confirm(matched.id, original.id)
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: matched.id } })).matchStatus, 'CONFIRMED')
 })
 
 test('Auto-matching refreshes an existing 05.ru link even when storefront search returns zero links', async () => {
@@ -749,6 +761,64 @@ test('Manual URL binding rejects a product URL already assigned elsewhere', asyn
     () => monitor.check({ url: fixture.sourceUrl, productId: 1001 }),
     /уже связана с другим товаром/,
   )
+})
+
+test('Confirmed 05.ru mapping is one-to-one: one URL per 1C product and one 1C product per URL', async () => {
+  const idA = randomUUID(), idB = randomUUID(), categoryId = randomUUID()
+  const integration = new IntegrationsService(prisma, {})
+  const nameB = 'Apple iPhone 18 Pro 12GB/256GB Cosmic Orange eSIM'
+  const snapshotB = {
+    ...fixture.snapshot,
+    h1: fixture.snapshot.h1.replace('iPhone 17 Pro', 'iPhone 18 Pro'),
+    scripts: fixture.snapshot.scripts.map(text => text.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
+  }
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: 'Тестовые смартфоны ' + categoryId, slug: 'one-to-one-' + categoryId }],
+    products: [
+      { oneCId: idA, sku: 'MAP-A-' + idA, slug: 'map-a-' + idA, categoryOneCId: categoryId,
+        name: product.name, brand: 'Apple', price: 99990, stockQty: 2 },
+      { oneCId: idB, sku: 'MAP-B-' + idB, slug: 'map-b-' + idB, categoryOneCId: categoryId,
+        name: nameB, brand: 'Apple', price: 99990, stockQty: 2 },
+    ],
+  })
+  const a = await prisma.product.findUniqueOrThrow({ where: { oneCId: idA } })
+  const b = await prisma.product.findUniqueOrThrow({ where: { oneCId: idB } })
+  const urlA = fixture.sourceUrl.replace('24007/', 'mapping-a-' + idA + '/')
+  const urlB = fixture.sourceUrl.replace('24007/', 'mapping-b-' + idB + '/')
+  const parser = { parse: async url => ({
+    ...extractFiveRu(url === urlA ? fixture.snapshot : snapshotB, url), url,
+  }) }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const linkA = await monitor.check({ url: urlA, productId: a.id })
+  await monitor.confirm(linkA.id, a.id)
+  const linkB = await monitor.check({ url: urlB, productId: b.id })
+  await monitor.confirm(linkB.id, b.id)
+
+  await assert.rejects(() => monitor.confirm(linkA.id, b.id), /уже подтверждена для другого товара/)
+  await monitor.unmatch(linkB.id)
+  await assert.rejects(() => monitor.confirm(linkB.id, a.id), /У этого товара уже есть подтверждённая ссылка/)
+})
+
+test('Six-hour schedule is persisted and can be disabled without changing product prices', async () => {
+  let saved
+  const monitor = new PriceMonitorService({
+    monitorSettings: { upsert: async input => {
+      saved = input.update
+      return { id: '05ru', ...input.update }
+    } },
+  }, {}, {})
+  const enabled = await monitor.updateSettings({
+    catalogUrl: 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/',
+    intervalMinutes: 360,
+  })
+  assert.equal(enabled.intervalMinutes, 360)
+  assert(saved.nextRunAt instanceof Date)
+  const disabled = await monitor.updateSettings({
+    catalogUrl: 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/',
+    intervalMinutes: 0,
+  })
+  assert.equal(disabled.intervalMinutes, 0)
+  assert.equal(disabled.nextRunAt, null)
 })
 
 test('Unlinked-only discovery excludes products already mapped to 05.ru', async () => {

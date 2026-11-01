@@ -9,16 +9,34 @@ export const jsonValue = (value: unknown) => JSON.parse(JSON.stringify(value)) a
 export class MonitorExchangeService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async enqueue(linkId: string, tx: Prisma.TransactionClient = this.prisma, historyId?: string) {
+  async enqueue(linkId: string, tx: Prisma.TransactionClient = this.prisma, historyId?: string, observedPreviousPrice?: number | null) {
     const link = await tx.competitorProduct.findUnique({ where: { id: linkId }, include: { product: true, source: true } })
     if (!link?.product?.oneCId || link.product.status !== 'ACTIVE' || link.matchStatus !== 'CONFIRMED' || link.lastError) return null
     if (fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint || fingerprint(link.product) !== link.confirmedProductFingerprint) return null
+    // Only create a 1C proposal when the latest observed competitor price
+    // differs from the preceding successful observation. The initial link
+    // confirmation is a baseline, not a price change.
+    const recent = await tx.competitorPriceHistory.findMany({
+      where: { competitorProductId: linkId },
+      orderBy: [{ checkedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      take: 2,
+    })
     const history = historyId
-      ? await tx.competitorPriceHistory.findUnique({ where: { id: historyId } })
-      : await tx.competitorPriceHistory.findFirst({ where: { competitorProductId: linkId }, orderBy: [{ checkedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }] })
+      ? recent.find(row => row.id === historyId)
+      : recent[0]
     if (!history || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000) return null
+    const currentIndex = recent.findIndex(row => row.id === history.id)
+    const previous = currentIndex >= 0 ? recent[currentIndex + 1] : undefined
+    // save() passes the prior observation directly. A manual queue sweep
+    // must only retry a history row explicitly marked with that prior price;
+    // a new confirmation baseline has oldPrice=null and is never a proposal.
+    const previousPrice = observedPreviousPrice !== undefined
+      ? observedPreviousPrice
+      : (previous && history.oldPrice !== null && history.oldPrice === previous.price ? previous.price : null)
+    if (previousPrice === null || previousPrice === history.price) return null
     const payload = jsonValue({
       schemaVersion: 1, historyId: history.id, linkId, oneCId: link.product.oneCId,
+      previousPrice, priceChange: history.price - previousPrice,
       siteProductId: link.product.id, ourSku: link.product.sku, ourName: link.product.name,
       competitor: link.source.name, url: link.externalUrl, name: link.externalName,
       price: history.price, oldPrice: history.oldPrice, inStock: history.inStock,
@@ -37,6 +55,12 @@ export class MonitorExchangeService {
       const payload = row.payload as Record<string, unknown>
       if (!link?.product || link.product.status !== 'ACTIVE' || link.matchStatus !== 'CONFIRMED' || link.product.oneCId !== payload.oneCId || fingerprint(link.product) !== link.confirmedProductFingerprint || fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint) {
         await this.prisma.monitorDelivery.update({ where: { id: row.id }, data: { status: 'CANCELLED', lastError: 'Сопоставление изменилось; результат исключён из обмена' } })
+        continue
+      }
+      // Old versions queued every observation, including unchanged baselines.
+      // Never deliver those legacy snapshots as a new price proposal.
+      if (typeof payload.previousPrice !== 'number' || payload.previousPrice === payload.price) {
+        await this.prisma.monitorDelivery.update({ where: { id: row.id }, data: { status: 'CANCELLED', lastError: 'Цена не изменилась; повторная отправка не требуется' } })
         continue
       }
       result.push({ id: row.id, ...payload })

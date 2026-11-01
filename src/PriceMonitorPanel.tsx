@@ -21,6 +21,8 @@ function childrenAt(products: ApiProduct[], path: string) {
   return [...folders].sort((a, b) => a[0].localeCompare(b[0], 'ru'))
 }
 
+const MONITOR_CATALOG_URL = 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/'
+
 const isFresh = (item: PriceMonitorItem) => Boolean(
   item.lastSuccessAt && !item.lastError && item.priceSource !== 'USER_FILE'
   && Date.now() - new Date(item.lastSuccessAt).getTime() >= 0
@@ -53,8 +55,26 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const [visibleLimit, setVisibleLimit] = useState(80)
   const [showUnlinked, setShowUnlinked] = useState(false)
   const [unlinkedLimit, setUnlinkedLimit] = useState(80)
+  const [intervalMinutes, setIntervalMinutes] = useState(0)
+  const [nextRunAt, setNextRunAt] = useState<string | null>(null)
+  const [settingsReady, setSettingsReady] = useState(false)
 
   useEffect(() => { setStock(products) }, [products])
+  useEffect(() => {
+    let mounted = true
+    void api.monitorSettings().then(settings => {
+      if (!mounted) return
+      setIntervalMinutes(settings.intervalMinutes)
+      setNextRunAt(settings.nextRunAt)
+      setSettingsReady(true)
+    }).catch(e => {
+      if (mounted) {
+        setSettingsReady(true)
+        setError(e instanceof Error ? e.message : 'Не удалось загрузить расписание')
+      }
+    })
+    return () => { mounted = false }
+  }, [])
   useEffect(() => { setVisibleLimit(80) }, [path, search])
   const refresh = useCallback(async (includeProducts = false) => {
     const [list, tasks, inventory] = await Promise.all([
@@ -121,7 +141,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     return grouped
   }, [items])
   const confirmed = phones.filter(p => byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
-  const unlinkedInScope = scopedPhones.filter(p => !byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
+  const needsReview = phones.filter(p => byProduct.get(p.id)?.some(i =>
+    i.matchStatus === 'SUGGESTED' || i.matchStatus === 'REVIEW_REQUIRED')).length
+  const unlinkedInScope = scopedPhones.filter(p => !byProduct.get(p.id)?.some(i =>
+    i.product?.id === p.id && ['CONFIRMED', 'SUGGESTED', 'REVIEW_REQUIRED'].includes(i.matchStatus))).length
   // Prefer the job the worker is actually executing over a newer queued job.
   const active = jobs.find(j => j.status === 'RUNNING')
     ?? jobs.find(j => j.kind === 'INDEX_05RU' && j.status === 'QUEUED')
@@ -151,7 +174,15 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   async function refreshSavedPrices() {
     if (active) { setError('Сначала заверши текущую проверку'); return }
     await run('refresh', () => api.monitorCheckAll(),
-      'Проверка запущена. Цены 05.ru обновляются по сохранённым ссылкам; цены товаров TEXHORU не меняются.')
+      'Проверка запущена. Читаются только подтверждённые ссылки; повторного поиска нет.')
+  }
+
+  async function setAutomaticChecks(enabled: boolean) {
+    await run('schedule', async () => {
+      const settings = await api.monitorSaveSettings(MONITOR_CATALOG_URL, enabled ? 360 : 0)
+      setIntervalMinutes(settings.intervalMinutes)
+      setNextRunAt(settings.nextRunAt)
+    }, enabled ? 'Автопроверка включена. Подтверждённые ссылки будут проверяться каждые 6 часов.' : 'Автопроверка выключена.')
   }
 
   async function bindManually(product: ApiProduct) {
@@ -291,12 +322,16 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
           </>}
           <button className="mp-link-button" disabled={Boolean(busy) || Boolean(active)}
             onClick={() => void run('check', () => api.adminCheckCompetitorPrice({ url: linked.externalUrl }), 'Цена 05.ru обновлена.')}>Проверить цену сейчас</button>
-          {linked.matchStatus === 'CONFIRMED' && <button disabled={Boolean(busy) || Boolean(active)}
+          {linked.product?.id && <button disabled={Boolean(busy) || Boolean(active)}
             onClick={() => {
-              if (window.confirm('Снять подтверждённую привязку к 05.ru? Цена товара не изменится.')) {
-                void run('unmatch', () => api.monitorUnmatch(linked.id), 'Привязка снята. Можно указать другую ссылку.')
+              const confirmedLink = linked.matchStatus === 'CONFIRMED'
+              if (window.confirm(confirmedLink
+                ? 'Снять подтверждённую привязку к 05.ru? Цена товара не изменится.'
+                : 'Отклонить этот вариант? Товар снова попадёт в список непривязанных.')) {
+                void run('unmatch', () => api.monitorUnmatch(linked.id),
+                  confirmedLink ? 'Привязка снята.' : 'Вариант отклонён. Можно запустить новый поиск.')
               }
-            }}>Снять привязку</button>}
+            }}>{linked.matchStatus === 'CONFIRMED' ? 'Снять привязку' : 'Не тот вариант'}</button>}
           <details><summary>История цен</summary>
             {history.slice(0, 6).map(row => <p key={row.id}>{prettyDate(row.checkedAt)} · {rub(row.price)}</p>)}
           </details>
@@ -312,9 +347,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     </header>
 
     <div className="mp-summary">
-      <span><b>{confirmed}</b> совпадений</span>
+      <span><b>{confirmed}</b> привязано</span>
+      <span><b>{needsReview}</b> требуют подтверждения</span>
       <span><b>{phones.filter(p => byProduct.get(p.id)?.some(isFresh)).length}</b> свежих цен</span>
-      <span><b>{phones.length - confirmed}</b> без подтверждения</span>
     </div>
 
     <div className="mp-toolbar">
@@ -324,7 +359,17 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти непривязанные (' + unlinkedInScope + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Обновление читает только сохранённые ссылки, без повторного поиска. Цены на сайте и в 1С не меняются автоматически.</p>
+    <p className="mp-helper">После подтверждения товар больше не ищется: цена проверяется по сохранённой ссылке. В 1С и на сайте ничего не меняется без отдельного подтверждения.</p>
+    <label className="mp-schedule">
+      <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
+        onChange={e => void setAutomaticChecks(e.target.checked)}/>
+      <span>
+        <b>Автопроверка</b>
+        <small>{!settingsReady ? 'Загрузка расписания…' : intervalMinutes > 0
+          ? 'Каждые ' + (intervalMinutes / 60) + ' ч · следующая: ' + prettyDate(nextRunAt)
+          : 'Выключена · включить на 6 часов'}</small>
+      </span>
+    </label>
     {active && <div className="mp-progress" role="status">
       <span>{active.kind === 'INDEX_05RU'
         ? 'Сбор каталога 05.ru · страница ' + active.page + ' / ' + active.maxPages + ' · карточек ' + active.processed
