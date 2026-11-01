@@ -81,7 +81,10 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     const candidateWords = new Set(combined.split(' '))
     const modelAnchor = Boolean(
       requested.kind === 'smartphone' && requested.model && !parsed.model
-      && parsed.kind === 'smartphone' && brandMatch && requestedModelNumber
+      // Search tiles sometimes expose only "Apple + model number + capacity"
+      // and omit the word "smartphone". Keep that link for a real page read,
+      // provided the brand and the complete model suffix are still anchored.
+      && brandMatch && requestedModelNumber
       && candidateWords.has(requestedModelNumber)
       && requestedModelSuffix.every(part => candidateWords.has(part))
     )
