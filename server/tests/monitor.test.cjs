@@ -196,7 +196,7 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
   assert.equal(parsed.kind, 'laptop')
   assert.equal(parsed.brand, 'acer')
   assert.equal(parsed.model, 'al15 31p c1cs')
-  assert.equal(parsed.productCode, 'al15 31p c1cs')
+  assert.equal(parsed.productCode, 'al15-31p-c1cs')
   assert.equal(parsed.cpu, 'celeron n4500')
   assert.equal(parsed.ram, '8')
   assert.equal(parsed.storage, '256')
@@ -227,7 +227,7 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
   assert(wrongRam.conflicts.includes('ОЗУ'))
 
   assert.deepEqual(oneCSearchQueries(acer), [
-    'acer al15 31p c1cs',
+    'acer al15-31p-c1cs',
     'acer celeron n4500 8gb 256gb 15.6"',
     'Ноутбук 15.6" FHD Acer Aspire AL15-31P-C1CS silver (Cel N4500/8Gb/256Gb SSD/VGA int/noOS)',
   ])
@@ -242,9 +242,9 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
 
 test('Laptop part number parser recognizes ASUS, Lenovo, MSI, Huawei and Apple model codes', () => {
   const cases = [
-    ['Ноутбук Asus Vivobook 15 X1504ZA-BQ1144 Core i3-1215U', 'x1504za bq1144', 'core i3 1215u'],
+    ['Ноутбук Asus Vivobook 15 X1504ZA-BQ1144 Core i3-1215U', 'x1504za-bq1144', 'core i3 1215u'],
     ['Ноутбук Lenovo IdeaPad 1 15AMN7 82VG00Q8 Ryzen 5 7520U', '82vg00q8', 'ryzen 5 7520u'],
-    ['Ноутбук MSI Thin 15 B13VE-3200XRU Core i7-13620H RTX 4050', 'b13ve 3200xru', 'core i7 13620h'],
+    ['Ноутбук MSI Thin 15 B13VE-3200XRU Core i7-13620H RTX 4050', 'b13ve-3200xru', 'core i7 13620h'],
     ['Ноутбук Huawei MateBook D 14 53013XET Core i5-12450H', '53013xet', 'core i5 12450h'],
     ['Apple MacBook Air A3241 15.3 2025 M4', 'a3241', 'm4'],
   ]
