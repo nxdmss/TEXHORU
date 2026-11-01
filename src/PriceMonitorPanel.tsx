@@ -238,6 +238,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   function renderPhone(p: ApiProduct) {
     const linked = byProduct.get(p.id)?.[0]
     const state = itemStatus(linked)
+    const chosen = opened === linked?.id ? matches.find(m => String(m.product.id) === selected) : undefined
     return <article className="mp-tile" key={p.id}>
       <div className="mp-tile-head">
         <span className={'mp-pill ' + state.className}>{state.label}</span>
@@ -268,6 +269,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         </div>}
       </>}
       {linked && opened === linked.id && <div className="mp-expanded">
+        {linked.matchStatus === 'SUGGESTED' && <p>Предложение для проверки, не подтверждено. Цена 1С не изменится.</p>}
         <p><a href={linked.externalUrl} target="_blank" rel="noreferrer">Карточка 05.ru ↗</a> · {prettyDate(linked.lastSuccessAt)}</p>
         {linked.lastError && <p className="form-error">{linked.lastError}</p>}
         {matchLoading ? <p>Проверяем варианты…</p> : <>
@@ -275,10 +277,16 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
             <label>Выбери соответствие
               <select value={selected} onChange={e => setSelected(e.target.value)}>
                 <option value="">Выбрать товар</option>
-                {matches.map(c => <option key={c.product.id} value={c.product.id}>{c.product.name}</option>)}
+                {matches.map(c => <option key={c.product.id} value={c.product.id}>
+                  {c.product.name}{c.conflicts.length ? ' · ПРОВЕРИТЬ: ' + c.conflicts.join(', ') : ''}
+                </option>)}
               </select>
             </label>
-            <button disabled={Boolean(busy) || !selected || Boolean(active)}
+            {chosen?.missing.length ? <p>Не хватает данных: {chosen.missing.join(', ')}. Проверь вручную.</p> : null}
+            {chosen?.conflicts.length ? <p className="form-error">
+              Несовпадения: {chosen.conflicts.join(', ')}. Подтверждение заблокировано до исправления данных или выбора другой карточки.
+            </p> : null}
+            <button disabled={Boolean(busy) || !selected || Boolean(active) || Boolean(chosen?.conflicts.length)}
               onClick={() => void confirm(linked)}>Подтвердить совпадение</button>
           </>}
           <button className="mp-link-button" disabled={Boolean(busy) || Boolean(active)}
