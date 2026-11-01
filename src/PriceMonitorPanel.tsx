@@ -236,7 +236,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   }
 
   function renderPhone(p: ApiProduct) {
-    const linked = byProduct.get(p.id)?.[0]
+    const options = byProduct.get(p.id) || []
+    const linked = options.find(item => item.id === opened) || options[0]
     const state = itemStatus(linked)
     return <article className="mp-tile" key={p.id}>
       <div className="mp-tile-head">
@@ -267,6 +268,17 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
             onClick={() => void bindManually(p)}>Проверить и сохранить связь</button>
         </div>}
       </>}
+      {options.length > 1 && <div className="mp-expanded">
+        <p>Найдены варианты 05.ru. Сравни название и характеристики перед подтверждением.</p>
+        {options.filter(item => item.id !== linked?.id).slice(0, 3).map(item =>
+          <div key={item.id}>
+            <a href={item.externalUrl} target="_blank" rel="noreferrer">{item.externalName || 'Карточка 05.ru'} ↗</a>
+            {' · '}{item.latestPrice ? rub(item.latestPrice) : 'Цена неизвестна'}
+            <button className="mp-link-button" disabled={Boolean(busy)} onClick={() => void expand(item)}>
+              {opened === item.id ? 'Закрыть вариант' : 'Проверить вариант'}
+            </button>
+          </div>)}
+      </div>}
       {linked && opened === linked.id && <div className="mp-expanded">
         <p><a href={linked.externalUrl} target="_blank" rel="noreferrer">Карточка 05.ru ↗</a> · {prettyDate(linked.lastSuccessAt)}</p>
         {linked.lastError && <p className="form-error">{linked.lastError}</p>}
