@@ -71,7 +71,7 @@ function laptopPartNumber(name: string, brand?: string) {
   ]
   for (const pattern of patterns) {
     const found = name.match(pattern)?.[0]
-    if (found) return normalize(found)
+    if (found) return found.toLowerCase()
   }
   if (brand === 'apple') return name.match(/\bA\d{4}\b/i)?.[0]?.toLowerCase()
   return undefined
@@ -174,14 +174,14 @@ export function identity(item: Item): Identity {
   const compatibleBrand = accessory
     ? attrs.compatibleBrand || deviceBrand || (normalizedBrand && ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'oppo', 'vivo', 'motorola', 'nokia'].includes(normalizedBrand) ? normalizedBrand : undefined)
     : undefined
-  const cpuRaw = String(attrs.cpu || spec(/процессор|cpu|processor|чипсет/i) || rawName)
-  const gpuRaw = String(attrs.gpu || spec(/видеокарт|график|gpu|graphics|video card/i) || rawName)
+  const cpuRaw = String(attrs.cpu || spec(/процессор|cpu|processor|чипсет/i) || (rawName + ' ' + (item.shortSpec || '')))
+  const gpuRaw = String(attrs.gpu || spec(/видеокарт|график|gpu|graphics|video card/i) || (rawName + ' ' + (item.shortSpec || '')))
   const cpu = processorIdentity(cpuRaw, brand)
   const gpu = graphicsIdentity(gpuRaw)
-  const screenRaw = String(attrs.screenSize || spec(/диагонал|screen size|display size/i) || rawName)
+  const screenRaw = String(attrs.screenSize || spec(/диагонал|screen size|display size/i) || (rawName + ' ' + (item.shortSpec || '')))
   const screenSize = screenRaw.match(/\b(\d{1,2}(?:[.,]\d)?)\s*(?:["″]|дюйм\w*|inch\w*)/i)?.[1]?.replace(',', '.')
     || (/^\d{1,2}(?:[.,]\d)?$/.test(screenRaw.trim()) ? screenRaw.trim().replace(',', '.') : undefined)
-  const powerRaw = String(attrs.wattage || spec(/мощност|power output|выходная мощность/i) || rawName)
+  const powerRaw = String(attrs.wattage || spec(/мощност|power output|выходная мощность/i) || (rawName + ' ' + (item.shortSpec || '')))
   const wattage = kind === 'charger' ? powerRaw.match(/\b(\d{1,3})\s*w(?:att)?\b/i)?.[1] : undefined
   const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
