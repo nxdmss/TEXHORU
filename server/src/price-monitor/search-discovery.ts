@@ -46,11 +46,15 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     // If both sides expose a brand, a different brand is a hard rejection.
     // Missing brand on a search tile is not proof of a mismatch; the product
     // page will be opened and checked before a candidate can be suggested.
-    if (requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    // For non-smartphone products a different maker or finish is a review
+    // signal, not a reason to hide the product before opening its actual page.
+    // Actual model/type/compatible device conflicts above stay hard filters.
+    if (requested.kind === 'smartphone' && requested.brand && parsed.brand
+      && requested.brand !== parsed.brand) return null
     // For cases/protectors, the phone brand is compatibility, not the accessory maker.
     if (requested.compatibleBrand && parsed.compatibleBrand
       && requested.compatibleBrand !== parsed.compatibleBrand) return null
-    if (requested.color && parsed.color && requested.color !== parsed.color) return null
+    if (requested.kind === 'smartphone' && requested.color && parsed.color && requested.color !== parsed.color) return null
 
     const words = new Set(combined.split(' '))
     let score = 0
