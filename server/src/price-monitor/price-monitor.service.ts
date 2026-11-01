@@ -43,6 +43,9 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
     return [...new Set([focused, cleanName].filter(Boolean))]
   }
+  if (!parsed.model && parsed.mpn) {
+    return [...new Set([[parsed.brand, parsed.mpn].filter(Boolean).join(' '), parsed.mpn, cleanName].filter(Boolean))]
+  }
   if (!parsed.model) return [cleanName]
   if (parsed.kind !== 'smartphone') {
     const focused = [parsed.brand, parsed.model, parsed.storage].filter(Boolean).join(' ')
@@ -414,18 +417,23 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
    */
   private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
     const requested = identity(product)
-    if (!requested.model) return false
+    if (!requested.model && !requested.productCode && !requested.mpn) return false
+    const catalogFilters: Prisma.CompetitorCatalogEntryWhereInput[] = []
+    if (requested.model) catalogFilters.push({
+      model: requested.model,
+      ...(requested.storage ? { OR: [{ storage: requested.storage }, { storage: null }] } : {}),
+    })
+    if (requested.productCode) catalogFilters.push({ title: { contains: requested.productCode } })
+    if (requested.mpn) catalogFilters.push({ title: { contains: requested.mpn } })
     const options = await this.prisma.competitorCatalogEntry.findMany({
-      where: {
-        model: requested.model,
-        ...(requested.storage ? { OR: [{ storage: requested.storage }, { storage: null }] } : {}),
-      },
+      where: { OR: catalogFilters },
       take: 1000,
     })
     // Catalog titles are hints. Missing colour/SIM on a tile must not reject
     // a real product before reading its specifications.
     const ranked = options.map(link => ({ link, check: compareItems(product, { name: link.title }) }))
-      .filter(option => !option.check.conflicts.length && option.check.theirs.model === requested.model)
+      .filter(option => !option.check.conflicts.length
+        && (!requested.model || option.check.theirs.model === requested.model))
       .sort((a, b) => b.check.score - a.check.score).slice(0, 8)
     const verified: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
     for (const { link } of ranked) {
