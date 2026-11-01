@@ -55,7 +55,7 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     if (!parsed.compatibleBrand && fromSlug.compatibleBrand) parsed.compatibleBrand = fromSlug.compatibleBrand
     // A product slug that explicitly says "smartfon" is authoritative for
     // the item type; accessory slugs may mention iPhone only as compatibility.
-    if (/\\b(?:smartfon|smartphone)\\b/.test(normalize(rawSlug))) parsed.kind = 'smartphone'
+    if (/\b(?:smartfon|smartphone)\b/.test(normalize(rawSlug))) parsed.kind = 'smartphone'
 
     const sameModel = Boolean(requested.model && parsed.model
       && canonicalModel(requested.model) === canonicalModel(parsed.model))
