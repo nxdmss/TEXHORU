@@ -25,6 +25,20 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     const typeModel = [accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
     return [...new Set([focused, typeModel, cleanName].filter(Boolean))]
   }
+  if (parsed.kind === 'laptop') {
+    // Laptop retail names are noisy, but manufacturer part numbers are often
+    // stable. Search that identifier first, then hardware configuration, then
+    // the untouched 1C title as a recall fallback.
+    const code = parsed.productCode || parsed.model || parsed.mpn
+    const byCode = [parsed.brand, code].filter(Boolean).join(' ')
+    const byHardware = [
+      parsed.brand, parsed.cpu,
+      parsed.ram ? parsed.ram + 'gb' : undefined,
+      parsed.storage ? parsed.storage + 'gb' : undefined,
+      parsed.screenSize ? parsed.screenSize + '"' : undefined,
+    ].filter(Boolean).join(' ')
+    return [...new Set([byCode, byHardware, cleanName].filter(Boolean))].slice(0, 3)
+  }
   if (parsed.kind === 'smartwatch') {
     const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
     return [...new Set([focused, cleanName].filter(Boolean))]
@@ -913,7 +927,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 }
                 // A fully variant-filtered smartphone result is already precise.
                 // Accessories keep searching all query variants to improve recall.
-                if (requestedKind === 'smartphone' && rankedByUrl.size) break
+                if (rankedByUrl.size) {
+                  const exact = [...rankedByUrl.values()].filter(row => row.check.exactId)
+                  // A unique GTIN/MPN/manufacturer-code match is stronger than
+                  // additional fuzzy queries. Stop early and keep the manual
+                  // confirmation step unchanged.
+                  if (requestedKind === 'smartphone' || exact.length === 1) break
+                }
                 for (const row of checked.slice(0, 3)) {
                   const reason = row.check.conflicts.length ? row.check.conflicts.join(', ')
                     : !row.check.theirs.model ? 'модель не распознана'
