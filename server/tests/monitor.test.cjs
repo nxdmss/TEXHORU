@@ -295,7 +295,7 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   const applied = await monitor.applyRecommended(link.id, applyDto)
   assert.equal(applied.newPrice, 95490)
   assert.equal(applied.siteOnly, true)
-  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 96490)
+  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 95490)
   assert.equal(await prisma.auditLog.count({ where: { action: 'APPLY_MONITOR_SITE_PRICE', entityId: String(ours.id) } }), 1)
   await prisma.product.update({ where: { id: ours.id }, data: { price: 99990 } }) // reset fixture
 
@@ -763,20 +763,28 @@ test('Manual URL binding rejects a product URL already assigned elsewhere', asyn
 test('Confirmed 05.ru mapping is one-to-one: one URL per 1C product and one 1C product per URL', async () => {
   const idA = randomUUID(), idB = randomUUID(), categoryId = randomUUID()
   const integration = new IntegrationsService(prisma, {})
+  const nameB = 'Apple iPhone 18 Pro 12GB/256GB Cosmic Orange eSIM'
+  const snapshotB = {
+    ...fixture.snapshot,
+    h1: fixture.snapshot.h1.replace('iPhone 17 Pro', 'iPhone 18 Pro'),
+    scripts: fixture.snapshot.scripts.map(text => text.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
+  }
   await integration.importCatalog({
     categories: [{ oneCId: categoryId, name: 'Тестовые смартфоны ' + categoryId, slug: 'one-to-one-' + categoryId }],
     products: [
       { oneCId: idA, sku: 'MAP-A-' + idA, slug: 'map-a-' + idA, categoryOneCId: categoryId,
         name: product.name, brand: 'Apple', price: 99990, stockQty: 2 },
       { oneCId: idB, sku: 'MAP-B-' + idB, slug: 'map-b-' + idB, categoryOneCId: categoryId,
-        name: product.name, brand: 'Apple', price: 99990, stockQty: 2 },
+        name: nameB, brand: 'Apple', price: 99990, stockQty: 2 },
     ],
   })
   const a = await prisma.product.findUniqueOrThrow({ where: { oneCId: idA } })
   const b = await prisma.product.findUniqueOrThrow({ where: { oneCId: idB } })
   const urlA = fixture.sourceUrl.replace('24007/', 'mapping-a-' + idA + '/')
   const urlB = fixture.sourceUrl.replace('24007/', 'mapping-b-' + idB + '/')
-  const parser = { parse: async url => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }) }
+  const parser = { parse: async url => ({
+    ...extractFiveRu(url === urlA ? fixture.snapshot : snapshotB, url), url,
+  }) }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   const linkA = await monitor.check({ url: urlA, productId: a.id })
   await monitor.confirm(linkA.id, a.id)
