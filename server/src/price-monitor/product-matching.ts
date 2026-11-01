@@ -123,7 +123,11 @@ export function identity(item: Item): Identity {
   const storageText = attrs.storage || spec(/встроенн|объем накоп|storage/i)
   const capacities = [...text.matchAll(/(\d+)\s*(gb|гб|tb|тб)/g)].map(m => units(m[0])!)
   // 1C frequently uses 12/512 without a unit after the storage value.
-  const compactMemory = text.match(/\b(?:4|6|8|12|16|18|24|32)\s+(128|256|512|1024)(?:\s*(?:gb|гб|tb|тб))?\b/)
+  // Do not apply this shortcut to iPhones: "iPhone 16 256" is model 16 +
+  // 256 GB storage, not 16 GB RAM + 256 GB storage. The same false RAM
+  // inference used to reject valid iPhone 12/128 and iPhone 16/256 matches.
+  const compactMemory = /iphone/.test(text) ? null
+    : text.match(/\b(?:4|6|8|12|16|18|24|32)\s+(128|256|512|1024)(?:\s*(?:gb|гб|tb|тб))?\b/)
   const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1024)\b/)?.[1]
     : /xiaomi|redmi|poco|galaxy|samsung|honor|huawei|pixel|realme|oneplus|tecno|infinix|nothing/.test(text) ? compactMemory?.[1] : undefined
   const storage = storageText ? units(storageText) || (/^\d+$/.test(storageText) ? storageText : undefined) : capacities.length ? capacities.at(-1) : bareStorage
