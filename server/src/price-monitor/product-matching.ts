@@ -130,7 +130,7 @@ export function identity(item: Item): Identity {
   const ramText = attrs.ram || spec(/оперативн|ram/i)
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : capacities.length > 1 ? capacities[0]
-    : compactMemory ? text.match(/\b(4|6|8|12|16|18|24|32)\s+(?:128|256|512|1024)\b/)?.[1] : undefined
+    : compactMemory ? compactMemory[0].match(/^(4|6|8|12|16|18|24|32)\b/)?.[1] : undefined
   const partNumberSource = [rawName, attrs.productCode, item.mpn,
     spec(/part number|p\/n|код производителя|артикул производителя|модель производителя/i)]
     .filter(Boolean).join(' ')
