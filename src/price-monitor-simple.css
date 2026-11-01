@@ -93,3 +93,10 @@
 .mp-folder { background:#fff; }
 .mp-tile { padding:20px; gap:16px; }
 @media(max-width:720px) { .mp-tile { padding:12px; } .mp-summary { gap:12px; } }
+
+
+.mp-schedule { display:flex; align-items:center; gap:10px; width:fit-content; max-width:100%; padding:10px 12px; border:1px solid var(--line,#ddd); border-radius:3px; background:#fff; cursor:pointer; }
+.mp-schedule>input { width:16px; height:16px; margin:0; accent-color:#e00016; flex:0 0 auto; }
+.mp-schedule>span { display:grid; gap:3px; }
+.mp-schedule b { font-size:12px; }
+.mp-schedule small { color:var(--muted,#777); font-size:11px; }
