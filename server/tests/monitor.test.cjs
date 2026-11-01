@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { chromium } = require('playwright')
-const { compareItems, identity, fingerprint, validGtin, recommendation } = require('../dist/price-monitor/product-matching')
+const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { ProductsService } = require('../dist/products/products.service')
@@ -161,6 +161,26 @@ test('Accessory compatibility is separate from manufacturer and watch housings a
   assert.equal(identity({ name: 'Чехол P09 чёрный', category: 'Чехлы' }).model, undefined)
   assert.equal(identity({ name: 'Зарядное устройство P09' }).model, 'p09')
   assert.equal(identity({ name: 'Чехол для iPhone 12 прозрачный' }).color, 'transparent')
+})
+
+test('Soft matching suggests plausible non-phone variants without accepting wrong models', () => {
+  const ours = { name: 'СЗУ Breaking P09 USB-C GaN 25W белый', brand: 'Breaking' }
+  const missingColor = { name: 'Зарядное устройство Breaking P09 USB-C GaN 25W', brand: 'Breaking' }
+  const wrongModel = { name: 'Зарядное устройство Breaking P10 USB-C GaN 25W', brand: 'Breaking' }
+  const wrongKind = { name: 'Кабель Breaking P09 USB-C GaN 25W', brand: 'Breaking' }
+  assert.equal(identity(ours).kind, 'charger')
+  assert.equal(identity(missingColor).kind, 'charger')
+  assert(reviewCandidate(ours, missingColor)?.score >= 20)
+  assert.equal(compareItems(ours, missingColor).canAutoConfirm, false)
+  assert.equal(reviewCandidate(ours, wrongModel), null)
+  assert.equal(reviewCandidate(ours, wrongKind), null)
+  const caseName = 'Чехол iPhone 16 Pro прозрачный'
+  const blackCase = 'Чехол iPhone 16 Pro черный'
+  assert(reviewCandidate({ name: caseName }, { name: blackCase }))
+  assert.equal(reviewCandidate({ name: caseName }, { name: 'Чехол iPhone 15 Pro прозрачный' }), null)
+  assert.equal(reviewCandidate({ name: 'Nokia 110 TA1567' }, { name: 'Nokia 108 TA1627' }), null)
+  assert.equal(reviewCandidate({ name: 'iPhone 17 Pro 256GB' }, { name: 'iPhone 17 Pro 256GB' }), null)
+  assert.equal(isExpectedReviewOutcome('05.ru: найдены варианты для ручной проверки для СЗУ'), true)
 })
 
 test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links', () => {
@@ -554,6 +574,50 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal(last.latestPrice, 94990)
   assert.equal(next.externalName, nextSnapshot.h1)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: secondId } })).price, 90000)
+})
+
+test('Non-phone matching stores incomplete variants as SUGGESTED, without changing 1C price', async () => {
+  const seed = randomUUID(), catId = randomUUID(), name = 'СЗУ Breaking P09 USB-C GaN 25W белый'
+  const url = 'https://05.ru/cat/a/p/zaryadnoe-ustroystvo-breaking-p09-25w-' + seed + '/'
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: catId, name: 'Зарядные устройства / Тест ' + seed, slug: 'soft-cat-' + seed }],
+    products: [{
+      oneCId: seed, sku: 'SOFT-'+seed, slug: 'soft-'+seed, name,
+      brand: 'Breaking', categoryOneCId: catId, price: 1990, stockQty: 5, costPrice: 900,
+    }],
+  })
+  const externalName = 'Зарядное устройство Breaking P09 USB-C GaN 25W'
+  const result = {
+    name: externalName, price: 1290, oldPrice: null, inStock: true, externalSku: null,
+    categoryName: 'Зарядные устройства', brand: 'Breaking', url,
+    attributes: identity({ name: externalName, brand: 'Breaking' }),
+    seller: '05.ru', region: null, priceSource: 'JSON-LD Offer',
+  }
+  let searchCalls = 0
+  const parser = { searchProducts: async () => { searchCalls++; return [result] } }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath: 'Зарядные устройства / Тест ' + seed, maxItems: 10 })
+  await monitor.tick()
+  const checked = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(checked.status, 'COMPLETED')
+  assert.equal(checked.errors, 0)
+  assert(searchCalls >= 1)
+  const link = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: seed } })
+  assert.equal(link.productId, product.id)
+  assert.equal(link.matchStatus, 'SUGGESTED')
+  assert.equal(product.price, 1990)
+  assert.equal(link.latestPrice, 1290)
+  assert.equal(await prisma.monitorDelivery.count({ where: { linkId: link.id, status: 'PENDING' } }), 0)
+  const candidates = await monitor.candidates(link.id)
+  assert.equal(candidates[0].product.id, product.id)
+  assert(candidates[0].reviewScore >= 20)
+  // Explicit human confirmation is supported when the only missing detail
+  // is unspecified on 05.ru; no auto-approval happens during discovery.
+  const confirmed = await monitor.confirm(link.id, product.id)
+  assert.equal(confirmed.matchStatus, 'CONFIRMED')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: seed } })).price, 1990)
 })
 
 test('Daily price refresh queues only confirmed links and never discovers products', async () => {
