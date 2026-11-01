@@ -63,8 +63,21 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   const byColor = parsed.color
     ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
     : undefined
-  return [...new Set([byColor, model + (parsed.storage ? ' ' + parsed.storage : ''), model]
-    .filter((query): query is string => Boolean(query)))]
+  // 05.ru writes "iPhone 16e" as one token, while 1C often normalizes
+  // it to "iPhone 16 e". Search both spellings; otherwise the live search
+  // can return hundreds of unrelated results and miss the exact 16e card.
+  const compactModel = model.replace(/\b(iphone\s+\d{1,2})\s+e\b/, '$1e')
+  const compactModelWithoutBrand = parsed.brand && compactModel.startsWith(parsed.brand + ' ')
+    ? compactModel.slice(parsed.brand.length + 1) : compactModel
+  const compactByColor = parsed.color
+    ? [parsed.brand, compactModelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
+    : undefined
+  return [...new Set([
+    byColor, compactByColor,
+    model + (parsed.storage ? ' ' + parsed.storage : ''),
+    compactModel + (parsed.storage ? ' ' + parsed.storage : ''),
+    model, compactModel,
+  ].filter((query): query is string => Boolean(query)))]
 }
 
 export function isExpectedReviewOutcome(message: string) {
@@ -294,7 +307,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (autoConfirmed) {
         await tx.auditLog.create({ data: {
           action: 'AUTO_CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: row.id,
-          details: { productId: suggestedProductId ?? null, basis: 'exact brand/model/storage/colour and compatible SIM data' },
+          details: { productId: suggestedProductId ?? null, basis: 'unique exact product identity or complete model/variant configuration without explicit conflicts' },
         } })
       }
       return this.decorated(row)
@@ -524,7 +537,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const exact = verified.filter(item => item.check.canAutoConfirm)
     const source = await this.source()
     if (exact.length === 1) {
-      await this.save(exact[0].result, source.id, product.id)
+      // The index is only a discovery hint; the product page was re-read and
+      // the complete hardware configuration was checked above. Persist the
+      // unique exact mapping as confirmed, not as another review suggestion.
+      await this.save(exact[0].result, source.id, product.id, false, true)
       return true
     }
     if (exact.length > 1) {
@@ -1096,8 +1112,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 throw new Error('Карточка 05.ru уже связана с другим товаром: ' + product.name)
               }
               const source = await this.source()
-              const autoConfirmExact = requestedKind === 'smartphone' && ranked.length === 1
-                && ranked[0].check.canAutoConfirm
+              // Auto-confirm only one unique candidate whose full identity
+              // is complete. This includes exact laptop hardware/SKU matches;
+              // missing optional fields are allowed, explicit conflicts are not.
+              const autoConfirmExact = ranked.length === 1 && ranked[0].check.canAutoConfirm
               await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact)
               }
               }
