@@ -183,6 +183,79 @@ test('Soft matching suggests plausible non-phone variants without accepting wron
   assert.equal(isExpectedReviewOutcome('05.ru: найдены варианты для ручной проверки для СЗУ'), true)
 })
 
+test('Laptop matching uses manufacturer part numbers and hardware configuration', () => {
+  const acer = {
+    name: 'Ноутбук 15.6" FHD Acer Aspire AL15-31P-C1CS silver (Cel N4500/8Gb/256Gb SSD/VGA int/noOS)',
+    brand: 'Acer', category: 'НОУТБУКИ',
+  }
+  const fiveRu = {
+    name: 'Ноутбук Acer Aspire AL15-31P-C1CS 15.6" FHD Intel Celeron N4500 8GB RAM 256GB SSD Silver',
+    brand: 'Acer', category: 'Ноутбуки',
+  }
+  const parsed = identity(acer)
+  assert.equal(parsed.kind, 'laptop')
+  assert.equal(parsed.brand, 'acer')
+  assert.equal(parsed.model, 'al15 31p c1cs')
+  assert.equal(parsed.productCode, 'al15 31p c1cs')
+  assert.equal(parsed.cpu, 'celeron n4500')
+  assert.equal(parsed.ram, '8')
+  assert.equal(parsed.storage, '256')
+  assert.equal(parsed.screenSize, '15.6')
+
+  const same = compareItems(acer, fiveRu)
+  assert.deepEqual(same.conflicts, [], JSON.stringify(same))
+  assert.equal(same.theirs.productCode, parsed.productCode)
+  assert.equal(same.theirs.cpu, parsed.cpu)
+
+  const wrongCode = compareItems(acer, {
+    name: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD',
+    brand: 'Acer',
+  })
+  assert(wrongCode.conflicts.length)
+  assert.equal(reviewCandidate(acer, { name: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD', brand: 'Acer' }), null)
+
+  const wrongCpu = compareItems(acer, {
+    name: 'Ноутбук Acer Aspire AL15-31P-C1CS 15.6" Core i3-1215U 8GB 256GB SSD',
+    brand: 'Acer',
+  })
+  assert(wrongCpu.conflicts.includes('процессор'))
+
+  const wrongRam = compareItems(acer, {
+    name: 'Ноутбук Acer Aspire AL15-31P-C1CS 15.6" Celeron N4500 16GB 256GB SSD',
+    brand: 'Acer',
+  })
+  assert(wrongRam.conflicts.includes('ОЗУ'))
+
+  assert.deepEqual(oneCSearchQueries(acer), [
+    'acer al15 31p c1cs',
+    'acer celeron n4500 8gb 256gb 15.6"',
+    'Ноутбук 15.6" FHD Acer Aspire AL15-31P-C1CS silver (Cel N4500/8Gb/256Gb SSD/VGA int/noOS)',
+  ])
+
+  const target = 'https://05.ru/cat/laptops/p/acer-aspire-al15-31p-c1cs-123/'
+  const other = 'https://05.ru/cat/laptops/p/acer-aspire-al15-31p-c2cs-456/'
+  assert.deepEqual(rankSearchLinks([
+    { url: other, title: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD' },
+    { url: target, title: fiveRu.name },
+  ], 'acer al15-31p-c1cs'), [target])
+})
+
+test('Laptop part number parser recognizes ASUS, Lenovo, MSI, Huawei and Apple model codes', () => {
+  const cases = [
+    ['Ноутбук Asus Vivobook 15 X1504ZA-BQ1144 Core i3-1215U', 'x1504za bq1144', 'core i3 1215u'],
+    ['Ноутбук Lenovo IdeaPad 1 15AMN7 82VG00Q8 Ryzen 5 7520U', '82vg00q8', 'ryzen 5 7520u'],
+    ['Ноутбук MSI Thin 15 B13VE-3200XRU Core i7-13620H RTX 4050', 'b13ve 3200xru', 'core i7 13620h'],
+    ['Ноутбук Huawei MateBook D 14 53013XET Core i5-12450H', '53013xet', 'core i5 12450h'],
+    ['Apple MacBook Air A3241 15.3 2025 M4', 'a3241', 'm4'],
+  ]
+  for (const [name, code, cpu] of cases) {
+    const parsed = identity({ name, brand: name.includes('Apple') ? 'Apple' : undefined })
+    assert.equal(parsed.kind, 'laptop', name)
+    assert.equal(parsed.productCode, code, name)
+    assert.equal(parsed.cpu, cpu, name)
+  }
+})
+
 test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links', () => {
   const target = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
   const noise = Array.from({ length: 15 }, (_, i) => ({
