@@ -20,7 +20,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     charger: 'зарядное устройство', cable: 'кабель',
   }
   if (parsed.kind && accessoryType[parsed.kind]) {
-    const focused = [parsed.brand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
+    const searchBrand = parsed.brand || parsed.compatibleBrand
+    const focused = [searchBrand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
     const typeModel = [accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
     return [...new Set([focused, typeModel, cleanName].filter(Boolean))]
   }
@@ -833,7 +834,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const rejected: string[] = []
               const requestedKind = identity(product).kind
               for (const query of oneCSearchQueries(product)) {
-                const trace: FiveRuSearchTrace = { query, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
+                const trace: FiveRuSearchTrace = { query, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
                 let results: FiveRuResult[]
                 try {
@@ -867,7 +868,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
               if (!ranked.length) {
                 const summary = traces.map(trace =>
-                  '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + trace.cardsParsed + ' прочитано' +
+                  '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + (trace.rankedLinks ?? 0) + ' кандидатов, ' + trace.cardsParsed + ' карточек прочитано' +
                     (trace.cached ? ' (кеш)' : '') +
                     (trace.pageUrl ? ' · страница ' + new URL(trace.pageUrl).pathname : '') +
                     (trace.searchMode ? ' · режим ' + trace.searchMode : '')
