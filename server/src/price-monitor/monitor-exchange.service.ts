@@ -13,12 +13,24 @@ export class MonitorExchangeService {
     const link = await tx.competitorProduct.findUnique({ where: { id: linkId }, include: { product: true, source: true } })
     if (!link?.product?.oneCId || link.product.status !== 'ACTIVE' || link.matchStatus !== 'CONFIRMED' || link.lastError) return null
     if (fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint || fingerprint(link.product) !== link.confirmedProductFingerprint) return null
+    // Only create a 1C proposal when the latest observed competitor price
+    // differs from the preceding successful observation. The initial link
+    // confirmation is a baseline, not a price change.
+    const recent = await tx.competitorPriceHistory.findMany({
+      where: { competitorProductId: linkId },
+      orderBy: [{ checkedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      take: 2,
+    })
     const history = historyId
-      ? await tx.competitorPriceHistory.findUnique({ where: { id: historyId } })
-      : await tx.competitorPriceHistory.findFirst({ where: { competitorProductId: linkId }, orderBy: [{ checkedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }] })
+      ? recent.find(row => row.id === historyId)
+      : recent[0]
     if (!history || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000) return null
+    const currentIndex = recent.findIndex(row => row.id === history.id)
+    const previous = currentIndex >= 0 ? recent[currentIndex + 1] : undefined
+    if (!previous || previous.price === history.price) return null
     const payload = jsonValue({
       schemaVersion: 1, historyId: history.id, linkId, oneCId: link.product.oneCId,
+      previousPrice: previous.price, priceChange: history.price - previous.price,
       siteProductId: link.product.id, ourSku: link.product.sku, ourName: link.product.name,
       competitor: link.source.name, url: link.externalUrl, name: link.externalName,
       price: history.price, oldPrice: history.oldPrice, inStock: history.inStock,
