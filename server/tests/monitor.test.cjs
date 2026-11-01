@@ -174,6 +174,10 @@ test('Soft matching suggests plausible non-phone variants without accepting wron
   assert.equal(compareItems(ours, missingColor).canAutoConfirm, false)
   assert.equal(reviewCandidate(ours, wrongModel), null)
   assert.equal(reviewCandidate(ours, wrongKind), null)
+  const charger25 = { name: 'Зарядное устройство Breaking P09 USB-C GaN 25W', brand: 'Breaking' }
+  const charger45 = { name: 'Зарядное устройство Breaking P09 USB-C GaN 45W', brand: 'Breaking' }
+  assert.equal(identity(charger25).wattage, '25')
+  assert.equal(reviewCandidate(charger25, charger45), null)
   const caseName = 'Чехол iPhone 16 Pro прозрачный'
   const blackCase = 'Чехол iPhone 16 Pro черный'
   assert(reviewCandidate({ name: caseName }, { name: blackCase }))
