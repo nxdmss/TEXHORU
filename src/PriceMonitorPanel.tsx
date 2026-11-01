@@ -364,10 +364,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
         onChange={e => void setAutomaticChecks(e.target.checked)}/>
       <span>
-        <b>Автопроверка каждые 6 часов</b>
+        <b>Автопроверка</b>
         <small>{!settingsReady ? 'Загрузка расписания…' : intervalMinutes > 0
-          ? 'Включена · следующая: ' + prettyDate(nextRunAt)
-          : 'Выключена · можно запускать проверку вручную'}</small>
+          ? 'Каждые ' + (intervalMinutes / 60) + ' ч · следующая: ' + prettyDate(nextRunAt)
+          : 'Выключена · включить на 6 часов'}</small>
       </span>
     </label>
     {active && <div className="mp-progress" role="status">
