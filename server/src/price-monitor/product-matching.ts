@@ -285,6 +285,7 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   if (a.cpu && b.cpu && a.cpu !== b.cpu) return null
   if (a.gpu && b.gpu && a.gpu !== b.gpu) return null
   if (a.screenSize && b.screenSize && a.screenSize !== b.screenSize) return null
+  if (a.wattage && b.wattage && a.wattage !== b.wattage) return null
   if (a.ram && b.ram && a.ram !== b.ram) return null
   if (a.gtin && b.gtin && a.gtin !== b.gtin) return null
   if (a.mpn && b.mpn && a.mpn !== b.mpn) return null
