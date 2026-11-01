@@ -176,7 +176,19 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       let confirmedFingerprint = existing?.confirmedFingerprint || null
       let confirmedProductFingerprint = existing?.confirmedProductFingerprint || null
       const theirs = { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }
-      if (matchStatus === 'CONFIRMED' && (fingerprint(theirs) !== confirmedFingerprint || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint)) matchStatus = 'REVIEW_REQUIRED'
+      const externalFingerprint = fingerprint({ name: result.name, attributes: result.attributes })
+      const legacyExternalFingerprint = fingerprint(theirs)
+      if (matchStatus === 'CONFIRMED') {
+        const externalChanged = externalFingerprint !== confirmedFingerprint
+          && legacyExternalFingerprint !== confirmedFingerprint
+        if (externalChanged || !existing?.product || fingerprint(existing.product) !== confirmedProductFingerprint) {
+          matchStatus = 'REVIEW_REQUIRED'
+        } else {
+          // Normalize legacy fingerprints created before manual confirmation
+          // used the same name+attributes contract as list(), confirm() and 1C.
+          confirmedFingerprint = externalFingerprint
+        }
+      }
       if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
         if (forceReview) {
           // Uncertain discoveries remain unlinked unless the 1C product was
