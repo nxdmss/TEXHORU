@@ -273,70 +273,119 @@ export function compareItems(ours: Item, theirs: Item) {
 }
 
 /**
- * Wider recall for non-phone products. A review candidate is NOT a verified
- * mapping and must never be used to change or monitor the 1C selling price.
- * Explicitly different model, product type, GTIN/MPN or condition are rejected.
- * Missing data or differing weak attributes (maker/colour) may be reviewed.
+ * A manual-review suggestion is deliberately broader than an automatic match.
+ * Variant differences are surfaced with reasons; only a different product
+ * family/model or incompatible device type is excluded.
+ */
+export function manualConfirmationBlockers(ours: Item, theirs: Item): string[] {
+  const a = identity(ours), b = identity(theirs)
+  const nameA = identity({ name: ours.name }), nameB = identity({ name: theirs.name })
+  const blockers = new Set<string>()
+  const kind = a.kind || b.kind
+  if (a.kind && b.kind && a.kind !== b.kind) blockers.add('тип товара')
+  if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)) blockers.add('модель')
+  if (nameA.model && a.model && canonicalModel(nameA.model) !== canonicalModel(a.model)) {
+    blockers.add('модель в названии 1С противоречит характеристикам')
+  }
+  if (nameB.model && b.model && canonicalModel(nameB.model) !== canonicalModel(b.model)) {
+    blockers.add('модель на 05.ru противоречит характеристикам')
+  }
+  if (['smartphone', 'laptop'].includes(kind || '') && a.brand && b.brand && a.brand !== b.brand) {
+    blockers.add('бренд')
+  }
+  if (a.compatibleBrand && b.compatibleBrand && a.compatibleBrand !== b.compatibleBrand) {
+    blockers.add('совместимость')
+  }
+  if (['smartphone', 'laptop'].includes(kind || '')) {
+    if (nameA.brand && a.brand && nameA.brand !== a.brand) blockers.add('бренд в названии 1С противоречит характеристикам')
+    if (nameB.brand && b.brand && nameB.brand !== b.brand) blockers.add('бренд на 05.ru противоречит характеристикам')
+  }
+  return [...blockers]
+}
+
+/**
+ * Wider recall for manual review. This result is never an automatic mapping
+ * and cannot enter price monitoring until a person explicitly confirms it.
  */
 export function reviewCandidate(ours: Item, theirs: Item): { score: number; reasons: string[] } | null {
   const a = identity(ours), b = identity(theirs)
-  if (a.kind === 'smartphone' || b.kind === 'smartphone') return null
+  const kind = a.kind || b.kind
   if (a.kind && b.kind && a.kind !== b.kind) return null
-  if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)
-    && !(a.productCode && a.productCode === b.productCode)) return null
-  if (a.productCode && b.productCode && a.productCode !== b.productCode) return null
-  if (a.cpu && b.cpu && a.cpu !== b.cpu) return null
-  if (a.gpu && b.gpu && a.gpu !== b.gpu) return null
-  if (a.screenSize && b.screenSize && a.screenSize !== b.screenSize) return null
-  if (a.wattage && b.wattage && a.wattage !== b.wattage) return null
-  if (a.ram && b.ram && a.ram !== b.ram) return null
-  if (a.gtin && b.gtin && a.gtin !== b.gtin) return null
-  if (a.mpn && b.mpn && a.mpn !== b.mpn) return null
-  if (a.kind === 'laptop' && a.brand && b.brand && a.brand !== b.brand) return null
-  if (a.condition !== b.condition && (a.condition === 'used' || b.condition === 'used')) return null
-  // Even manual review should not propose an explicitly wrong storage variant.
-  if (a.storage && b.storage && a.storage !== b.storage) return null
+  if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)) return null
+  if (['smartphone', 'laptop'].includes(kind || '') && a.brand && b.brand && a.brand !== b.brand) return null
+  if (a.compatibleBrand && b.compatibleBrand && a.compatibleBrand !== b.compatibleBrand) return null
+
+  const sameModel = Boolean(a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model))
+  const sameCode = Boolean(a.productCode && b.productCode && a.productCode === b.productCode)
+  const codeFamily = (value?: string) => value?.split(/[-_]/)[0]
+  const sameCodeFamily = Boolean(kind === 'laptop' && a.productCode && b.productCode
+    && codeFamily(a.productCode) === codeFamily(b.productCode))
+  const sameCpu = Boolean(a.cpu && b.cpu && a.cpu === b.cpu)
+  const sameGpu = Boolean(a.gpu && b.gpu && a.gpu === b.gpu)
+  const sameBrand = Boolean(a.brand && b.brand && a.brand === b.brand)
+  const compatible = Boolean(a.compatibleBrand && b.compatibleBrand && a.compatibleBrand === b.compatibleBrand)
+  const sameKind = Boolean(a.kind && a.kind === b.kind)
 
   const stop = new Set([
     'для', 'без', 'при', 'чехол', 'чехлы', 'накладка', 'защитное', 'стекло',
     'силиконовая', 'силиконовый', 'телефон', 'смартфон', 'карманом',
     'черный', 'белый', 'прозрачный', 'цвет', 'case', 'cover', 'with',
     'black', 'white', 'transparent', 'шт', 'gb', 'гб', 'usb',
+    'iphone', 'samsung', 'galaxy', 'xiaomi', 'apple',
   ])
   const tokens = (name: string) => new Set(normalize(name).split(' ')
     .filter(word => word.length > 1 && !stop.has(word)))
   const left = tokens(ours.name), right = tokens(theirs.name)
   const common = [...left].filter(word => right.has(word))
-  const sameModel = Boolean(a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model))
-  const sameCode = Boolean(a.productCode && b.productCode && a.productCode === b.productCode)
-  const sameCpu = Boolean(a.cpu && b.cpu && a.cpu === b.cpu)
-  const sameGpu = Boolean(a.gpu && b.gpu && a.gpu === b.gpu)
-  const sameBrand = Boolean(a.brand && b.brand && a.brand === b.brand)
-  const compatible = Boolean(a.compatibleBrand && b.compatibleBrand && a.compatibleBrand === b.compatibleBrand)
-  const sameKind = Boolean(a.kind && a.kind === b.kind)
-  const specificOverlap = common.filter(word => !['iphone', 'samsung', 'galaxy', 'xiaomi', 'apple'].includes(word))
-  // Two random similarly named accessories are not a plausible match.
-  if (!sameModel && !sameCode && !sameCpu
-    && (!sameKind || specificOverlap.length < 2 || (!sameBrand && !compatible && specificOverlap.length < 3))) return null
+  const specificOverlap = common.filter(word => !/^\d+$/.test(word))
+
+  // A smartphone must be the same explicit model. Storage, colour, SIM, RAM
+  // and condition are variant signals, not discovery blockers.
+  if (kind === 'smartphone' && !sameModel) return null
+  // For laptops, a different SKU within the same family is a review candidate.
+  if (kind === 'laptop' && !sameModel && !sameCode && !sameCodeFamily && !(sameCpu && sameBrand)) return null
+  if (kind !== 'smartphone' && kind !== 'laptop'
+    && !sameModel && !sameCode && !(sameKind && (sameCpu || sameGpu || specificOverlap.length >= 2))
+    && !(sameBrand && specificOverlap.length >= 3)) return null
 
   const reasons: string[] = []
-  if (!b.model && a.model) reasons.push('модель не указана на 05.ru')
-  if (a.color && b.color && a.color !== b.color) reasons.push('цвет требует проверки')
-  if (a.brand && b.brand && a.brand !== b.brand) reasons.push('производитель требует проверки')
-  if (a.sim && b.sim && a.sim !== b.sim) reasons.push('SIM требует проверки')
-  if (a.cpu && !b.cpu) reasons.push('процессор не указан на 05.ru')
-  if (a.gpu && !b.gpu) reasons.push('видеокарта не указана на 05.ru')
-  if (a.screenSize && !b.screenSize) reasons.push('диагональ не указана на 05.ru')
-  if (!b.kind) reasons.push('тип товара не указан')
-  const score = Math.min(94,
-    (sameModel ? 52 : 0) + (sameCode ? 16 : 0) + (sameCpu ? 18 : 0) + (sameGpu ? 8 : 0)
-    + (sameKind ? 16 : 0) + (sameBrand ? 12 : 0) + (compatible ? 12 : 0)
-    + Math.min(24, specificOverlap.length * 6)
-    - (a.color && b.color && a.color !== b.color ? 12 : 0)
-    - (a.brand && b.brand && a.brand !== b.brand ? 12 : 0))
+  const fields: Array<[keyof Identity, string]> = [
+    ['productCode', 'код производителя'], ['storage', 'память'], ['ram', 'ОЗУ'],
+    ['color', 'цвет'], ['sim', 'SIM'], ['cpu', 'процессор'], ['gpu', 'видеокарта'],
+    ['screenSize', 'диагональ'], ['wattage', 'мощность'], ['gtin', 'GTIN'], ['mpn', 'MPN'],
+  ]
+  for (const [key, label] of fields) {
+    if (a[key] && b[key] && a[key] !== b[key]) reasons.push(label + ' отличается')
+    else if (a[key] && !b[key]) reasons.push(label + ' не указан на 05.ru')
+  }
+  if ((a.condition === 'used') !== (b.condition === 'used')) reasons.push('состояние отличается')
+  if (a.brand && b.brand && a.brand !== b.brand) reasons.push('производитель отличается')
+  if (a.brand && !b.brand) reasons.push('производитель не указан на 05.ru')
+  if (a.model && !b.model) reasons.push('модель не указана на 05.ru')
+  if (a.kind && !b.kind) reasons.push('тип товара не распознан на 05.ru')
+  if (a.compatibleBrand && !b.compatibleBrand) reasons.push('совместимость не указана на 05.ru')
+
+  // Exact/near-exact matches are handled by the strict path. This function
+  // exists for candidates that need a human decision.
+  if (!reasons.length) return null
+
+  let score = (sameModel ? 50 : 0) + (sameCode ? 50 : 0) + (sameCodeFamily ? 30 : 0)
+    + (sameCpu ? 18 : 0) + (sameGpu ? 10 : 0) + (sameKind ? 12 : 0)
+    + (sameBrand ? 12 : 0) + (compatible ? 10 : 0)
+    + Math.min(18, specificOverlap.length * 3)
+  if (a.productCode && b.productCode && a.productCode !== b.productCode) score -= 10
+  if (a.storage && b.storage && a.storage !== b.storage) score -= 12
+  if (a.ram && b.ram && a.ram !== b.ram) score -= 6
+  if (a.color && b.color && a.color !== b.color) score -= 6
+  if (a.sim && b.sim && a.sim !== b.sim) score -= 6
+  if (a.cpu && b.cpu && a.cpu !== b.cpu) score -= 14
+  if (a.gpu && b.gpu && a.gpu !== b.gpu) score -= 8
+  if (a.screenSize && b.screenSize && a.screenSize !== b.screenSize) score -= 8
+  if (a.wattage && b.wattage && a.wattage !== b.wattage) score -= 10
+  if ((a.condition === 'used') !== (b.condition === 'used')) score -= 8
+  if (a.brand && b.brand && a.brand !== b.brand) score -= 10
   return score >= 20 ? { score, reasons } : null
 }
-
 export function recommendation(input: { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null }, product?: { price: number; costPrice?: number | null } | null) {
   const reasons: string[] = []
   if (!input.latestPrice || input.latestPrice <= 0) reasons.push('нет цены')

@@ -1,10 +1,10 @@
-import { canonicalModel, identity, normalize } from './product-matching'
+import { canonicalModel, identity, normalize, type Identity } from './product-matching'
 
 export type SearchLink = string | { url: string; title?: string }
 
-// Rank the complete discovery set before spending requests on product pages.
-// Model, product family, brand and explicit variant attributes outrank raw word overlap.
-export function rankSearchLinks(input: SearchLink[], query: string, limit = 12): string[] {
+// Rank broadly before opening product pages. Only a clear product-family/model
+// conflict is discarded here; variant differences are scored for manual review.
+export function rankSearchLinks(input: SearchLink[], query: string, limit = 18): string[] {
   const requested = identity({ name: query })
   const queryWords = new Set(normalize(query).split(' ').filter(word => word.length > 1))
   const requestedStorage = requested.storage || normalize(query).match(/\b(128|256|512|1024)\b/)?.[1]
@@ -16,6 +16,12 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     unique.set(url, { url, title: typeof entry === 'string' ? '' : entry.title || '', index })
   }
 
+  const stopWords = new Set([
+    'iphone', 'apple', 'samsung', 'galaxy', 'xiaomi', 'smartphone', 'смартфон',
+    'ноутбук', 'laptop', 'для', 'the', 'and', 'with', 'гб', 'gb', 'тб', 'tb',
+  ])
+  const codeFamily = (value?: string) => value?.split(/[-_]/)[0]
+
   return [...unique.values()].map(candidate => {
     let rawSlug = ''
     try {
@@ -23,65 +29,67 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
         .replace(/-\d+\/?$/, '').replace(/_/g, ' ')
     } catch { /* The caller validates every URL against 05.ru. */ }
 
-    // Keep punctuation in the raw title/slug while extracting manufacturer
-    // part numbers. Normalize only the token set used for fuzzy ranking.
     const slug = rawSlug.replace(/-/g, ' ')
     const title = candidate.title || slug
     const combined = normalize(title + ' ' + slug)
-    const parsed = identity({ name: (candidate.title || '') + ' ' + rawSlug })
-    const slugVariant = identity({ name: rawSlug })
 
-    // A requested capacity must agree with both the visible title and URL slug.
-    if (requestedStorage && (
-      (parsed.storage && parsed.storage !== requestedStorage)
-      || (slugVariant.storage && slugVariant.storage !== requestedStorage)
-    )) return null
+    // Do not concatenate title and slug before parsing: the same 128/256 GB
+    // value is commonly present twice and can be mistaken for RAM + storage.
+    const fromTitle = identity({ name: candidate.title || '' })
+    const fromSlug = identity({ name: rawSlug })
+    const parsed = { ...fromSlug } as Identity
+    for (const [key, value] of Object.entries(fromTitle)) {
+      if (value !== undefined && value !== '') (parsed as Record<string, unknown>)[key] = value
+    }
 
-    // Do not read another product family or a different explicit model/code.
-    if (requested.model && parsed.model && canonicalModel(requested.model) !== canonicalModel(parsed.model)
-      && !(requested.productCode && requested.productCode === parsed.productCode)) return null
-    if (requested.productCode && parsed.productCode && requested.productCode !== parsed.productCode) return null
-    if (requested.cpu && parsed.cpu && requested.cpu !== parsed.cpu) return null
-    if (requested.gpu && parsed.gpu && requested.gpu !== parsed.gpu) return null
-    if (requested.ram && parsed.ram && requested.ram !== parsed.ram) return null
-    if (requested.screenSize && parsed.screenSize && requested.screenSize !== parsed.screenSize) return null
+    const sameModel = Boolean(requested.model && parsed.model
+      && canonicalModel(requested.model) === canonicalModel(parsed.model))
+    const sameCode = Boolean(requested.productCode && parsed.productCode
+      && requested.productCode === parsed.productCode)
+    const sameCodeFamily = Boolean(requested.kind === 'laptop' && requested.productCode && parsed.productCode
+      && codeFamily(requested.productCode) === codeFamily(parsed.productCode))
+    const sameCpu = Boolean(requested.cpu && parsed.cpu && requested.cpu === parsed.cpu)
+    const sameGpu = Boolean(requested.gpu && parsed.gpu && requested.gpu === parsed.gpu)
+    const brandMatch = Boolean(requested.brand && parsed.brand && requested.brand === parsed.brand)
+    const compatibleMatch = Boolean(requested.compatibleBrand && parsed.compatibleBrand
+      && requested.compatibleBrand === parsed.compatibleBrand)
+
     if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
+    if (requested.model && parsed.model && !sameModel) return null
 
-    // A phone search should not waste page reads on accessories whose category
-    // text is too generic for productKind() to classify.
-    if (requested.kind === 'smartphone' && requested.model
-      && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
+    // Never send a phone search to accessory cards or another phone brand.
+    if (requested.kind === 'smartphone' && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
+    if (requested.kind === 'smartphone' && requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    if (requested.kind === 'laptop' && requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    if (requested.compatibleBrand && parsed.compatibleBrand && !compatibleMatch) return null
 
-    // If both sides expose a brand, a different brand is a hard rejection.
-    // Missing brand on a search tile is not proof of a mismatch; the product
-    // page will be opened and checked before a candidate can be suggested.
-    // For non-smartphone products a different maker or finish is a review
-    // signal, not a reason to hide the product before opening its actual page.
-    // Actual model/type/compatible device conflicts above stay hard filters.
-    if (requested.kind === 'smartphone' && requested.brand && parsed.brand
-      && requested.brand !== parsed.brand) return null
-    // For cases/protectors, the phone brand is compatibility, not the accessory maker.
-    if (requested.compatibleBrand && parsed.compatibleBrand
-      && requested.compatibleBrand !== parsed.compatibleBrand) return null
-    if (requested.kind === 'smartphone' && requested.color && parsed.color && requested.color !== parsed.color) return null
+    // A different laptop SKU in the same family is worth opening for review.
+    // A completely different product code family is still discarded.
+    if (requested.kind === 'laptop' && requested.productCode && parsed.productCode
+      && requested.productCode !== parsed.productCode && !sameCodeFamily && !sameModel) return null
 
     const words = new Set(combined.split(' '))
+    const meaningfulOverlap = [...queryWords].filter(word => words.has(word) && !stopWords.has(word)).length
+    const sameKind = Boolean(requested.kind && parsed.kind && requested.kind === parsed.kind)
+    const hasAnchor = sameModel || sameCode || sameCodeFamily || sameCpu || sameGpu
+      || (brandMatch && requested.model && !parsed.model && requested.kind !== 'smartphone')
+      || (brandMatch && meaningfulOverlap >= 2) || meaningfulOverlap >= 3
+    if (!hasAnchor) return null
+
     let score = 0
-    if (requested.model && parsed.model) score += canonicalModel(requested.model) === canonicalModel(parsed.model) ? 100 : -100
-    else if (requested.model) score += 8
-    if (requested.productCode && parsed.productCode) score += requested.productCode === parsed.productCode ? 140 : -140
-    if (requested.brand && parsed.brand) score += requested.brand === parsed.brand ? 60 : -60
-    if (requested.compatibleBrand && parsed.compatibleBrand) {
-      score += requested.compatibleBrand === parsed.compatibleBrand ? 60 : -60
-    }
-    if (requested.kind && parsed.kind) score += requested.kind === parsed.kind ? 30 : -30
-    if (requested.cpu && parsed.cpu) score += requested.cpu === parsed.cpu ? 55 : -55
-    if (requested.gpu && parsed.gpu) score += requested.gpu === parsed.gpu ? 35 : -35
-    if (requested.ram && parsed.ram) score += requested.ram === parsed.ram ? 25 : -25
-    if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 35 : -35
-    if (requested.screenSize && parsed.screenSize) score += requested.screenSize === parsed.screenSize ? 20 : -20
-    if (requested.color && parsed.color) score += requested.color === parsed.color ? 20 : -20
-    for (const word of queryWords) if (words.has(word)) score += 5
+    if (requested.model) score += sameModel ? 120 : parsed.model ? -100 : 12
+    if (requested.productCode) score += sameCode ? 160 : sameCodeFamily ? 55 : parsed.productCode ? -35 : 12
+    if (requested.brand && parsed.brand) score += brandMatch ? 45 : -60
+    if (requested.compatibleBrand && parsed.compatibleBrand) score += compatibleMatch ? 45 : -60
+    if (requested.kind && parsed.kind) score += sameKind ? 30 : -30
+    if (requested.cpu && parsed.cpu) score += requested.cpu === parsed.cpu ? 45 : -20
+    if (requested.gpu && parsed.gpu) score += requested.gpu === parsed.gpu ? 25 : -12
+    if (requested.ram && parsed.ram) score += requested.ram === parsed.ram ? 18 : -10
+    if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 28 : -14
+    if (requested.screenSize && parsed.screenSize) score += requested.screenSize === parsed.screenSize ? 14 : -8
+    if (requested.color && parsed.color) score += requested.color === parsed.color ? 10 : -5
+    if (requested.sim && parsed.sim) score += requested.sim === parsed.sim ? 10 : -5
+    for (const word of queryWords) if (words.has(word) && !stopWords.has(word)) score += 4
 
     return { ...candidate, score }
   }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)

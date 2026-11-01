@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { chromium } = require('playwright')
-const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate } = require('../dist/price-monitor/product-matching')
+const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate, manualConfirmationBlockers } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { ProductsService } = require('../dist/products/products.service')
@@ -177,7 +177,7 @@ test('Soft matching suggests plausible non-phone variants without accepting wron
   const charger25 = { name: 'Зарядное устройство Breaking P09 USB-C GaN 25W', brand: 'Breaking' }
   const charger45 = { name: 'Зарядное устройство Breaking P09 USB-C GaN 45W', brand: 'Breaking' }
   assert.equal(identity(charger25).wattage, '25')
-  assert.equal(reviewCandidate(charger25, charger45), null)
+  assert(reviewCandidate(charger25, charger45)?.reasons.includes('мощность отличается'))
   const caseName = 'Чехол iPhone 16 Pro прозрачный'
   const blackCase = 'Чехол iPhone 16 Pro черный'
   assert(reviewCandidate({ name: caseName }, { name: blackCase }))
@@ -185,6 +185,20 @@ test('Soft matching suggests plausible non-phone variants without accepting wron
   assert.equal(reviewCandidate({ name: 'Nokia 110 TA1567' }, { name: 'Nokia 108 TA1627' }), null)
   assert.equal(reviewCandidate({ name: 'iPhone 17 Pro 256GB' }, { name: 'iPhone 17 Pro 256GB' }), null)
   assert.equal(isExpectedReviewOutcome('05.ru: найдены варианты для ручной проверки для СЗУ'), true)
+})
+
+test('Smartphone variant differences are retained for manual review, not discarded', () => {
+  const ours = { name: 'Смартфон Apple iPhone 16 128 ГБ белый', brand: 'Apple' }
+  const blackUsed = { name: 'Смартфон Apple iPhone 16 128 ГБ черный Б/У', brand: 'Apple' }
+  const wrongStorage = { name: 'Смартфон Apple iPhone 16 256 ГБ белый', brand: 'Apple' }
+  const wrongModel = { name: 'Смартфон Apple iPhone 15 128 ГБ белый', brand: 'Apple' }
+  assert(reviewCandidate(ours, blackUsed)?.reasons.includes('цвет отличается'))
+  assert(reviewCandidate(ours, blackUsed)?.reasons.includes('состояние отличается'))
+  assert(reviewCandidate(ours, wrongStorage)?.reasons.includes('память отличается'))
+  assert.equal(reviewCandidate(ours, wrongModel), null)
+  assert.deepEqual(manualConfirmationBlockers(ours, blackUsed), [])
+  assert(manualConfirmationBlockers(ours, wrongModel).includes('модель'))
+  assert(manualConfirmationBlockers(ours, { name: 'Чехол Apple iPhone 16 128 ГБ белый', brand: 'Apple' }).includes('тип товара'))
 })
 
 test('Laptop matching uses manufacturer part numbers and hardware configuration', () => {
@@ -224,7 +238,7 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
     brand: 'Acer',
   })
   assert(wrongCode.conflicts.length)
-  assert.equal(reviewCandidate(acer, { name: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD', brand: 'Acer' }), null)
+  assert(reviewCandidate(acer, { name: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD', brand: 'Acer' })?.reasons.includes('код производителя отличается'))
 
   const wrongCpu = compareItems(acer, {
     name: 'Ноутбук Acer Aspire AL15-31P-C1CS 15.6" Core i3-1215U 8GB 256GB SSD',
@@ -246,10 +260,12 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
 
   const target = 'https://05.ru/cat/laptops/p/acer-aspire-al15-31p-c1cs-123/'
   const other = 'https://05.ru/cat/laptops/p/acer-aspire-al15-31p-c2cs-456/'
-  assert.deepEqual(rankSearchLinks([
+  const laptopRanked = rankSearchLinks([
     { url: other, title: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD' },
     { url: target, title: fiveRu.name },
-  ], 'acer al15-31p-c1cs'), [target])
+  ], 'acer al15-31p-c1cs')
+  assert.equal(laptopRanked[0], target)
+  assert(laptopRanked.includes(other)) // Same family, different SKU: keep for human review.
 })
 
 test('Laptop part number parser recognizes ASUS, Lenovo, MSI, Huawei and Apple model codes', () => {
@@ -281,11 +297,13 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: 'https://05.ru/cat/x/p/chehol-dlya-iphone-17-pro-256-123/', title: 'Чехол iPhone 17 Pro 256' },
     { url: 'https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/', title: 'Смартфон Apple iPhone 17 Pro 256 Гб оранжевый' },
   ], 'iphone 17 pro 256', 10), ['https://05.ru/cat/x/p/smartfon-iphone-17-pro-256-456/'])
-  assert.deepEqual(rankSearchLinks([
+  const phoneVariants = rankSearchLinks([
     { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-1-tb-oranzheviy-1/', title: 'iPhone 17 Pro 1 ТБ' },
     { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/', title: 'iPhone 17 Pro 256 GB' },
     { url: 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-512-gb-oranzheviy-3/', title: 'iPhone 17 Pro 512 GB' },
-  ], 'iphone 17 pro 256', 12), ['https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/'])
+  ], 'iphone 17 pro 256', 12)
+  assert.equal(phoneVariants[0], 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/')
+  assert.equal(phoneVariants.length, 3) // Other capacities stay visible for manual review.
 
   const greenLion = 'https://05.ru/cat/cases/p/green-lion-tough-guard-iphone-15-pro-blue-777/'
   const accessoryLinks = [
@@ -396,7 +414,11 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   link = await monitor.check({ url })
   assert.equal(link.matchStatus, 'REVIEW_REQUIRED')
   assert.equal((await exchange.pending()).items.length, 0)
-  await assert.rejects(() => monitor.confirm(link.id, ours.id))
+  const manualVariantOverride = await monitor.confirm(link.id, ours.id)
+  assert.equal(manualVariantOverride.matchStatus, 'CONFIRMED') // Human approval may override a variant mismatch.
+  parsed = { ...parsed, name: name.replace('iPhone 17 Pro', 'iPhone 16 Pro'), attributes: { ...parsed.attributes, model: 'iphone 16 pro' } }
+  await monitor.check({ url })
+  await assert.rejects(() => monitor.confirm(link.id, ours.id), /Нельзя подтвердить карточку: модель/)
   parsed = extractFiveRu(fixture.snapshot, url)
   await monitor.check({ url }); await monitor.confirm(link.id, ours.id)
   await exchange.queueConfirmed()

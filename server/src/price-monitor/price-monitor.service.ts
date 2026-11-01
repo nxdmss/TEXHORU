@@ -4,13 +4,13 @@ import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
-import { canonicalModel, compareItems, fingerprint, identity, recommendation, reviewCandidate } from './product-matching'
+import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
 // Storefront search often fails on 1C-only labels such as "(EAC)" and the
 // 1C memory format "12/512". Start with model + capacity, then the model alone.
-// All returned product cards still undergo strict variant comparison.
+// Strict variant comparison controls automatic selection; uncertain variants are kept for manual review.
 export function oneCSearchQueries(product: { name: string; brand?: string | null; category?: string | { name?: string } | null }) {
   const parsed = identity(product)
   // Remove internal 1C annotations, but preserve the product family.
@@ -127,7 +127,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         throw new ConflictException('У этого товара уже есть подтверждённая ссылка 05.ru. Сначала сними старую привязку.')
       }
       const check = compareItems(product, { name: link.externalName, attributes: link.attributes })
-      if (check.conflicts.length) throw new BadRequestException(`Характеристики расходятся: ${check.conflicts.join(', ')}. Исправь данные товара перед подтверждением.`)
+      const blockers = manualConfirmationBlockers(product, { name: link.externalName, attributes: link.attributes })
+      if (blockers.length) throw new BadRequestException(`Нельзя подтвердить карточку: ${blockers.join(', ')}. Проверь модель, бренд и тип товара.`)
       if (link.productId === productId && link.matchStatus === 'CONFIRMED' && link.confirmedFingerprint === fingerprint({ name: link.externalName, attributes: link.attributes }) && link.confirmedProductFingerprint === fingerprint(product)) {
         return tx.competitorProduct.findUniqueOrThrow({ where: { id }, include: { product: true, source: true } })
       }
@@ -142,7 +143,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         productId, matchStatus: 'CONFIRMED', confirmedAt: new Date(),
         confirmedFingerprint: fingerprint({ name: link.externalName, attributes: link.attributes }), confirmedProductFingerprint: fingerprint(product),
       }, include: { product: true, source: true } })
-      await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing } } })
+      await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing, manuallyOverriddenConflicts: check.conflicts } } })
       return row
     })
     return this.decorated(updated)
@@ -908,7 +909,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 traces.push(trace)
                 let results: FiveRuResult[]
                 try {
-                  results = await this.fiveRu.searchProducts(query, 12, trace)
+                  results = await this.fiveRu.searchProducts(query, 18, trace)
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error)
                   if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error

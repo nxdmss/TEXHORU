@@ -311,9 +311,9 @@ export class FiveRuParser implements OnModuleDestroy {
    * site's own search control. No anti-bot bypass, external navigation or
    * third-party price source is allowed.
    */
-  async searchProducts(query: string, limit = 12, trace?: FiveRuSearchTrace): Promise<FiveRuResult[]> {
+  async searchProducts(query: string, limit = 18, trace?: FiveRuSearchTrace): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
-    if (!text || limit < 1 || limit > 12) throw new BadRequestException('Неправильный поисковый запрос')
+    if (!text || limit < 1 || limit > 18) throw new BadRequestException('Неправильный поисковый запрос')
     trace ??= { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
     const cacheKey = normalize(text) + ':' + limit
     if (trace) Object.assign(trace, { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [], cached: false })
