@@ -216,8 +216,22 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         matchStatus, confirmedFingerprint, confirmedProductFingerprint,
       }
       const row = await tx.competitorProduct.upsert({ where: { externalUrl: result.url }, update: data, create: { ...data, externalUrl: result.url }, include: { source: true, product: true } })
-      const history = await tx.competitorPriceHistory.create({ data: { competitorProductId: row.id, price: result.price, oldPrice: result.oldPrice, inStock: result.inStock, checkedAt: now } })
-      await this.exchange.enqueue(row.id, tx, history.id)
+      const previousPrice = existing?.priceSource === 'USER_FILE' ? null : existing?.latestPrice ?? null
+      const priceChanged = previousPrice !== null && previousPrice !== result.price
+      const stockChanged = existing?.inStock != null && result.inStock != null && existing.inStock !== result.inStock
+      const historyExists = existing
+        ? await tx.competitorPriceHistory.findFirst({ where: { competitorProductId: row.id }, select: { id: true } })
+        : null
+      const baselineNeeded = !historyExists || existing?.priceSource === 'USER_FILE'
+      const history = baselineNeeded || priceChanged || stockChanged
+        ? await tx.competitorPriceHistory.create({
+            data: { competitorProductId: row.id, price: result.price,
+              oldPrice: priceChanged ? previousPrice : null, inStock: result.inStock, checkedAt: now },
+          })
+        : null
+      if (priceChanged && history && row.matchStatus === 'CONFIRMED') {
+        await this.exchange.enqueue(row.id, tx, history.id, previousPrice)
+      }
       return this.decorated(row)
     })
   }
