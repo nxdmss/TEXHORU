@@ -1132,6 +1132,7 @@ test('Smartphone category crawl starts on page 1 and advances to page 2 when no 
         url: () => currentUrl,
         locator: () => ({ first: () => ({ waitFor: async () => {} }) }),
         evaluate: async fn => fn.toString().includes('scrollTo') ? undefined : pages.get(currentUrl),
+        waitForTimeout: async () => {},
         close: async () => {},
       }
     },
