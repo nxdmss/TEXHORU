@@ -1811,9 +1811,13 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
 test('Complete smartphone variants auto-confirm; missing SIM metadata is tolerated but explicit conflicts are blocked', () => {
   const complete = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
   assert.equal(compareItems(complete, complete).canAutoConfirm, true)
-  for (const name of ['Apple iPhone 17 Pro 12GB/256GB Cosmic Orange',
+  assert.equal(compareItems(complete, {
+    name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange', brand: 'Apple',
+  }).canAutoConfirm, true) // Missing SIM data is not an explicit variant conflict.
+  for (const name of [
     'Apple iPhone 17 Pro 12GB/512GB Cosmic Orange eSIM',
-    'Apple iPhone 17 Pro 12GB/256GB Blue eSIM']) {
+    'Apple iPhone 17 Pro 12GB/256GB Blue eSIM',
+  ]) {
     assert.equal(compareItems(complete, {name, brand:'Apple'}).canAutoConfirm, false)
   }
 
