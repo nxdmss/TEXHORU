@@ -249,7 +249,9 @@ export function compareItems(ours: Item, theirs: Item) {
       || (b.brand && b.compatibleBrand && b.brand === b.compatibleBrand)
     )) continue
     if (a[key] && b[key]) {
-      const same = key === 'model' ? canonicalModel(a.model) === canonicalModel(b.model) : a[key] === b[key]
+      const same = key === 'model'
+        ? canonicalModel(a.model) === canonicalModel(b.model) || Boolean(a.productCode && a.productCode === b.productCode)
+        : a[key] === b[key]
       ;(same ? reasons : conflicts).push(labels[key])
     }
   }
@@ -280,7 +282,8 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   const a = identity(ours), b = identity(theirs)
   if (a.kind === 'smartphone' || b.kind === 'smartphone') return null
   if (a.kind && b.kind && a.kind !== b.kind) return null
-  if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)) return null
+  if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)
+    && !(a.productCode && a.productCode === b.productCode)) return null
   if (a.productCode && b.productCode && a.productCode !== b.productCode) return null
   if (a.cpu && b.cpu && a.cpu !== b.cpu) return null
   if (a.gpu && b.gpu && a.gpu !== b.gpu) return null
