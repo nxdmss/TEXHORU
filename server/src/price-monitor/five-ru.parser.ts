@@ -395,6 +395,13 @@ export class FiveRuParser implements OnModuleDestroy {
               trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
             }
             urls = rankSearchLinks(unique, text, limit)
+            if (!urls.length) {
+              // Some 05.ru search tiles omit the manufacturer or finish.
+              // Only in that case read a small set of plausible pages and
+              // let the full product comparator decide whether to suggest.
+              urls = rankSearchLinks(unique, text, limit, true)
+              if (urls.length && trace) trace.searchMode = 'direct-review'
+            }
             if (trace) trace.rankedLinks = urls.length
             if (!urls.length) {
               throw new Error('Прямой поиск 05.ru открылся (' + landed.pathname +
