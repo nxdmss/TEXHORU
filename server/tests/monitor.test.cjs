@@ -1475,10 +1475,10 @@ test('Uncertain non-phone products retain review suggestions on their 1C product
   const refreshed = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
   assert.equal(refreshed.processed, 1)
   assert.equal(refreshed.errors, 0)
-  assert.equal((await monitor.checkAll()).kind, 'RECHECK')
-  const rechecks = (await monitor.jobs()).filter(row => row.kind === 'RECHECK')
-  assert.equal(rechecks[0].perPage, 0)
-  await monitor.cancelJob(job.id)
+  // Suggested links remain excluded from automatic price-refresh jobs.
+  assert.equal(await prisma.competitorProduct.count({ where: {
+    productId: product.id, matchStatus: 'CONFIRMED',
+  } }), 0)
 })
 
 test('Complete smartphone variants auto-confirm; incomplete or conflicting variants do not', () => {
