@@ -211,6 +211,14 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
   assert.equal(same.theirs.productCode, parsed.productCode)
   assert.equal(same.theirs.cpu, parsed.cpu)
 
+  // An exact manufacturer part number wins over a harmless family-name
+  // difference between the 1C title and the storefront title.
+  const sameCodeDifferentFamily = compareItems(acer, {
+    name: 'Ноутбук Acer Aspire 3 AL15-31P-C1CS 15.6" FHD Intel Celeron N4500 8GB RAM 256GB SSD Silver',
+    brand: 'Acer',
+  })
+  assert.deepEqual(sameCodeDifferentFamily.conflicts, [], JSON.stringify(sameCodeDifferentFamily))
+
   const wrongCode = compareItems(acer, {
     name: 'Ноутбук Acer Aspire AL15-31P-C2CS 15.6" Celeron N4500 8GB 256GB SSD',
     brand: 'Acer',
