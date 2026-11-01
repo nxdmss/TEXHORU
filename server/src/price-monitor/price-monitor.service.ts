@@ -260,6 +260,18 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       && (!check.ours.storage || check.theirs.storage === check.ours.storage)
       && (!check.ours.color || check.theirs.color === check.ours.color)
 
+    // A laptop family (for example MacBook Air) is not a unique model number.
+    // Auto-confirm only when the manufacturer code/GTIN/MPN is exact, or when
+    // the critical hardware configuration is fully present and identical.
+    if (check.ours.kind === 'laptop' || check.theirs.kind === 'laptop') {
+      const exactHardware = Boolean(
+        check.ours.cpu && check.theirs.cpu && check.ours.cpu === check.theirs.cpu
+        && check.ours.ram && check.theirs.ram && check.ours.ram === check.theirs.ram
+        && check.ours.storage && check.theirs.storage && check.ours.storage === check.theirs.storage
+        && check.ours.screenSize && check.theirs.screenSize && check.ours.screenSize === check.theirs.screenSize
+      )
+      return base && (check.exactId || exactHardware)
+    }
     // Accessory compatibility can produce a review suggestion, not an automatic
     // confirmation. save() still requires an exact GTIN/MPN before confirming it.
     if (accessory) return base && check.ours.kind === check.theirs.kind

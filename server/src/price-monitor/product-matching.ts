@@ -186,6 +186,7 @@ export function identity(item: Item): Identity {
   const gpu = graphicsIdentity(gpuRaw)
   const screenRaw = String(attrs.screenSize || spec(/диагонал|screen size|display size/i) || (rawName + ' ' + (item.shortSpec || '')))
   const screenSize = screenRaw.match(/\b(\d{1,2}(?:[.,]\d)?)\s*(?:["″]|дюйм\w*|inch\w*)/i)?.[1]?.replace(',', '.')
+    || (kind === 'laptop' ? text.match(/\bmacbook\s+(?:air|pro)\s+(\d{2}(?:[.,]\d)?)\b/)?.[1]?.replace(',', '.') : undefined)
     || (/^\d{1,2}(?:[.,]\d)?$/.test(screenRaw.trim()) ? screenRaw.trim().replace(',', '.') : undefined)
   const powerRaw = String(attrs.wattage || spec(/мощност|power output|выходная мощность/i) || (rawName + ' ' + (item.shortSpec || '')))
   const wattage = kind === 'charger' ? powerRaw.match(/\b(\d{1,3})\s*w(?:att)?\b/i)?.[1] : undefined
@@ -219,7 +220,11 @@ export function fingerprint(item: Item) {
 }
 
 export function canonicalModel(value?: string) {
-  return value?.replace(/^galaxy\s+/, '')
+  if (!value) return undefined
+  const normalized = normalize(value).replace(/^galaxy\s+/, '')
+  const macbookFamily = normalized.match(/\bmacbook\s+(air|pro)\b/)
+  if (macbookFamily) return 'macbook ' + macbookFamily[1]
+  return normalized
 }
 
 export function compareItems(ours: Item, theirs: Item) {
@@ -339,9 +344,13 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   const common = [...left].filter(word => right.has(word))
   const specificOverlap = common.filter(word => !/^\d+$/.test(word))
 
-  // A smartphone must be the same explicit model. Storage, colour, SIM, RAM
-  // and condition are variant signals, not discovery blockers.
-  if (kind === 'smartphone' && !sameModel) return null
+  // A positively identified different phone model is excluded. If the 05.ru
+  // card does not expose its model, retain it only when the same brand and the
+  // model number are still visible in the title; this is review-only.
+  const phoneModelNumber = a.model?.match(/\d+/)?.[0]
+  const missingPhoneModelWithAnchor = kind === 'smartphone' && !b.model && sameBrand
+    && Boolean(phoneModelNumber && new RegExp('\\\\b' + phoneModelNumber + '\\\\b').test(normalize(theirs.name)))
+  if (kind === 'smartphone' && !sameModel && !missingPhoneModelWithAnchor) return null
   // For laptops, a different SKU within the same family is a review candidate.
   if (kind === 'laptop' && !sameModel && !sameCode && !sameCodeFamily && !(sameCpu && sameBrand)) return null
   if (kind !== 'smartphone' && kind !== 'laptop'

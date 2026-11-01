@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { chromium } = require('playwright')
-const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate, manualConfirmationBlockers } = require('../dist/price-monitor/product-matching')
+const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate, manualConfirmationBlockers, canonicalModel } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { ProductsService } = require('../dist/products/products.service')
@@ -201,6 +201,27 @@ test('Smartphone variant differences are retained for manual review, not discard
   assert(manualConfirmationBlockers(ours, { name: 'Чехол Apple iPhone 16 128 ГБ белый', brand: 'Apple' }).includes('тип товара'))
 })
 
+test('MacBook Air model family ignores year/chip wording but keeps screen size as a variant', () => {
+  const ours = {
+    name: 'Ноутбук Apple MacBook Air 13 2025 16/256GB M4 Silver',
+    brand: 'Apple',
+    attributes: { model: 'MacBook Air 13 2025 M4' },
+  }
+  const fiveRu = {
+    name: 'Ноутбук Apple MacBook Air 13 M4 16GB/256GB Silver',
+    brand: 'Apple',
+    attributes: { model: 'MacBook Air 13 M4' },
+  }
+  assert.equal(canonicalModel(identity(ours).model), 'macbook air')
+  assert.equal(canonicalModel(identity(fiveRu).model), 'macbook air')
+  assert.equal(identity(ours).screenSize, '13')
+  assert.equal(identity(ours).cpu, 'm4')
+  assert.equal(identity(ours).ram, '16')
+  assert.equal(identity(ours).storage, '256')
+  assert.deepEqual(compareItems(ours, fiveRu).conflicts, [])
+  assert.deepEqual(manualConfirmationBlockers(ours, fiveRu), [])
+})
+
 test('Laptop matching uses manufacturer part numbers and hardware configuration', () => {
   const acer = {
     name: 'Ноутбук 15.6" FHD Acer Aspire AL15-31P-C1CS silver (Cel N4500/8Gb/256Gb SSD/VGA int/noOS)',
@@ -305,6 +326,14 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
   assert.equal(phoneVariants[0], 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-2/')
   assert.equal(phoneVariants.length, 3) // Other capacities stay visible for manual review.
 
+  const broadPhoneUrl = 'https://05.ru/cat/x/p/smartfon-apple-128-gb-123/'
+  assert.deepEqual(rankSearchLinks([
+    { url: broadPhoneUrl, title: 'Смартфон Apple 128 ГБ' },
+  ], 'iphone 13 128', 10), [broadPhoneUrl]) // Open the page even when its tile omits the model.
+  const wrongModelFallback = 'https://05.ru/cat/x/p/smartfon-apple-iphone-14-128-gb-124/'
+  assert.deepEqual(rankSearchLinks([
+    { url: wrongModelFallback, title: 'Смартфон Apple iPhone 14 128 ГБ' },
+  ], 'iphone 13 128', 10), [wrongModelFallback]) // No exact-model links: inspect a bounded same-brand fallback.
   const greenLion = 'https://05.ru/cat/cases/p/green-lion-tough-guard-iphone-15-pro-blue-777/'
   const accessoryLinks = [
     { url: 'https://05.ru/cat/cases/p/borasco-iphone-15-pro-black-1/', title: 'Чехол накладка Borasco Silicone Case для Apple iPhone 15 Pro черный' },

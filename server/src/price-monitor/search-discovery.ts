@@ -55,7 +55,7 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
       && requested.compatibleBrand === parsed.compatibleBrand)
 
     if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
-    if (requested.model && parsed.model && !sameModel) return null
+    if (requested.model && parsed.model && !sameModel && requested.kind !== 'smartphone') return null
 
     // Never send a phone search to accessory cards or another phone brand.
     if (requested.kind === 'smartphone' && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
@@ -71,13 +71,15 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     const words = new Set(combined.split(' '))
     const meaningfulOverlap = [...queryWords].filter(word => words.has(word) && !stopWords.has(word)).length
     const sameKind = Boolean(requested.kind && parsed.kind && requested.kind === parsed.kind)
+    const phoneFallbackAnchor = requested.kind === 'smartphone'
+      && (brandMatch || meaningfulOverlap >= 1)
     const hasAnchor = sameModel || sameCode || sameCodeFamily || sameCpu || sameGpu
       || (brandMatch && requested.model && !parsed.model && requested.kind !== 'smartphone')
-      || (brandMatch && meaningfulOverlap >= 2) || meaningfulOverlap >= 3
+      || (brandMatch && meaningfulOverlap >= 2) || meaningfulOverlap >= 3 || phoneFallbackAnchor
     if (!hasAnchor) return null
 
     let score = 0
-    if (requested.model) score += sameModel ? 120 : parsed.model ? -100 : 12
+    if (requested.model) score += sameModel ? 120 : parsed.model ? (requested.kind === 'smartphone' ? -70 : -100) : 12
     if (requested.productCode) score += sameCode ? 160 : sameCodeFamily ? 55 : parsed.productCode ? -35 : 12
     if (requested.brand && parsed.brand) score += brandMatch ? 45 : -60
     if (requested.compatibleBrand && parsed.compatibleBrand) score += compatibleMatch ? 45 : -60
@@ -91,8 +93,17 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     if (requested.sim && parsed.sim) score += requested.sim === parsed.sim ? 10 : -5
     for (const word of queryWords) if (words.has(word) && !stopWords.has(word)) score += 4
 
-    return { ...candidate, score }
+    return { ...candidate, score, sameModel, parsedModel: parsed.model, brandMatch, meaningfulOverlap }
   }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
     .sort((a, b) => b.score - a.score || a.index - b.index)
+    .filter((candidate, _index, all) => {
+      if (requested.kind !== 'smartphone') return true
+      const hasExactModel = all.some(item => item.sameModel)
+      // When exact model links exist, keep those and model-less same-brand
+      // cards only. When none exist, inspect same-brand candidates rather than
+      // reporting "0 candidates" before opening a single product page.
+      return !hasExactModel || candidate.sameModel
+        || (!candidate.parsedModel && candidate.brandMatch && candidate.meaningfulOverlap >= 1)
+    })
     .slice(0, Math.max(0, limit)).map(candidate => candidate.url)
 }
