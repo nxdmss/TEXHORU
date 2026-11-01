@@ -195,7 +195,7 @@ test('Laptop matching uses manufacturer part numbers and hardware configuration'
   const parsed = identity(acer)
   assert.equal(parsed.kind, 'laptop')
   assert.equal(parsed.brand, 'acer')
-  assert.equal(parsed.model, 'al15 31p c1cs')
+  assert.equal(parsed.model, 'aspire')
   assert.equal(parsed.productCode, 'al15-31p-c1cs')
   assert.equal(parsed.cpu, 'celeron n4500')
   assert.equal(parsed.ram, '8')
