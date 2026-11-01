@@ -4,7 +4,7 @@ import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
-import { compareItems, fingerprint, identity, recommendation } from './product-matching'
+import { canonicalModel, compareItems, fingerprint, identity, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
@@ -190,7 +190,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
     const accessory = accessories.includes(check.ours.kind || '')
     const base = check.score >= 40 && !check.conflicts.length
-      && Boolean(check.ours.model && check.theirs.model === check.ours.model)
+      && Boolean(check.ours.model && canonicalModel(check.theirs.model) === canonicalModel(check.ours.model))
       && (!check.ours.storage || check.theirs.storage === check.ours.storage)
       && (!check.ours.color || check.theirs.color === check.ours.color)
 
