@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto'
 
 export type Identity = {
-  brand?: string; compatibleBrand?: string; model?: string; storage?: string; ram?: string; color?: string; sim?: string
+  brand?: string; compatibleBrand?: string; model?: string; productCode?: string
+  storage?: string; ram?: string; color?: string; sim?: string
+  cpu?: string; gpu?: string; screenSize?: string; wattage?: string
   gtin?: string; mpn?: string; condition?: string; kind?: string
 }
 type Item = {
   name: string; brand?: string | null; gtin?: string | null; mpn?: string | null
-  attributes?: unknown; specs?: unknown; category?: string | { name?: string } | null
+  shortSpec?: string | null; attributes?: unknown; specs?: unknown; category?: string | { name?: string } | null
 }
 
 export function normalize(value: string) {
@@ -47,7 +49,7 @@ function productKind(item: Item): string | undefined {
   if (/(?:смарт часы|умные часы|smartwatch|smart watch|watch|часы)/.test(text)) return 'smartwatch'
   if (/(?:смартфон|smartphone|iphone|galaxy|(?:xiaomi|redmi|poco|samsung|honor|huawei|realme|oneplus|tecno|infinix|oppo|vivo|pixel|motorola|nothing)\s+(?:\d|[a-z]\d|note|spark|camon|pova))/i.test(text)) return 'smartphone'
   if (/(?:планшет|tablet|ipad)/.test(text)) return 'tablet'
-  if (/(?:ноутбук|laptop|macbook)/.test(text)) return 'laptop'
+  if (/(?:ноутбук|laptop|macbook|aspire|vivobook|ideapad|thinkpad|matebook|pavilion|inspiron|latitude|zenbook|elitebook|probook|predator|nitro|swift)/.test(text)) return 'laptop'
   return undefined
 }
 
@@ -59,8 +61,53 @@ function canonicalBrand(value: string): string {
   return brand
 }
 
+function laptopPartNumber(name: string, brand?: string) {
+  const patterns = [
+    /\b[A-Z]{1,4}\d{2,4}[A-Z]{0,3}(?:-[A-Z0-9]{2,8})+\b/i,
+    /\b\d{2}[A-Z]{2}\d{2}[A-Z0-9]{2,4}\b/i,
+    /\b\d{5}[A-Z]{3}\b/i,
+  ]
+  for (const pattern of patterns) {
+    const found = name.match(pattern)?.[0]
+    if (found) return normalize(found)
+  }
+  if (brand === 'apple') return name.match(/\bA\d{4}\b/i)?.[0]?.toLowerCase()
+  return undefined
+}
+
+function processorIdentity(value: string, brand?: string) {
+  const text = normalize(value)
+  const patterns: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
+    [/\b(?:cel|celeron)\s*n\s*\d{4}\b/, m => 'celeron ' + m[0].match(/n\s*\d{4}/)![0].replace(/\s+/g, '')],
+    [/\b(?:pentium(?:\s+silver)?|pentium)\s+n?\s*\d{4}\b/, m => m[0].replace(/\s+/g, ' ')],
+    [/\b(?:intel\s+)?core\s*i?([3579])\s*-?\s*(\d{4,5}[a-z]{0,2})\b/, m => 'core i' + m[1] + ' ' + m[2]],
+    [/\bi([3579])\s*-?\s*(\d{4,5}[a-z]{0,2})\b/, m => 'core i' + m[1] + ' ' + m[2]],
+    [/\b(?:intel\s+)?core\s+([3579])\s+(\d{3,5}[a-z]{0,2})\b/, m => 'core ' + m[1] + ' ' + m[2]],
+    [/\bryzen\s*([3579])\s*-?\s*(\d{4}[a-z]{0,2})\b/, m => 'ryzen ' + m[1] + ' ' + m[2]],
+    [/\bapple\s+(m[1-5])\b/, m => m[1]],
+  ]
+  for (const [pattern, format] of patterns) {
+    const match = text.match(pattern)
+    if (match) return format(match)
+  }
+  if (brand === 'apple') {
+    const appleChip = text.match(/\b(m[1-5])\b/)
+    if (appleChip) return appleChip[1]
+  }
+  return undefined
+}
+
+function graphicsIdentity(value: string) {
+  const text = normalize(value)
+  return text.match(/\b(?:geforce\s+)?(?:rtx|gtx)\s*\d{3,4}(?:\s*ti)?\b/)?.[0]
+    || text.match(/\bradeon\s+(?:rx\s*)?\d{3,4}[a-z]?\b/)?.[0]
+    || text.match(/\b(?:intel\s+)?(?:uhd|iris\s+xe|arc)\s+graphics?\b/)?.[0]
+    || undefined
+}
+
 export function identity(item: Item): Identity {
-  const text = normalize(item.name.replace(/\b([sa]\d{1,3})\+/gi, '$1 plus')).replace(/айфон/g, 'iphone').replace(/(?:^|\s)пм(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про макс(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про(?=\s|$)/g, ' pro')
+  const rawName = item.name || ''
+  const text = normalize((rawName + ' ' + (item.shortSpec || '')).replace(/\b([sa]\d{1,3})\+/gi, '$1 plus')).replace(/айфон/g, 'iphone').replace(/(?:^|\s)пм(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про макс(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про(?=\s|$)/g, ' pro')
   const attrs = item.attributes && typeof item.attributes === 'object' ? item.attributes as Identity : {}
   const specs = Array.isArray(item.specs) ? item.specs as Array<{ label: string; value: string }> : []
   const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label.trim()))?.value
@@ -80,7 +127,11 @@ export function identity(item: Item): Identity {
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : capacities.length > 1 ? capacities[0]
     : compactMemory ? text.match(/\b(4|6|8|12|16|18|24|32)\s+(?:128|256|512|1024)\b/)?.[1] : undefined
-  const model = attrs.model || text.match(/\biphone\s*\d{1,2}(?:\s*(?:pro max|pro|plus|mini|air|e))?\b/)?.[0]
+  const partNumber = kind === 'laptop' ? laptopPartNumber(rawName, brandText || item.brand?.toLowerCase()) : undefined
+  const laptopFamily = kind === 'laptop'
+    ? text.match(/\b(?:macbook\s+(?:air|pro)|aspire|vivobook|ideapad|thinkpad|matebook|pavilion|inspiron|latitude|zenbook|elitebook|probook|predator|nitro|swift)\s*[a-z0-9-]*/)?.[0]
+    : undefined
+  const model = attrs.model || partNumber || laptopFamily || text.match(/\biphone\s*\d{1,2}(?:\s*(?:pro max|pro|plus|mini|air|e))?\b/)?.[0]
     || text.match(/\b(?:galaxy\s*)?(?:s|a|z)\d{1,3}(?:\s*(?:ultra|plus|fe|fold|flip))?\b/)?.[0]
     // Without these, Xiaomi 15, 15T, 15T Pro and 15 Ultra are all treated
     // as model-less and can be incorrectly considered interchangeable.
@@ -105,7 +156,7 @@ export function identity(item: Item): Identity {
   const physical = /nano\s*sim|physical|физическ|\bsim\s*(?:\+|и)?\s*e\s*sim/.test(simText)
   const sim = hasEsim && physical ? 'physical+esim' : hasEsim ? 'esim' : /nano\s*sim|dual sim|2 sim/.test(simText) ? 'physical' : undefined
   const brandText = normalize(attrs.brand || item.brand || '')
-  const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf'].find(b => text.includes(b))
+  const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf', 'acer', 'asus', 'lenovo', 'msi', 'dell', 'hp'].find(b => text.includes(b))
   const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
   const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
   const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
@@ -119,11 +170,24 @@ export function identity(item: Item): Identity {
   const compatibleBrand = accessory
     ? attrs.compatibleBrand || deviceBrand || (normalizedBrand && ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'oppo', 'vivo', 'motorola', 'nokia'].includes(normalizedBrand) ? normalizedBrand : undefined)
     : undefined
+  const cpuRaw = String(attrs.cpu || spec(/процессор|cpu|processor|чипсет/i) || rawName)
+  const gpuRaw = String(attrs.gpu || spec(/видеокарт|график|gpu|graphics|video card/i) || rawName)
+  const cpu = processorIdentity(cpuRaw, brand)
+  const gpu = graphicsIdentity(gpuRaw)
+  const screenRaw = String(attrs.screenSize || spec(/диагонал|screen size|display size/i) || rawName)
+  const screenSize = screenRaw.match(/\b(\d{1,2}(?:[.,]\d)?)\s*(?:["″]|дюйм\w*|inch\w*)/i)?.[1]?.replace(',', '.')
+    || (/^\d{1,2}(?:[.,]\d)?$/.test(screenRaw.trim()) ? screenRaw.trim().replace(',', '.') : undefined)
+  const powerRaw = String(attrs.wattage || spec(/мощност|power output|выходная мощность/i) || rawName)
+  const wattage = kind === 'charger' ? powerRaw.match(/\b(\d{1,3})\s*w(?:att)?\b/i)?.[1] : undefined
   const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
   const mpn = item.mpn || attrs.mpn || spec(/заводск.*артикул|mpn/i)
-  return { brand, compatibleBrand, model: model ? normalize(model) : undefined, storage, ram, color, sim, gtin, mpn: mpn ? normalize(mpn) : undefined, condition, kind }
+  return {
+    brand, compatibleBrand, model: model ? normalize(model) : undefined,
+    productCode: partNumber, storage, ram, color, sim, cpu, gpu, screenSize, wattage,
+    gtin, mpn: mpn ? normalize(mpn) : undefined, condition, kind,
+  }
 }
 
 export function validGtin(raw: string) {
@@ -151,7 +215,12 @@ export function canonicalModel(value?: string) {
 export function compareItems(ours: Item, theirs: Item) {
   const a = identity(ours), b = identity(theirs)
   const reasons: string[] = [], conflicts: string[] = [], missing: string[] = []
-  const labels: Record<string, string> = { brand: 'бренд', compatibleBrand: 'совместимость', model: 'модель', storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM', gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара' }
+  const labels: Record<string, string> = {
+    brand: 'бренд', compatibleBrand: 'совместимость', model: 'модель', productCode: 'код производителя',
+    storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM',
+    cpu: 'процессор', gpu: 'видеокарта', screenSize: 'диагональ', wattage: 'мощность',
+    gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара',
+  }
   const nameA = identity({ name: ours.name }), nameB = identity({ name: theirs.name })
   for (const key of ['model', 'storage', 'color', 'sim'] as Array<keyof Identity>) {
     const differs = (left?: string, right?: string) => key === 'model'
@@ -175,9 +244,13 @@ export function compareItems(ours: Item, theirs: Item) {
     }
   }
   if ((a.condition === 'used') !== (b.condition === 'used')) conflicts.push('новый / восстановленный')
-  const exactId = Boolean((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn))
+  const exactId = Boolean((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn)
+    || (a.productCode && a.productCode === b.productCode))
   const phone = a.kind === 'smartphone'
-  for (const key of (phone ? ['model', 'storage', 'color', 'sim'] : ['model']) as Array<keyof Identity>) {
+  const laptop = a.kind === 'laptop' || b.kind === 'laptop'
+  for (const key of (phone ? ['model', 'storage', 'color', 'sim']
+    : laptop ? ['model', 'productCode', 'cpu', 'gpu', 'ram', 'storage', 'screenSize']
+    : ['model']) as Array<keyof Identity>) {
     if (!a[key] || !b[key]) missing.push(labels[key])
   }
   const wordsA = new Set(normalize(ours.name).split(' ')), wordsB = new Set(normalize(theirs.name).split(' '))
@@ -198,8 +271,14 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   if (a.kind === 'smartphone' || b.kind === 'smartphone') return null
   if (a.kind && b.kind && a.kind !== b.kind) return null
   if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)) return null
+  if (a.productCode && b.productCode && a.productCode !== b.productCode) return null
+  if (a.cpu && b.cpu && a.cpu !== b.cpu) return null
+  if (a.gpu && b.gpu && a.gpu !== b.gpu) return null
+  if (a.screenSize && b.screenSize && a.screenSize !== b.screenSize) return null
+  if (a.ram && b.ram && a.ram !== b.ram) return null
   if (a.gtin && b.gtin && a.gtin !== b.gtin) return null
   if (a.mpn && b.mpn && a.mpn !== b.mpn) return null
+  if (a.kind === 'laptop' && a.brand && b.brand && a.brand !== b.brand) return null
   if (a.condition !== b.condition && (a.condition === 'used' || b.condition === 'used')) return null
   // Even manual review should not propose an explicitly wrong storage variant.
   if (a.storage && b.storage && a.storage !== b.storage) return null
@@ -215,22 +294,29 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   const left = tokens(ours.name), right = tokens(theirs.name)
   const common = [...left].filter(word => right.has(word))
   const sameModel = Boolean(a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model))
+  const sameCode = Boolean(a.productCode && b.productCode && a.productCode === b.productCode)
+  const sameCpu = Boolean(a.cpu && b.cpu && a.cpu === b.cpu)
+  const sameGpu = Boolean(a.gpu && b.gpu && a.gpu === b.gpu)
   const sameBrand = Boolean(a.brand && b.brand && a.brand === b.brand)
   const compatible = Boolean(a.compatibleBrand && b.compatibleBrand && a.compatibleBrand === b.compatibleBrand)
   const sameKind = Boolean(a.kind && a.kind === b.kind)
   const specificOverlap = common.filter(word => !['iphone', 'samsung', 'galaxy', 'xiaomi', 'apple'].includes(word))
   // Two random similarly named accessories are not a plausible match.
-  if (!sameModel && (!sameKind || specificOverlap.length < 2 || (!sameBrand && !compatible && specificOverlap.length < 3))) return null
+  if (!sameModel && !sameCode && !sameCpu
+    && (!sameKind || specificOverlap.length < 2 || (!sameBrand && !compatible && specificOverlap.length < 3))) return null
 
   const reasons: string[] = []
   if (!b.model && a.model) reasons.push('модель не указана на 05.ru')
   if (a.color && b.color && a.color !== b.color) reasons.push('цвет требует проверки')
   if (a.brand && b.brand && a.brand !== b.brand) reasons.push('производитель требует проверки')
   if (a.sim && b.sim && a.sim !== b.sim) reasons.push('SIM требует проверки')
+  if (a.cpu && !b.cpu) reasons.push('процессор не указан на 05.ru')
+  if (a.gpu && !b.gpu) reasons.push('видеокарта не указана на 05.ru')
+  if (a.screenSize && !b.screenSize) reasons.push('диагональ не указана на 05.ru')
   if (!b.kind) reasons.push('тип товара не указан')
   const score = Math.min(94,
-    (sameModel ? 52 : 0) + (sameKind ? 16 : 0)
-    + (sameBrand ? 12 : 0) + (compatible ? 12 : 0)
+    (sameModel ? 52 : 0) + (sameCode ? 16 : 0) + (sameCpu ? 18 : 0) + (sameGpu ? 8 : 0)
+    + (sameKind ? 16 : 0) + (sameBrand ? 12 : 0) + (compatible ? 12 : 0)
     + Math.min(24, specificOverlap.length * 6)
     - (a.color && b.color && a.color !== b.color ? 12 : 0)
     - (a.brand && b.brand && a.brand !== b.brand ? 12 : 0))
