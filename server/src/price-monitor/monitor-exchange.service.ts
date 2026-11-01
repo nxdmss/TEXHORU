@@ -27,7 +27,12 @@ export class MonitorExchangeService {
     if (!history || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000) return null
     const currentIndex = recent.findIndex(row => row.id === history.id)
     const previous = currentIndex >= 0 ? recent[currentIndex + 1] : undefined
-    const previousPrice = observedPreviousPrice ?? previous?.price ?? null
+    // save() passes the prior observation directly. A manual queue sweep
+    // must only retry a history row explicitly marked with that prior price;
+    // a new confirmation baseline has oldPrice=null and is never a proposal.
+    const previousPrice = observedPreviousPrice !== undefined
+      ? observedPreviousPrice
+      : (previous && history.oldPrice !== null && history.oldPrice === previous.price ? previous.price : null)
     if (previousPrice === null || previousPrice === history.price) return null
     const payload = jsonValue({
       schemaVersion: 1, historyId: history.id, linkId, oneCId: link.product.oneCId,
