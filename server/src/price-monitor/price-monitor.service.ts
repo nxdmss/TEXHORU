@@ -258,7 +258,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       await this.prisma.competitorProduct.update({
-        where: { id: eligible[0].link.id },
+        where: { id: saved[0].id },
         data: { lastCheckedAt: new Date(), lastError: reason.slice(0, 2000) },
       })
       throw new Error('05.ru: карточка уже известна (' + url + '), но повторная проверка не удалась: ' + reason)
