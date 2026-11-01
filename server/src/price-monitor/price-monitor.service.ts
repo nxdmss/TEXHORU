@@ -185,6 +185,27 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
+  // Missing/ambiguous fields are review candidates, never automatic matches.
+  private reviewVariant(check: ReturnType<typeof compareItems>): boolean {
+    if (check.conflicts.length) return false
+    const a = check.ours, b = check.theirs
+    if (a.kind && b.kind && a.kind !== b.kind) return false
+    if (a.model && b.model && canonicalModel(a.model) !== canonicalModel(b.model)) return false
+    if (a.storage && b.storage && a.storage !== b.storage) return false
+    if (a.color && b.color && a.color !== b.color) return false
+    if (a.sim && b.sim && a.sim !== b.sim) return false
+    if (a.kind === 'smartphone' || b.kind === 'smartphone') {
+      return Boolean(a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model)
+        && (!a.storage || !b.storage || a.storage === b.storage))
+    }
+    // Models are frequently absent from accessories, chargers and wearable
+    // names. Use multiple independent matching signals instead.
+    const evidence = ['модель', 'бренд', 'совместимость', 'MPN', 'штрихкод']
+    return check.score >= 30 && (
+      check.reasons.some(reason => evidence.includes(reason))
+      || (check.score >= 48 && check.reasons.includes('тип товара'))
+    )
+  }
   private strongVariant(check: ReturnType<typeof compareItems>): boolean {
     if (check.exactId && !check.conflicts.length) return true
     const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
@@ -829,7 +850,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
               } else {
-              const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems> }>()
+              const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems>; strong: boolean }>()
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
               const requestedKind = identity(product).kind
@@ -848,13 +869,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
-                for (const row of checked.filter(candidate => this.strongVariant(candidate.check))) {
+                for (const row of checked) {
+                  const strong = this.strongVariant(row.check)
+                  if (!strong && !this.reviewVariant(row.check)) continue
                   const previous = rankedByUrl.get(row.result.url)
-                  if (!previous || row.check.score > previous.check.score) rankedByUrl.set(row.result.url, row)
+                  if (!previous || (strong && !previous.strong) || row.check.score > previous.check.score) {
+                    rankedByUrl.set(row.result.url, { ...row, strong })
+                  }
                 }
-                // A fully variant-filtered smartphone result is already precise.
-                // Accessories keep searching all query variants to improve recall.
-                if (requestedKind === 'smartphone' && rankedByUrl.size) break
+                // Only a strong smartphone variant ends discovery early.
+                if (requestedKind === 'smartphone' && [...rankedByUrl.values()].some(row => row.strong)) break
                 for (const row of checked.slice(0, 3)) {
                   const reason = row.check.conflicts.length ? row.check.conflicts.join(', ')
                     : !row.check.theirs.model ? 'модель не распознана'
@@ -865,7 +889,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   if (rejected.length < 5) rejected.push(row.result.name + ': ' + reason)
                 }
               }
-              const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
+              const ranked = [...rankedByUrl.values()].sort((a, b) =>
+                Number(b.strong) - Number(a.strong) || b.check.score - a.check.score)
               if (!ranked.length) {
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + (trace.rankedLinks ?? 0) + ' кандидатов, ' + trace.cardsParsed + ' карточек прочитано' +
@@ -880,20 +905,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     ? 'Ошибки чтения: ' + parsingErrors.join('; ')
                     : '05.ru не отдал ссылки на товары. Это сбой формы поиска или пустая выдача; отсутствие товара не подтверждено.'))
               }
-              // More than one plausible variant must be manually reviewed, never silently chosen.
-              if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
-                // Keep plausible 05.ru cards in the monitor for manual review,
-                // but do NOT choose a winner or apply a price automatically.
-                const source = await this.source()
-                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id, undefined, true)
-                throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
-              }
-              const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
-              if (already?.productId && already.productId !== product.id) {
-                throw new Error('Карточка 05.ru уже связана с другим товаром: ' + product.name)
-              }
+              // Preserve alternatives on the actual 1C product as suggestions,
+              // so an employee can inspect and confirm the right URL.
+              const close = ranked.length > 1 && ranked[0].strong === ranked[1].strong
+                && ranked[0].check.score - ranked[1].check.score < 10
               const source = await this.source()
-              await this.save(ranked[0].result, source.id, product.id)
+              let saved = 0
+              for (const option of ranked.slice(0, close ? 3 : 1)) {
+                const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: option.result.url } })
+                if (already?.productId && already.productId !== product.id) continue
+                await this.save(option.result, source.id, product.id, close)
+                saved++
+              }
+              if (!saved) throw new Error('Все найденные карточки 05.ru уже привязаны к другим товарам: ' + product.name)
+              if (close) throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; варианты сохранены для ручной проверки')
               }
               }
             } else {
