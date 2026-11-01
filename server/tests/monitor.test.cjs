@@ -785,7 +785,7 @@ test('Confirmed 05.ru mapping is one-to-one: one URL per 1C product and one 1C p
 
   await assert.rejects(() => monitor.confirm(linkA.id, b.id), /уже подтверждена для другого товара/)
   await monitor.unmatch(linkB.id)
-  await assert.rejects(() => monitor.confirm(linkB.id, a.id), /у этого товара уже есть подтверждённая ссылка/)
+  await assert.rejects(() => monitor.confirm(linkB.id, a.id), /У этого товара уже есть подтверждённая ссылка/)
 })
 
 test('Six-hour schedule is persisted and can be disabled without changing product prices', async () => {
