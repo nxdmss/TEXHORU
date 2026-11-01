@@ -4,7 +4,7 @@ export type SearchLink = string | { url: string; title?: string }
 
 // Rank the complete discovery set before spending requests on product pages.
 // Model, product family, brand and explicit variant attributes outrank raw word overlap.
-export function rankSearchLinks(input: SearchLink[], query: string, limit = 12): string[] {
+export function rankSearchLinks(input: SearchLink[], query: string, limit = 12, reviewFallback = false): string[] {
   const requested = identity({ name: query })
   const queryWords = new Set(normalize(query).split(' ').filter(word => word.length > 1))
   const requestedStorage = requested.storage || normalize(query).match(/\b(128|256|512|1024)\b/)?.[1]
@@ -46,13 +46,18 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     // If both sides expose a brand, a different brand is a hard rejection.
     // Missing brand on a search tile is not proof of a mismatch; the product
     // page will be opened and checked before a candidate can be suggested.
-    if (requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    if (!reviewFallback && requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
     // For cases/protectors, the phone brand is compatibility, not the accessory maker.
     if (requested.compatibleBrand && parsed.compatibleBrand
       && requested.compatibleBrand !== parsed.compatibleBrand) return null
-    if (requested.color && parsed.color && requested.color !== parsed.color) return null
+    if (!reviewFallback && requested.color && parsed.color && requested.color !== parsed.color) return null
 
     const words = new Set(combined.split(' '))
+    // A last-resort review search still needs common product-specific words.
+    // Do not waste requests on completely unrelated search-page links.
+    const overlapping = [...queryWords].filter(word => words.has(word))
+    if (reviewFallback && overlapping.length < 2
+      && !(requested.model && parsed.model && canonicalModel(requested.model) === canonicalModel(parsed.model))) return null
     let score = 0
     if (requested.model && parsed.model) score += canonicalModel(requested.model) === canonicalModel(parsed.model) ? 100 : -100
     else if (requested.model) score += 8
