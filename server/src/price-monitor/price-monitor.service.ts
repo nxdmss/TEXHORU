@@ -60,11 +60,10 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     silver: 'серебристый', gold: 'золотой', green: 'зеленый',
     pink: 'розовый', purple: 'фиолетовый', orange: 'оранжевый',
   }
-  const byColor = [parsed.brand, modelWithoutBrand, parsed.storage, parsed.color ? searchColor[parsed.color] : undefined]
-    .filter(Boolean).join(' ')
-  const byStorage = [parsed.brand, modelWithoutBrand, parsed.storage].filter(Boolean).join(' ')
-  const byModel = [parsed.brand, modelWithoutBrand].filter(Boolean).join(' ')
-  return [...new Set([byColor, byStorage, byModel].filter(Boolean))]
+  const byColor = parsed.color
+    ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
+    : undefined
+  return [...new Set([byColor, model + (parsed.storage ? ' ' + parsed.storage : ''), model].filter(Boolean))]
 }
 
 export function isExpectedReviewOutcome(message: string) {
