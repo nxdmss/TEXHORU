@@ -17,16 +17,19 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
   }
 
   return [...unique.values()].map(candidate => {
-    let slug = ''
+    let rawSlug = ''
     try {
-      slug = decodeURIComponent(new URL(candidate.url).pathname.split('/p/').at(-1) || '')
-        .replace(/-\d+\/?$/, '').replace(/[-_]/g, ' ')
+      rawSlug = decodeURIComponent(new URL(candidate.url).pathname.split('/p/').at(-1) || '')
+        .replace(/-\d+\/?$/, '').replace(/_/g, ' ')
     } catch { /* The caller validates every URL against 05.ru. */ }
 
+    // Keep punctuation in the raw title/slug while extracting manufacturer
+    // part numbers. Normalize only the token set used for fuzzy ranking.
+    const slug = rawSlug.replace(/-/g, ' ')
     const title = candidate.title || slug
     const combined = normalize(title + ' ' + slug)
-    const parsed = identity({ name: combined })
-    const slugVariant = identity({ name: slug })
+    const parsed = identity({ name: (candidate.title || '') + ' ' + rawSlug })
+    const slugVariant = identity({ name: rawSlug })
 
     // A requested capacity must agree with both the visible title and URL slug.
     if (requestedStorage && (
