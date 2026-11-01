@@ -29,7 +29,7 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     // Laptop retail names are noisy, but manufacturer part numbers are often
     // stable. Search that identifier first, then hardware configuration, then
     // the untouched 1C title as a recall fallback.
-    const code = parsed.productCode || parsed.model || parsed.mpn
+    const code = parsed.productCode || parsed.mpn || parsed.model
     const byCode = [parsed.brand, code].filter(Boolean).join(' ')
     const byHardware = [
       parsed.brand, parsed.cpu,
