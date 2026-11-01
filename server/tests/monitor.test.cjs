@@ -263,17 +263,24 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal(nestedCategory.name, 'Электроника / Смартфоны')
   const ours = await prisma.product.findUnique({ where: { oneCId } })
   let link = await monitor.check({ url })
-  assert.equal(link.matchStatus, 'CONFIRMED')
-  assert.equal((await exchange.pending()).items.length, 1)
+  assert.equal(link.matchStatus, 'SUGGESTED')
+  assert.equal((await exchange.pending()).items.length, 0)
   assert.equal((await monitor.candidates(link.id))[0].product.id, ours.id)
   await monitor.confirm(link.id, ours.id)
   await monitor.confirm(link.id, ours.id)
   await exchange.queueConfirmed()
+  assert.equal((await exchange.pending()).items.length, 0) // Initial mapping is a baseline.
+  await monitor.check({ url }) // Same price: no proposal.
+  assert.equal((await exchange.pending()).items.length, 0)
+  parsed = { ...parsed, price: 95990 }
+  await monitor.check({ url }) // Only a real price change enters the 1C queue.
   const pending = (await exchange.pending()).items
   assert.equal(pending.length, 1)
   assert.equal(pending[0].oneCId, oneCId)
-  assert.equal(pending[0].price, 96990)
-  assert.equal(pending[0].recommendedPrice, 96490)
+  assert.equal(pending[0].price, 95990)
+  assert.equal(pending[0].previousPrice, 96990)
+  assert.equal(pending[0].priceChange, -1000)
+  assert.equal(pending[0].recommendedPrice, 95490)
   assert.equal((await exchange.pending()).items[0].id, pending[0].id)
   await exchange.ack(pending[0].id, 'Тест: сеть недоступна')
   assert.equal((await exchange.pending()).items.length, 1)
@@ -282,11 +289,11 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal((await exchange.pending()).items.length, 0)
   assert.equal(await prisma.syncLog.count({ where: { entity: 'PRICE_MONITOR', status: 'SUCCESS' } }), 1)
   assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 99990)
-  const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 96990,
-    targetPrice: 96490, acceptUnknownCost: false, acceptLargeChange: false }
+  const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 95990,
+    targetPrice: 95490, acceptUnknownCost: false, acceptLargeChange: false }
   await assert.rejects(() => monitor.applyRecommended(link.id, { ...applyDto, expectedCurrentPrice: 90000 }))
   const applied = await monitor.applyRecommended(link.id, applyDto)
-  assert.equal(applied.newPrice, 96490)
+  assert.equal(applied.newPrice, 95490)
   assert.equal(applied.siteOnly, true)
   assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 96490)
   assert.equal(await prisma.auditLog.count({ where: { action: 'APPLY_MONITOR_SITE_PRICE', entityId: String(ours.id) } }), 1)
@@ -295,7 +302,7 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   failure = 'HTTP 403'
   await assert.rejects(() => monitor.check({ url }))
   link = (await monitor.list())[0]
-  assert.equal(link.latestPrice, 96990)
+  assert.equal(link.latestPrice, 95990)
   assert.equal(link.recommendedPrice, null)
   failure = null
   parsed = { ...parsed, name: name.replace('256', '512'), attributes: { ...parsed.attributes, storage: '512' } }
@@ -305,7 +312,7 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   await assert.rejects(() => monitor.confirm(link.id, ours.id))
   parsed = extractFiveRu(fixture.snapshot, url)
   await monitor.check({ url }); await monitor.confirm(link.id, ours.id)
-  assert.equal((await exchange.pending()).items.length, 1)
+  assert.equal((await exchange.pending()).items.length, 0) // Re-confirmation is not a new price change.
   await integration.importCatalog({ ...catalog, products: [{ ...catalog.products[0], name: product.name.replace('256', '512') }] })
   assert.equal((await monitor.list())[0].matchStatus, 'REVIEW_REQUIRED')
   assert.equal((await exchange.pending()).items.length, 0)
@@ -493,7 +500,9 @@ test('Universal selection: parent group includes nested 1C category; 05.ru auto-
   const original = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   assert.equal(matched.productId, original.id)
   assert.equal(original.price, 99990)
-  assert.equal(matched.matchStatus, 'CONFIRMED')
+  assert.equal(matched.matchStatus, 'SUGGESTED')
+  await monitor.confirm(matched.id, original.id)
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: matched.id } })).matchStatus, 'CONFIRMED')
 })
 
 test('Auto-matching refreshes an existing 05.ru link even when storefront search returns zero links', async () => {
