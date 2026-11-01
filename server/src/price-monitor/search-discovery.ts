@@ -38,7 +38,8 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     )) return null
 
     // Do not read another product family or a different explicit model/code.
-    if (requested.model && parsed.model && canonicalModel(requested.model) !== canonicalModel(parsed.model)) return null
+    if (requested.model && parsed.model && canonicalModel(requested.model) !== canonicalModel(parsed.model)
+      && !(requested.productCode && requested.productCode === parsed.productCode)) return null
     if (requested.productCode && parsed.productCode && requested.productCode !== parsed.productCode) return null
     if (requested.cpu && parsed.cpu && requested.cpu !== parsed.cpu) return null
     if (requested.gpu && parsed.gpu && requested.gpu !== parsed.gpu) return null
