@@ -4,7 +4,7 @@ import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
-import { canonicalModel, compareItems, fingerprint, identity, recommendation } from './product-matching'
+import { canonicalModel, compareItems, fingerprint, identity, recommendation, reviewCandidate } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
@@ -42,6 +42,7 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
 export function isExpectedReviewOutcome(message: string) {
   const text = message.toLowerCase()
   return text.includes('нет подтверждённого совпадения')
+    || text.includes('найдены варианты для ручной проверки')
     || text.includes('несколько близких совпадений')
     || text.includes('карточка 05.ru уже связана')
     || text.includes('не найдено точное соответствие')
@@ -830,6 +831,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 // Indexed candidates are always re-opened for an actual price check.
               } else {
               const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems> }>()
+              const reviewByUrl = new Map<string, { result: FiveRuResult; score: number }>()
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
               const requestedKind = identity(product).kind
@@ -848,9 +850,21 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
-                for (const row of checked.filter(candidate => this.strongVariant(candidate.check))) {
-                  const previous = rankedByUrl.get(row.result.url)
-                  if (!previous || row.check.score > previous.check.score) rankedByUrl.set(row.result.url, row)
+                for (const row of checked) {
+                  if (this.strongVariant(row.check)) {
+                    const previous = rankedByUrl.get(row.result.url)
+                    if (!previous || row.check.score > previous.check.score) rankedByUrl.set(row.result.url, row)
+                  } else {
+                    // Less complete non-phone matches are suggestions only.
+                    const review = reviewCandidate(product, {
+                      name: row.result.name, brand: row.result.brand,
+                      attributes: row.result.attributes, category: row.result.categoryName,
+                    })
+                    if (review && (!reviewByUrl.has(row.result.url)
+                      || review.score > reviewByUrl.get(row.result.url)!.score)) {
+                      reviewByUrl.set(row.result.url, { result: row.result, score: review.score })
+                    }
+                  }
                 }
                 // A fully variant-filtered smartphone result is already precise.
                 // Accessories keep searching all query variants to improve recall.
@@ -866,6 +880,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 }
               }
               const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
+              const review = [...reviewByUrl.values()]
+                .filter(option => !rankedByUrl.has(option.result.url))
+                .sort((a, b) => b.score - a.score)
+              if (!ranked.length && review.length) {
+                const source = await this.source()
+                let offered = 0
+                for (const option of review.slice(0, 3)) {
+                  const claimed = await this.prisma.competitorProduct.findUnique({
+                    where: { externalUrl: option.result.url },
+                  })
+                  if (claimed?.productId && claimed.productId !== product.id) continue
+                  // First candidate is visible on this product's card.
+                  await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
+                  offered++
+                }
+                if (offered) {
+                  throw new Error('05.ru: найдены варианты для ручной проверки для ' + product.name +
+                    '. Автоматическая привязка запрещена: проверь модель и характеристики.')
+                }
+              }
               if (!ranked.length) {
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + (trace.rankedLinks ?? 0) + ' кандидатов, ' + trace.cardsParsed + ' карточек прочитано' +
@@ -885,7 +919,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 // Keep plausible 05.ru cards in the monitor for manual review,
                 // but do NOT choose a winner or apply a price automatically.
                 const source = await this.source()
-                for (const option of ranked.slice(0, 3)) await this.save(option.result, source.id, undefined, true)
+                let offered = 0
+                for (const option of ranked.slice(0, 3)) {
+                  const claimed = await this.prisma.competitorProduct.findUnique({
+                    where: { externalUrl: option.result.url },
+                  })
+                  if (claimed?.productId && claimed.productId !== product.id) continue
+                  await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
+                  offered++
+                }
                 throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
               }
               const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
