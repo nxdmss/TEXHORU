@@ -46,6 +46,32 @@ test('Identifies Apple variants across Russian/English; flags memory, colour, SI
   assert.equal(identity({ name: 'Айфон 17 ПМ 256 оранж eSIM' }).model, 'iphone 17 pro max')
 })
 
+test('A missing SIM label does not block an otherwise exact phone variant; explicit SIM conflicts still block', () => {
+  const ours = { name: 'Смартфон Apple iPhone 16 256 Гб черный', brand: 'Apple' }
+  const listed = { name: 'Смартфон Apple iPhone 16 8 Гб/256 Гб черный (E-Sim, без RuStore)', brand: 'Apple' }
+  const same = compareItems(ours, listed)
+  assert.deepEqual(same.conflicts, [])
+  assert.equal(same.canAutoConfirm, true)
+
+  const physical = compareItems({ ...ours, name: ours.name + ' nano SIM' }, listed)
+  assert(physical.conflicts.includes('SIM'))
+  assert.equal(physical.canAutoConfirm, false)
+})
+
+test('A unique laptop with exact model and complete hardware can be auto-confirmed', () => {
+  const ours = { name: 'Ноутбук Apple MacBook Air 13 2025 M4 16/256GB Silver', brand: 'Apple' }
+  const listed = { name: 'Ноутбук Apple MacBook Air 13 M4 16GB/256GB SSD Silver', brand: 'Apple' }
+  const same = compareItems(ours, listed)
+  assert.deepEqual(same.conflicts, [], JSON.stringify(same))
+  assert.equal(same.canAutoConfirm, true)
+
+  const wrongCpu = compareItems(ours, {
+    name: 'Ноутбук Apple MacBook Air 13 M3 16GB/256GB SSD Silver', brand: 'Apple',
+  })
+  assert(wrongCpu.conflicts.includes('процессор'))
+  assert.equal(wrongCpu.canAutoConfirm, false)
+})
+
 test('Xiaomi 1C 15T Pro safely matches identical 05.ru title, not 15T/15 Ultra or a different color', () => {
   const ours = { name: 'Смартфон Xiaomi 15T Pro  (EAC) 12/512 ГБ черный', brand: 'Xiaomi' }
   const fiveRu = { name: 'Смартфон Xiaomi 15T Pro 12 Гб/512 Гб черный', brand: 'Xiaomi',
@@ -132,6 +158,10 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
   ])
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 13 128 Гб синий' }), [
     'apple iphone 13 128 синий', 'iphone 13 128', 'iphone 13',
+  ])
+  assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 16e 128 Гб черный' }), [
+    'apple iphone 16 e 128 черный', 'apple iphone 16e 128 черный',
+    'iphone 16 e 128', 'iphone 16e 128', 'iphone 16 e', 'iphone 16e',
   ])
 })
 
@@ -341,6 +371,10 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
   assert.deepEqual(rankSearchLinks([
     { url: unparsedPhoneUrl, title: 'Смартфон Apple 13 128 ГБ черный' },
   ], 'apple iphone 13 128 черный', 10), [unparsedPhoneUrl]) // Keep a model-number anchor for page-level review.
+  const partialBrandedPhone = 'https://05.ru/cat/x/p/apple-13-128-gb-black-126/'
+  assert.deepEqual(rankSearchLinks([
+    { url: partialBrandedPhone, title: 'Apple 13 128 GB black' },
+  ], 'apple iphone 13 128 черный', 10), [partialBrandedPhone]) // Some tiles omit the product type and the word iPhone.
   const liveIphone13Black = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-13-4-gb-128-gb-chernyy-bez-rustore-11211/'
   assert.deepEqual(rankSearchLinks([
     { url: liveIphone13Black, title: 'Смартфон Apple iPhone 13 4 Гб/128 Гб черный (без RuStore)' },
