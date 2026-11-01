@@ -78,8 +78,18 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const link = await this.prisma.competitorProduct.findUnique({ where: { id } })
     if (!link) throw new NotFoundException('Карточка не найдена')
     const products = await this.prisma.product.findMany({ where: { status: 'ACTIVE' } })
-    return products.map(product => ({ product: { id: product.id, oneCId: product.oneCId, name: product.name, sku: product.sku }, ...compareItems(product, { name: link.externalName || '', attributes: link.attributes }) }))
-      .filter(c => c.score >= 20).sort((a,b) => b.score - a.score).slice(0, 5)
+    const theirs = { name: link.externalName || '', attributes: link.attributes }
+    return products.map(product => {
+      const check = compareItems(product, theirs)
+      return {
+        product: { id: product.id, oneCId: product.oneCId, name: product.name, sku: product.sku },
+        ...check, reviewScore: reviewCandidate(product, theirs)?.score || 0,
+      }
+    })
+      .filter(c => c.score >= 20 || c.reviewScore >= 20 || c.product.id === link.productId)
+      .sort((a,b) => (b.product.id === link.productId ? 1 : 0) - (a.product.id === link.productId ? 1 : 0)
+        || Math.max(b.score, b.reviewScore) - Math.max(a.score, a.reviewScore))
+      .slice(0, 8)
   }
   async confirm(id: string, productId: number) {
     const updated = await this.prisma.$transaction(async tx => {
