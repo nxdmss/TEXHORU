@@ -101,6 +101,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return {
         product: { id: product.id, oneCId: product.oneCId, name: product.name, sku: product.sku },
         ...check, reviewScore: reviewCandidate(product, theirs)?.score || 0,
+        manualBlockers: manualConfirmationBlockers(product, theirs),
       }
     })
       .filter(c => c.score >= 20 || c.reviewScore >= 20 || c.product.id === link.productId)

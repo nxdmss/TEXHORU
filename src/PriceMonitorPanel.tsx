@@ -314,10 +314,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
               </select>
             </label>
             {chosen?.missing.length ? <p>Не хватает данных: {chosen.missing.join(', ')}. Проверь вручную.</p> : null}
-            {chosen?.conflicts.length ? <p className="form-error">
-              Несовпадения: {chosen.conflicts.join(', ')}. Подтверждение заблокировано до исправления данных или выбора другой карточки.
+            {chosen?.manualBlockers.length ? <p className="form-error">
+              Нельзя подтвердить: {chosen.manualBlockers.join(', ')}. Выбери другую карточку.
+            </p> : chosen?.conflicts.length ? <p className="mp-helper">
+              Отличия: {chosen.conflicts.join(', ')}. Можно подтвердить вручную, если ты сверил полную карточку 05.ru. Автоматическая привязка не выполняется.
             </p> : null}
-            <button disabled={Boolean(busy) || !selected || Boolean(active) || Boolean(chosen?.conflicts.length)}
+            <button disabled={Boolean(busy) || !selected || Boolean(active) || Boolean(chosen?.manualBlockers.length)}
               onClick={() => void confirm(linked)}>Подтвердить совпадение</button>
           </>}
           <button className="mp-link-button" disabled={Boolean(busy) || Boolean(active)}

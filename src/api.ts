@@ -75,6 +75,7 @@ export type MonitorJob = {
 export type MatchCandidate = {
   product: { id: number; oneCId?: string | null; name: string; sku: string }
   score: number; reviewScore?: number; reasons: string[]; conflicts: string[]; missing: string[]
+  manualBlockers: string[]
   ours: Record<string, string>; theirs: Record<string, string>
 }
 export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
