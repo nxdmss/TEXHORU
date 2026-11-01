@@ -1070,11 +1070,18 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     (trace.searchMode ? ' · режим ' + trace.searchMode : '')
                 ).join('; ')
                 const parsingErrors = traces.flatMap(trace => trace.rejectedCards).slice(0, 2)
+                const noModelCandidates = traces.some(trace => trace.linksFound > 0)
+                  && traces.every(trace => (trace.rankedLinks ?? 0) === 0)
+                const noProductLinks = traces.every(trace => trace.linksFound === 0)
+                const reason = rejected.length ? 'Отсеяны: ' + rejected.join('; ')
+                  : parsingErrors.length ? 'Ошибки чтения: ' + parsingErrors.join('; ')
+                  : noModelCandidates
+                    ? 'Поиск отработал, но карточек с этой моделью не найдено. Вероятно, предложения сейчас нет в каталоге 05.ru; можно повторить позже.'
+                    : noProductLinks
+                      ? '05.ru не отдал ссылки на товары. Поиск не подтвердил отсутствие товара: проверь доступность выдачи и повтори позже.'
+                      : 'Не удалось получить пригодные карточки. Повтори поиск позже.'
                 throw new Error('05.ru: нет подтверждённого совпадения для ' + product.name +
-                  '. Поиск: ' + summary + '. ' +
-                  (rejected.length ? 'Отсеяны: ' + rejected.join('; ') : parsingErrors.length
-                    ? 'Ошибки чтения: ' + parsingErrors.join('; ')
-                    : '05.ru не отдал ссылки на товары. Это сбой формы поиска или пустая выдача; отсутствие товара не подтверждено.'))
+                  '. Поиск: ' + summary + '. ' + reason)
               }
               // Multiple exact smartphone cards are still ambiguous (for example,
               // duplicate listings or new/refurbished stock). Keep them for review.
