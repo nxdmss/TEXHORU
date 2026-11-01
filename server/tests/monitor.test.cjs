@@ -312,7 +312,8 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   await assert.rejects(() => monitor.confirm(link.id, ours.id))
   parsed = extractFiveRu(fixture.snapshot, url)
   await monitor.check({ url }); await monitor.confirm(link.id, ours.id)
-  assert.equal((await exchange.pending()).items.length, 0) // Re-confirmation is not a new price change.
+  await exchange.queueConfirmed()
+  assert.equal((await exchange.pending()).items.length, 0) // Re-confirmation resets baseline; old deltas are not replayed.
   await integration.importCatalog({ ...catalog, products: [{ ...catalog.products[0], name: product.name.replace('256', '512') }] })
   assert.equal((await monitor.list())[0].matchStatus, 'REVIEW_REQUIRED')
   assert.equal((await exchange.pending()).items.length, 0)
