@@ -270,8 +270,10 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   await monitor.confirm(link.id, ours.id)
   await exchange.queueConfirmed()
   assert.equal((await exchange.pending()).items.length, 0) // Initial mapping is a baseline.
-  await monitor.check({ url }) // Same price: no proposal.
+  const baselineCount = await prisma.competitorPriceHistory.count({ where: { competitorProductId: link.id } })
+  await monitor.check({ url }) // Same price: no proposal and no duplicate history row.
   assert.equal((await exchange.pending()).items.length, 0)
+  assert.equal(await prisma.competitorPriceHistory.count({ where: { competitorProductId: link.id } }), baselineCount)
   parsed = { ...parsed, price: 95990 }
   await monitor.check({ url }) // Only a real price change enters the 1C queue.
   const pending = (await exchange.pending()).items
