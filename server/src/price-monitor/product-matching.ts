@@ -107,24 +107,18 @@ export function identity(item: Item): Identity {
   const brandText = normalize(attrs.brand || item.brand || '')
   const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf'].find(b => text.includes(b))
   const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
+  const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
+  const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
   const usableBrand = brandText && !['без бренда', 'другие', 'other'].includes(brandText)
+  const brand = accessoryMaker || (usableBrand ? canonicalBrand(brandText) : inferredBrand)
   const normalizedBrand = usableBrand ? canonicalBrand(brandText) : undefined
   const deviceBrand = /iphone/.test(text) ? 'apple'
     : /\b(?:samsung|galaxy)\b/.test(text) ? 'samsung'
     : /\b(?:xiaomi|redmi|poco)\b/.test(text) ? 'xiaomi'
     : knownBrand ? canonicalBrand(knownBrand) : undefined
-  const accessoryMakers = ['green lion', 'hoco', 'uniq', 'borasco', 'ubear', 'deppa', 'baseus', 'anker', 'nillkin', 'spigen', 'moft', 'breaking', 'g-case', 'g case', 'ferrari', 'santa barbara polo', 'wiwu']
-  const inferredAccessoryMaker = accessory ? accessoryMakers.find(maker => text.includes(maker)) : undefined
-  // For cases and protectors, the brand in 1C may name the compatible phone,
-  // not the case manufacturer. Keep those two identities separate.
-  const accessoryMaker = accessory
-    ? (normalizedBrand && (!deviceBrand || normalizedBrand !== deviceBrand) ? normalizedBrand : inferredAccessoryMaker)
-    : undefined
   const compatibleBrand = accessory
-    ? deviceBrand || (normalizedBrand && ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'oppo', 'vivo', 'motorola', 'nokia'].includes(normalizedBrand) ? normalizedBrand : undefined)
+    ? attrs.compatibleBrand || deviceBrand || (normalizedBrand && ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'oppo', 'vivo', 'motorola', 'nokia'].includes(normalizedBrand) ? normalizedBrand : undefined)
     : undefined
-  const inferredBrand = /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
-  const brand = accessory ? accessoryMaker : (normalizedBrand || inferredBrand)
   const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
@@ -143,7 +137,11 @@ export function validGtin(raw: string) {
 export function fingerprint(item: Item) {
   // A category relation is not always loaded by every Prisma query. Keep
   // confirmation fingerprints stable whether or not that relation is present.
-  return createHash('sha256').update(JSON.stringify([normalize(item.name), identity({ ...item, category: undefined })])).digest('hex')
+  const parsed = identity({ ...item, category: undefined })
+  // Keep existing confirmation fingerprints stable; compatibleBrand is an
+  // additional matching signal, not a change to the stored product identity.
+  delete parsed.compatibleBrand
+  return createHash('sha256').update(JSON.stringify([normalize(item.name), parsed])).digest('hex')
 }
 
 export function compareItems(ours: Item, theirs: Item) {
@@ -155,6 +153,13 @@ export function compareItems(ours: Item, theirs: Item) {
     if ((nameA[key] && a[key] && nameA[key] !== a[key]) || (nameB[key] && b[key] && nameB[key] !== b[key])) conflicts.push(`${labels[key]}: название противоречит характеристикам`)
   }
   for (const key of Object.keys(labels) as Array<keyof Identity>) {
+    if (key === 'brand' && (
+      ['case', 'screen-protector', 'watch-strap'].includes(a.kind || '')
+      || ['case', 'screen-protector', 'watch-strap'].includes(b.kind || '')
+    ) && (
+      (a.brand && a.compatibleBrand && a.brand === a.compatibleBrand)
+      || (b.brand && b.compatibleBrand && b.brand === b.compatibleBrand)
+    )) continue
     if (a[key] && b[key]) (a[key] === b[key] ? reasons : conflicts).push(labels[key])
   }
   if ((a.condition === 'used') !== (b.condition === 'used')) conflicts.push('новый / восстановленный')
