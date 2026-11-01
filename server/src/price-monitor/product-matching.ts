@@ -349,7 +349,7 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   // model number are still visible in the title; this is review-only.
   const phoneModelNumber = a.model?.match(/\d+/)?.[0]
   const missingPhoneModelWithAnchor = kind === 'smartphone' && !b.model && sameBrand
-    && Boolean(phoneModelNumber && new RegExp('\\\\b' + phoneModelNumber + '\\\\b').test(normalize(theirs.name)))
+    && Boolean(phoneModelNumber && normalize(theirs.name).split(' ').includes(phoneModelNumber))
   if (kind === 'smartphone' && !sameModel && !missingPhoneModelWithAnchor) return null
   // For laptops, a different SKU within the same family is a review candidate.
   if (kind === 'laptop' && !sameModel && !sameCode && !sameCodeFamily && !(sameCpu && sameBrand)) return null
