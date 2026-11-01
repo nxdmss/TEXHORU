@@ -132,7 +132,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }, include: { product: true, source: true } })
       await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing } } })
       return row
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return this.decorated(updated)
   }
   async unmatch(id: string) {
