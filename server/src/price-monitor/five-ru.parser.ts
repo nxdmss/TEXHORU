@@ -11,7 +11,7 @@ export type FiveRuResult = {
   attributes: Identity; seller: string | null; region: string | null; priceSource: string
 }
 export type FiveRuSearchTrace = {
-  query: string; linksFound: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean; pageUrl?: string; searchMode?: string
+  query: string; linksFound: number; rankedLinks: number; cardsParsed: number; rejectedCards: string[]; cached?: boolean; pageUrl?: string; searchMode?: string
 }
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
@@ -314,12 +314,12 @@ export class FiveRuParser implements OnModuleDestroy {
   async searchProducts(query: string, limit = 12, trace?: FiveRuSearchTrace): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
     if (!text || limit < 1 || limit > 12) throw new BadRequestException('Неправильный поисковый запрос')
-    trace ??= { query: text, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
+    trace ??= { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
     const cacheKey = normalize(text) + ':' + limit
-    if (trace) Object.assign(trace, { query: text, linksFound: 0, cardsParsed: 0, rejectedCards: [], cached: false })
+    if (trace) Object.assign(trace, { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [], cached: false })
     const cached = this.queryCache.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
-      if (trace) Object.assign(trace, { linksFound: cached.results.length, cardsParsed: cached.results.length, cached: true })
+      if (trace) Object.assign(trace, { linksFound: cached.results.length, rankedLinks: cached.results.length, cardsParsed: cached.results.length, cached: true })
       return cached.results
     }
     try {
@@ -395,10 +395,11 @@ export class FiveRuParser implements OnModuleDestroy {
               trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
             }
             urls = rankSearchLinks(unique, text, limit)
+            if (trace) trace.rankedLinks = urls.length
             if (!urls.length) {
               throw new Error('Прямой поиск 05.ru открылся (' + landed.pathname +
-                '), но не отдал подходящие ссылки на товары. Прочитано ссылок: ' +
-                unique.length + '. Это не означает, что товара нет.')
+                '), найдено ссылок: ' + unique.length +
+                ', подходящих карточек после проверки названия: 0. Это не означает, что товара нет.')
             }
           } finally {
             await searchPage.close()

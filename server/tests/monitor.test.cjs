@@ -128,6 +128,41 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
   ])
 })
 
+test('Accessory compatibility is separate from manufacturer and watch housings are not misclassified as cases', () => {
+  const samsungCase = { name: 'Чехол Samsung A55 Карбон', brand: 'Samsung', category: 'Аксессуары / Чехлы' }
+  const uniqCase = { name: 'Чехол Uniq для Samsung Galaxy A55 Carbon', brand: 'Uniq', category: 'Чехлы' }
+  assert.equal(identity(samsungCase).brand, 'samsung')
+  assert.equal(identity(samsungCase).compatibleBrand, 'samsung')
+  assert.equal(identity(uniqCase).brand, 'uniq')
+  assert.equal(identity(uniqCase).compatibleBrand, 'samsung')
+  const comparison = compareItems(samsungCase, uniqCase)
+  assert.deepEqual(comparison.conflicts, [], JSON.stringify(comparison))
+  assert(comparison.reasons.includes('совместимость'))
+  assert.deepEqual(oneCSearchQueries(samsungCase), [
+    'samsung чехол a55',
+    'чехол a55',
+    'Чехол Samsung A55 Карбон',
+  ])
+  const caseUrl = 'https://05.ru/cat/cases/p/uniq-samsung-a55-carbon-123/'
+  assert.deepEqual(rankSearchLinks([
+    { url: caseUrl, title: uniqCase.name },
+  ], 'samsung чехол a55'), [caseUrl])
+
+  const watch = {
+    name: 'Смарт-часы Xiaomi Watch 2 Black Case With Black TPU Strap M2320W1 (BHR8035GL)',
+    brand: 'Xiaomi', category: 'Смарт-часы',
+  }
+  assert.equal(identity(watch).kind, 'smartwatch')
+  assert.equal(identity(watch).model, 'watch 2')
+  assert.deepEqual(oneCSearchQueries(watch), [
+    'xiaomi watch 2',
+    watch.name,
+  ])
+  assert.equal(identity({ name: 'Чехол P09 чёрный', category: 'Чехлы' }).model, undefined)
+  assert.equal(identity({ name: 'Зарядное устройство P09' }).model, 'p09')
+  assert.equal(identity({ name: 'Чехол для iPhone 12 прозрачный' }).color, 'transparent')
+})
+
 test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links', () => {
   const target = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-15t-pro-12-gb-512-gb-cherniy-25708/'
   const noise = Array.from({ length: 15 }, (_, i) => ({
@@ -740,6 +775,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     const found = await parser.searchProducts('iPhone 17 Pro 256', 3, trace)
     assert.equal(found.length, 3)
     assert.equal(trace.linksFound, 7) // valid 05.ru links, deduplicated
+    assert.equal(trace.rankedLinks, 3) // candidates selected after title/variant ranking
     assert.equal(trace.searchMode, 'direct-search')
     assert.equal(trace.cardsParsed, 3)
     assert.equal(opened[0], orange256) // not the first 1TB card in the feed
@@ -767,8 +803,9 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(recovered.length, 3) // Partial results must not poison the query cache.
     links = []
     const emptyTrace = {}
-    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*не отдал/)
+    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*подходящих карточек/)
     assert.equal(emptyTrace.linksFound, 0)
+    assert.equal(emptyTrace.rankedLinks, 0)
     assert.equal(emptyTrace.searchMode, 'direct-search')
     assert.equal(contexts, 4)
     responseStatus = 403

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
 export type Identity = {
-  brand?: string; model?: string; storage?: string; ram?: string; color?: string; sim?: string
+  brand?: string; compatibleBrand?: string; model?: string; storage?: string; ram?: string; color?: string; sim?: string
   gtin?: string; mpn?: string; condition?: string; kind?: string
 }
 type Item = {
@@ -19,7 +19,7 @@ const colors: Array<[RegExp, string]> = [
   [/cosmic orange|orange|оранж\w*/i, 'orange'], [/deep blue|blue|син\w*|голуб\w*/i, 'blue'],
   [/black|черн\w*/i, 'black'], [/white|бел\w*/i, 'white'], [/silver|сереб\w*/i, 'silver'],
   [/gold|золот\w*/i, 'gold'], [/green|зелен\w*/i, 'green'], [/purple|фиолет\w*/i, 'purple'],
-  [/pink|розов\w*/i, 'pink'], [/gray|grey|серый|серая/i, 'gray'],
+  [/pink|розов\w*/i, 'pink'], [/transparent|прозрачн\w*/i, 'transparent'], [/gray|grey|серый|серая/i, 'gray'],
 ]
 
 function categoryLabel(item: Item) {
@@ -27,7 +27,17 @@ function categoryLabel(item: Item) {
 }
 
 function productKind(item: Item): string | undefined {
-  const text = normalize(categoryLabel(item) + ' ' + item.name)
+  const name = normalize(item.name)
+  const category = normalize(categoryLabel(item))
+  const text = category + ' ' + name
+
+  // A watch listing often contains words such as "Black Case" and "TPU Strap".
+  // The explicit device name/category must win over those included components.
+  if (/(?:ремешок|watch band|strap for|strap для)/.test(name)) return 'watch-strap'
+  if (/(?:смарт часы|умные часы|smartwatch|smart watch)/.test(name)
+    || /\b(?:xiaomi|redmi|samsung|huawei|honor|amazfit|mibro|tecno|garmin)?\s*watch\s+\d/i.test(name)
+    || /(?:смарт часы|умные часы|smartwatch|smart watch)/.test(category)) return 'smartwatch'
+
   if (/(?:чехол|чехлы|накладка|бампер|case|cover|bumper)/.test(text)) return 'case'
   if (/(?:защитн\w* стекл\w*|стекл\w*|пленк\w*|screen protector|tempered glass|protector)/.test(text)) return 'screen-protector'
   if (/(?:ремеш\w*|strap|watch band)/.test(text)) return 'watch-strap'
@@ -54,6 +64,7 @@ export function identity(item: Item): Identity {
   const attrs = item.attributes && typeof item.attributes === 'object' ? item.attributes as Identity : {}
   const specs = Array.isArray(item.specs) ? item.specs as Array<{ label: string; value: string }> : []
   const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label.trim()))?.value
+  const kind = attrs.kind || productKind(item)
   const units = (value: string) => {
     const m = value.match(/(\d+(?:[.,]\d+)?)\s*(tb|тб|gb|гб)/i)
     return m ? String(Math.round(Number(m[1].replace(',', '.')) * (/tb|тб/i.test(m[2]) ? 1024 : 1))) : undefined
@@ -79,7 +90,9 @@ export function identity(item: Item): Identity {
     // Smartwatch families and vendor model codes (e.g. XPAW002, C60).
     || text.match(/\bactive\s+2r\b/)?.[0]
     || text.match(/\b(?:watch|часы)\s+[a-z]?\d{1,3}[a-z]?(?:\s+(?:active|pro|max|ultra|classic|plus|lite|fe|se))?\b/)?.[0]
-    || text.match(/\b[a-z]{1,5}\d{2,5}[a-z]?\b/)?.[0]
+    // Generic alphanumeric codes on cases/protectors are usually accessory SKUs,
+    // not the phone model the accessory is compatible with.
+    || (!['case', 'screen-protector'].includes(kind || '') ? text.match(/\b[a-z]{1,5}\d{2,5}[a-z]?\b/)?.[0] : undefined)
     || undefined
   // A broad /цвет|color/ pattern also matches unrelated attributes like
   // "Количество цветов экрана" or "Цветовая температура", leading to
@@ -93,19 +106,24 @@ export function identity(item: Item): Identity {
   const sim = hasEsim && physical ? 'physical+esim' : hasEsim ? 'esim' : /nano\s*sim|dual sim|2 sim/.test(simText) ? 'physical' : undefined
   const brandText = normalize(attrs.brand || item.brand || '')
   const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf'].find(b => text.includes(b))
-  const kind = attrs.kind || productKind(item)
   const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
   const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
   const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
-  // Explicit 1C brand belongs to the product. Do not replace accessory makers
-  // with Apple just because the title also contains an iPhone model.
   const usableBrand = brandText && !['без бренда', 'другие', 'other'].includes(brandText)
   const brand = accessoryMaker || (usableBrand ? canonicalBrand(brandText) : inferredBrand)
+  const normalizedBrand = usableBrand ? canonicalBrand(brandText) : undefined
+  const deviceBrand = /iphone/.test(text) ? 'apple'
+    : /\b(?:samsung|galaxy)\b/.test(text) ? 'samsung'
+    : /\b(?:xiaomi|redmi|poco)\b/.test(text) ? 'xiaomi'
+    : knownBrand ? canonicalBrand(knownBrand) : undefined
+  const compatibleBrand = accessory
+    ? attrs.compatibleBrand || deviceBrand || (normalizedBrand && ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'oppo', 'vivo', 'motorola', 'nokia'].includes(normalizedBrand) ? normalizedBrand : undefined)
+    : undefined
   const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
   const mpn = item.mpn || attrs.mpn || spec(/заводск.*артикул|mpn/i)
-  return { brand, model: model ? normalize(model) : undefined, storage, ram, color, sim, gtin, mpn: mpn ? normalize(mpn) : undefined, condition, kind }
+  return { brand, compatibleBrand, model: model ? normalize(model) : undefined, storage, ram, color, sim, gtin, mpn: mpn ? normalize(mpn) : undefined, condition, kind }
 }
 
 export function validGtin(raw: string) {
@@ -119,19 +137,42 @@ export function validGtin(raw: string) {
 export function fingerprint(item: Item) {
   // A category relation is not always loaded by every Prisma query. Keep
   // confirmation fingerprints stable whether or not that relation is present.
-  return createHash('sha256').update(JSON.stringify([normalize(item.name), identity({ ...item, category: undefined })])).digest('hex')
+  const parsed = identity({ ...item, category: undefined })
+  // Keep existing confirmation fingerprints stable; compatibleBrand is an
+  // additional matching signal, not a change to the stored product identity.
+  delete parsed.compatibleBrand
+  return createHash('sha256').update(JSON.stringify([normalize(item.name), parsed])).digest('hex')
+}
+
+export function canonicalModel(value?: string) {
+  return value?.replace(/^galaxy\s+/, '')
 }
 
 export function compareItems(ours: Item, theirs: Item) {
   const a = identity(ours), b = identity(theirs)
   const reasons: string[] = [], conflicts: string[] = [], missing: string[] = []
-  const labels: Record<string, string> = { brand: 'бренд', model: 'модель', storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM', gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара' }
+  const labels: Record<string, string> = { brand: 'бренд', compatibleBrand: 'совместимость', model: 'модель', storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM', gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара' }
   const nameA = identity({ name: ours.name }), nameB = identity({ name: theirs.name })
   for (const key of ['model', 'storage', 'color', 'sim'] as Array<keyof Identity>) {
-    if ((nameA[key] && a[key] && nameA[key] !== a[key]) || (nameB[key] && b[key] && nameB[key] !== b[key])) conflicts.push(`${labels[key]}: название противоречит характеристикам`)
+    const differs = (left?: string, right?: string) => key === 'model'
+      ? canonicalModel(left) !== canonicalModel(right)
+      : left !== right
+    if ((nameA[key] && a[key] && differs(nameA[key], a[key])) || (nameB[key] && b[key] && differs(nameB[key], b[key]))) {
+      conflicts.push(`${labels[key]}: название противоречит характеристикам`)
+    }
   }
   for (const key of Object.keys(labels) as Array<keyof Identity>) {
-    if (a[key] && b[key]) (a[key] === b[key] ? reasons : conflicts).push(labels[key])
+    if (key === 'brand' && (
+      ['case', 'screen-protector', 'watch-strap'].includes(a.kind || '')
+      || ['case', 'screen-protector', 'watch-strap'].includes(b.kind || '')
+    ) && (
+      (a.brand && a.compatibleBrand && a.brand === a.compatibleBrand)
+      || (b.brand && b.compatibleBrand && b.brand === b.compatibleBrand)
+    )) continue
+    if (a[key] && b[key]) {
+      const same = key === 'model' ? canonicalModel(a.model) === canonicalModel(b.model) : a[key] === b[key]
+      ;(same ? reasons : conflicts).push(labels[key])
+    }
   }
   if ((a.condition === 'used') !== (b.condition === 'used')) conflicts.push('новый / восстановленный')
   const exactId = Boolean((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn))

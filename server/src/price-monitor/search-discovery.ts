@@ -1,4 +1,4 @@
-import { identity, normalize } from './product-matching'
+import { canonicalModel, identity, normalize } from './product-matching'
 
 export type SearchLink = string | { url: string; title?: string }
 
@@ -35,7 +35,7 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     )) return null
 
     // Do not read another product family or a different explicit model.
-    if (requested.model && parsed.model && requested.model !== parsed.model) return null
+    if (requested.model && parsed.model && canonicalModel(requested.model) !== canonicalModel(parsed.model)) return null
     if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
 
     // A phone search should not waste page reads on accessories whose category
@@ -47,13 +47,19 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     // Missing brand on a search tile is not proof of a mismatch; the product
     // page will be opened and checked before a candidate can be suggested.
     if (requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    // For cases/protectors, the phone brand is compatibility, not the accessory maker.
+    if (requested.compatibleBrand && parsed.compatibleBrand
+      && requested.compatibleBrand !== parsed.compatibleBrand) return null
     if (requested.color && parsed.color && requested.color !== parsed.color) return null
 
     const words = new Set(combined.split(' '))
     let score = 0
-    if (requested.model && parsed.model) score += requested.model === parsed.model ? 100 : -100
+    if (requested.model && parsed.model) score += canonicalModel(requested.model) === canonicalModel(parsed.model) ? 100 : -100
     else if (requested.model) score += 8
     if (requested.brand && parsed.brand) score += requested.brand === parsed.brand ? 60 : -60
+    if (requested.compatibleBrand && parsed.compatibleBrand) {
+      score += requested.compatibleBrand === parsed.compatibleBrand ? 60 : -60
+    }
     if (requested.kind && parsed.kind) score += requested.kind === parsed.kind ? 30 : -30
     if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 35 : -35
     if (requested.color && parsed.color) score += requested.color === parsed.color ? 20 : -20

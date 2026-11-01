@@ -4,7 +4,7 @@ import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
-import { compareItems, fingerprint, identity, recommendation } from './product-matching'
+import { canonicalModel, compareItems, fingerprint, identity, recommendation } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
@@ -20,7 +20,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     charger: 'зарядное устройство', cable: 'кабель',
   }
   if (parsed.kind && accessoryType[parsed.kind]) {
-    const focused = [parsed.brand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
+    const searchBrand = parsed.brand || parsed.compatibleBrand
+    const focused = [searchBrand, accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
     const typeModel = [accessoryType[parsed.kind], parsed.model].filter(Boolean).join(' ')
     return [...new Set([focused, typeModel, cleanName].filter(Boolean))]
   }
@@ -189,7 +190,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
     const accessory = accessories.includes(check.ours.kind || '')
     const base = check.score >= 40 && !check.conflicts.length
-      && Boolean(check.ours.model && check.theirs.model === check.ours.model)
+      && Boolean(check.ours.model && canonicalModel(check.theirs.model) === canonicalModel(check.ours.model))
       && (!check.ours.storage || check.theirs.storage === check.ours.storage)
       && (!check.ours.color || check.theirs.color === check.ours.color)
 
@@ -833,7 +834,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const rejected: string[] = []
               const requestedKind = identity(product).kind
               for (const query of oneCSearchQueries(product)) {
-                const trace: FiveRuSearchTrace = { query, linksFound: 0, cardsParsed: 0, rejectedCards: [] }
+                const trace: FiveRuSearchTrace = { query, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
                 let results: FiveRuResult[]
                 try {
@@ -867,7 +868,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
               if (!ranked.length) {
                 const summary = traces.map(trace =>
-                  '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + trace.cardsParsed + ' прочитано' +
+                  '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + (trace.rankedLinks ?? 0) + ' кандидатов, ' + trace.cardsParsed + ' карточек прочитано' +
                     (trace.cached ? ' (кеш)' : '') +
                     (trace.pageUrl ? ' · страница ' + new URL(trace.pageUrl).pathname : '') +
                     (trace.searchMode ? ' · режим ' + trace.searchMode : '')
