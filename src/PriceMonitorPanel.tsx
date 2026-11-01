@@ -139,12 +139,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     await run('match', async () => {
       const number = Math.min(5000, unlinkedInScope)
       if (!number) throw new Error('Все товары уже привязаны. Обновляй цены одной кнопкой.')
-      const useCatalogIndex = number >= 100
       const onlyInStockSmartphones = /(?:смартфон|smartphone)/i.test(displayPath)
-      const job = await api.monitorAutoFindOneC(displayPath, number, useCatalogIndex, onlyInStockSmartphones, true)
-      setNotice(useCatalogIndex
-        ? 'Запущена сборка публичного каталога 05.ru. После индексации TEXHORU сопоставит товары 1С и проверит цены в карточках.'
-        : 'Поиск ' + job.queued + ' товаров запущен. Результаты появятся в карточках.')
+      // Do not make a 2,000+ page seller-catalog crawl a gate for live search.
+      // The matcher already falls back to the site's public search when the
+      // optional local catalog index has no candidate.
+      const job = await api.monitorAutoFindOneC(displayPath, number, false, onlyInStockSmartphones, true)
+      setNotice('Прямой поиск 05.ru запущен для ' + job.queued + ' товаров. Результаты появятся в карточках.')
     })
   }
 
