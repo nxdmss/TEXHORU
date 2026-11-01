@@ -17,16 +17,19 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
   }
 
   return [...unique.values()].map(candidate => {
-    let slug = ''
+    let rawSlug = ''
     try {
-      slug = decodeURIComponent(new URL(candidate.url).pathname.split('/p/').at(-1) || '')
-        .replace(/-\d+\/?$/, '').replace(/[-_]/g, ' ')
+      rawSlug = decodeURIComponent(new URL(candidate.url).pathname.split('/p/').at(-1) || '')
+        .replace(/-\d+\/?$/, '').replace(/_/g, ' ')
     } catch { /* The caller validates every URL against 05.ru. */ }
 
+    // Keep punctuation in the raw title/slug while extracting manufacturer
+    // part numbers. Normalize only the token set used for fuzzy ranking.
+    const slug = rawSlug.replace(/-/g, ' ')
     const title = candidate.title || slug
     const combined = normalize(title + ' ' + slug)
-    const parsed = identity({ name: combined })
-    const slugVariant = identity({ name: slug })
+    const parsed = identity({ name: (candidate.title || '') + ' ' + rawSlug })
+    const slugVariant = identity({ name: rawSlug })
 
     // A requested capacity must agree with both the visible title and URL slug.
     if (requestedStorage && (
@@ -34,8 +37,14 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
       || (slugVariant.storage && slugVariant.storage !== requestedStorage)
     )) return null
 
-    // Do not read another product family or a different explicit model.
-    if (requested.model && parsed.model && canonicalModel(requested.model) !== canonicalModel(parsed.model)) return null
+    // Do not read another product family or a different explicit model/code.
+    if (requested.model && parsed.model && canonicalModel(requested.model) !== canonicalModel(parsed.model)
+      && !(requested.productCode && requested.productCode === parsed.productCode)) return null
+    if (requested.productCode && parsed.productCode && requested.productCode !== parsed.productCode) return null
+    if (requested.cpu && parsed.cpu && requested.cpu !== parsed.cpu) return null
+    if (requested.gpu && parsed.gpu && requested.gpu !== parsed.gpu) return null
+    if (requested.ram && parsed.ram && requested.ram !== parsed.ram) return null
+    if (requested.screenSize && parsed.screenSize && requested.screenSize !== parsed.screenSize) return null
     if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
 
     // A phone search should not waste page reads on accessories whose category
@@ -60,12 +69,17 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 12):
     let score = 0
     if (requested.model && parsed.model) score += canonicalModel(requested.model) === canonicalModel(parsed.model) ? 100 : -100
     else if (requested.model) score += 8
+    if (requested.productCode && parsed.productCode) score += requested.productCode === parsed.productCode ? 140 : -140
     if (requested.brand && parsed.brand) score += requested.brand === parsed.brand ? 60 : -60
     if (requested.compatibleBrand && parsed.compatibleBrand) {
       score += requested.compatibleBrand === parsed.compatibleBrand ? 60 : -60
     }
     if (requested.kind && parsed.kind) score += requested.kind === parsed.kind ? 30 : -30
+    if (requested.cpu && parsed.cpu) score += requested.cpu === parsed.cpu ? 55 : -55
+    if (requested.gpu && parsed.gpu) score += requested.gpu === parsed.gpu ? 35 : -35
+    if (requested.ram && parsed.ram) score += requested.ram === parsed.ram ? 25 : -25
     if (requestedStorage && parsed.storage) score += requestedStorage === parsed.storage ? 35 : -35
+    if (requested.screenSize && parsed.screenSize) score += requested.screenSize === parsed.screenSize ? 20 : -20
     if (requested.color && parsed.color) score += requested.color === parsed.color ? 20 : -20
     for (const word of queryWords) if (words.has(word)) score += 5
 
