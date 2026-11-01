@@ -1389,6 +1389,98 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
 })
 
 
+test('Tolerant review works for chargers, watches, accessories and partial phone variants without false confirmations', () => {
+  const monitor = new PriceMonitorService({}, {}, {})
+  const ours = { name: 'СЗУ Breaking P-09 USB-C GaN 25W 3A белый', brand: 'Breaking', category: 'Зарядные устройства' }
+  const theirs = { name: 'Зарядное устройство Breaking GaN USB-C 25W 3A белый', brand: 'Breaking', category: 'Зарядные устройства' }
+  assert.equal(identity(ours).kind, 'charger')
+  const check = compareItems(ours, theirs)
+  assert.equal(check.conflicts.length, 0, JSON.stringify(check))
+  assert.equal(monitor.strongVariant(check), false)
+  assert.equal(monitor.reviewVariant(check, ours.name, theirs.name), true)
+  assert.equal(check.canAutoConfirm, false)
+  assert.equal(monitor.reviewVariant(check, ours.name, theirs.name.replace('25W', '45W')), false)
+
+  const differentKind = compareItems(ours, { name: 'Кабель Breaking USB-C 25W белый', brand: 'Breaking' })
+  assert.equal(monitor.reviewVariant(differentKind, ours.name, 'Кабель Breaking USB-C 25W белый'), false)
+
+  const partialPhone = compareItems(
+    { name: 'Смартфон Apple iPhone 17 Pro 256 ГБ синий', brand: 'Apple' },
+    { name: 'Apple iPhone 17 Pro 256 ГБ', brand: 'Apple' },
+  )
+  assert.equal(partialPhone.canAutoConfirm, false)
+  assert.equal(monitor.reviewVariant(partialPhone), true)
+  const wrongVariant = compareItems(
+    { name: 'Смартфон Apple iPhone 17 Pro 256 ГБ синий', brand: 'Apple' },
+    { name: 'Apple iPhone 17 Pro 512 ГБ синий', brand: 'Apple' },
+  )
+  assert.equal(monitor.reviewVariant(wrongVariant), false)
+
+  const sameWatch = compareItems(
+    { name: 'Смарт-часы Xiaomi Watch 2 Black', brand: 'Xiaomi' },
+    { name: 'Умные часы Xiaomi Watch 2', brand: 'Xiaomi' },
+  )
+  assert.equal(monitor.reviewVariant(sameWatch), true)
+})
+
+test('Review search ranking offers uncertain titles but never changes strict ranking or accepts conflicting device models', () => {
+  const url = 'https://05.ru/cat/watch/p/huawei-watch-2-black-101/'
+  const entries = [{ url, title: 'Смарт-часы Huawei Watch 2 Black' }]
+  assert.deepEqual(rankSearchLinks(entries, 'Xiaomi Watch 2 Black'), [])
+  assert.deepEqual(rankSearchLinks(entries, 'Xiaomi Watch 2 Black', 12, true), [url])
+  const wrongModelUrl = 'https://05.ru/cat/phone/p/smartfon-apple-iphone-17-pro-max-512-102/'
+  assert.deepEqual(rankSearchLinks([{ url: wrongModelUrl, title: 'iPhone 17 Pro Max 512GB' }],
+    'iPhone 17 Pro 256GB', 12, true), [])
+})
+
+test('Uncertain non-phone products retain review suggestions on their 1C product without altering prices', async () => {
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
+  const key = randomUUID(), categoryId = randomUUID()
+  const path = 'ЗАРЯДНЫЕ УСТРОЙСТВА / Проверка предложений ' + key
+  const name = 'СЗУ Breaking P-09 USB-C GaN 25W 3A белый'
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: path, slug: 'review-charger-' + key }],
+    products: [{
+      oneCId: key, name, brand: 'Breaking', sku: 'BREAKING-' + key,
+      slug: 'charger-' + key, categoryOneCId: categoryId,
+      price: 1800, costPrice: 1200, stockQty: 3,
+    }],
+  })
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: key } })
+  const candidateNames = [
+    'Зарядное устройство Breaking GaN USB-C 25W 3A белый',
+    'СЗУ Breaking GaN USB-C 25W 3A белый',
+  ]
+  const candidates = candidateNames.map((externalName, i) => ({
+    name: externalName, brand: 'Breaking',
+    attributes: identity({ name: externalName, brand: 'Breaking', category: 'Зарядные устройства' }),
+    url: 'https://05.ru/cat/charging/p/breaking-25w-' + key + '-' + i + '/',
+    price: 1400 + i * 50, oldPrice: null, inStock: true,
+    externalSku: null, categoryName: 'Зарядные устройства',
+    seller: '05.ru', region: null, priceSource: 'JSON-LD Offer',
+  }))
+  const monitor = new PriceMonitorService(prisma, {
+    searchProducts: async () => candidates,
+    parse: async () => { throw Error('Should not parse another URL') },
+  }, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath: path, maxItems: 10, onlyUnlinked: true })
+  await monitor.tick()
+  const stored = await prisma.competitorProduct.findMany({ where: { externalUrl: { in: candidates.map(c => c.url) } } })
+  assert(stored.length >= 1)
+  assert(stored.every(row => row.productId === product.id))
+  assert(stored.every(row => row.matchStatus === 'SUGGESTED'))
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).price, 1800)
+  const refreshed = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(refreshed.processed, 1)
+  assert.equal(refreshed.errors, 0)
+  assert.equal((await monitor.checkAll()).kind, 'RECHECK')
+  const rechecks = (await monitor.jobs()).filter(row => row.kind === 'RECHECK')
+  assert.equal(rechecks[0].perPage, 0)
+  await monitor.cancelJob(job.id)
+})
+
 test('Complete smartphone variants auto-confirm; incomplete or conflicting variants do not', () => {
   const complete = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
   assert.equal(compareItems(complete, complete).canAutoConfirm, true)
