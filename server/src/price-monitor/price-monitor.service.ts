@@ -603,13 +603,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const eligible = dto.onlyUnlinked ? scoped.filter(product => !linkedIds.has(product.id)) : scoped
     if (!eligible.length) throw new BadRequestException('В этом разделе все товары уже привязаны. Используй «Обновить цены 05.ru».')
     const selected = eligible.slice(0, limit)
-    // Discover only missing links during first setup. Daily refresh uses direct URLs.
-    const useIndex = dto.indexCatalog === true
-    if (useIndex) await this.ensureIndexJob()
+    // Live 05.ru search is the primary discovery path. A full seller-catalog
+    // crawl is too fragile to be a prerequisite for matching thousands of 1C
+    // products. Existing index entries may accelerate a match, but an empty or
+    // stale index must always fall through to searchProducts().
     const job = await this.prisma.monitorJob.create({
       data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
         pendingUrls: selected.map(p => 'product:' + p.id),
-        visitedUrls: [...(useIndex ? ['INDEX_MATCH'] : []), ...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])] },
+        visitedUrls: [...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])] },
     })
     return { ...job, eligible: eligible.length, queued: selected.length }
   }
@@ -722,11 +723,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         if (links) await this.checkAll()
         await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
       }
-      // Finish a requested catalog build before processing the batch that depends on it.
+      // Process 1C matching before any optional/background full-catalog index.
+      // A global seller index must never hold up direct live product search.
+      const matchJob = await this.prisma.monitorJob.findFirst({
+        where: { status: 'QUEUED', kind: 'MATCH_1C' }, orderBy: { createdAt: 'asc' },
+      })
       const indexJob = await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED', kind: 'INDEX_05RU' }, orderBy: { createdAt: 'asc' },
       })
-      const job = indexJob ?? await this.prisma.monitorJob.findFirst({
+      const job = matchJob ?? indexJob ?? await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' },
       })
       if (!job) return
@@ -920,14 +925,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Ошибка задачи'
         await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'FAILED', leaseUntil: null, finishedAt: new Date(), lastError: message } })
-        if (job.kind === 'INDEX_05RU') {
-          // Never start 2,000 product checks on a known-incomplete, failed index.
-          await this.prisma.monitorJob.updateMany({
-            where: { kind: 'MATCH_1C', status: 'QUEUED', createdAt: { gte: job.createdAt } },
-            data: { status: 'FAILED', finishedAt: new Date(),
-              lastError: 'Индексация 05.ru не завершилась: ' + message },
-          })
-        }
+        // A failed optional index is not a failed product search. MATCH_1C
+        // uses the live 05.ru search whenever no usable index entry exists.
       }
     } finally { this.working = false }
   }
