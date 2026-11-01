@@ -131,7 +131,7 @@ test('Recognizes smartwatch model codes and keeps accessory searches separate fr
     'xiaomi 15t pro 512', 'xiaomi 15t pro',
   ])
   assert.deepEqual(oneCSearchQueries({ name: 'Смартфон Apple iPhone 13 128 Гб синий' }), [
-    'apple iphone 13 128 синий', 'apple iphone 13 128', 'apple iphone 13',
+    'apple iphone 13 128 синий', 'iphone 13 128', 'iphone 13',
   ])
 })
 
