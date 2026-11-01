@@ -190,7 +190,15 @@ export function identity(item: Item): Identity {
     || (/^\d{1,2}(?:[.,]\d)?$/.test(screenRaw.trim()) ? screenRaw.trim().replace(',', '.') : undefined)
   const powerRaw = String(attrs.wattage || spec(/мощност|power output|выходная мощность/i) || (rawName + ' ' + (item.shortSpec || '')))
   const wattage = kind === 'charger' ? powerRaw.match(/\b(\d{1,3})\s*w(?:att)?\b/i)?.[1] : undefined
-  const condition = /восстановлен|refurb|б\/у|уценен|витринн|used/i.test(item.name) ? 'used' : attrs.condition
+  const conditionSource = [
+    rawName, String(attrs.condition || ''),
+    spec(/состояние товара|состояние|condition|причина уценки|заявленный дефект/i) || '',
+  ].join(' ')
+  const condition = /замена платы|потертост|заявленн\w* дефект|дефект|ремонт|не видит сим|не работает|поврежд/i.test(conditionSource)
+    ? 'defective'
+    : /восстановлен|refurb|б\s*\/\s*у|уценен|витринн|used|по\s*сц|сервисн\w*/i.test(conditionSource)
+      ? 'used'
+      : attrs.condition ? normalize(String(attrs.condition)) : undefined
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
   const mpn = item.mpn || attrs.mpn || spec(/заводск.*артикул|mpn/i)
@@ -260,7 +268,10 @@ export function compareItems(ours: Item, theirs: Item) {
       ;(same ? reasons : conflicts).push(labels[key])
     }
   }
-  if ((a.condition === 'used') !== (b.condition === 'used')) conflicts.push('новый / восстановленный')
+  const usedA = a.condition === 'used' || a.condition === 'defective'
+  const usedB = b.condition === 'used' || b.condition === 'defective'
+  if (usedA !== usedB) conflicts.push('новый / восстановленный')
+  else if (a.condition && b.condition && a.condition !== b.condition) conflicts.push('состояние')
   const exactId = Boolean((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn)
     || (a.productCode && a.productCode === b.productCode))
   const phone = a.kind === 'smartphone'
@@ -274,7 +285,21 @@ export function compareItems(ours: Item, theirs: Item) {
   const common = [...wordsA].filter(w => wordsB.has(w)).length
   const similarity = common / Math.max(wordsA.size, wordsB.size, 1)
   const score = conflicts.length ? 0 : exactId ? 100 : Math.min(94, Math.round(similarity * 50 + reasons.length * 8))
-  return { score, reasons, conflicts, missing, exactId, canAutoConfirm: Boolean(!conflicts.length && ((a.gtin && a.gtin === b.gtin) || (a.mpn && a.mpn === b.mpn && !missing.length) || (phone && b.kind === 'smartphone' && !missing.length && a.brand && a.brand === b.brand && (!a.ram && !b.ram || a.ram === b.ram)))), ours: a, theirs: b }
+  const phoneVariantComplete = Boolean(
+    phone && b.kind === 'smartphone'
+    && a.brand && b.brand && a.brand === b.brand
+    && a.model && b.model && canonicalModel(a.model) === canonicalModel(b.model)
+    && a.storage && b.storage && a.storage === b.storage
+    && a.color && b.color && a.color === b.color
+    // SIM is optional only when neither source specifies it. If one side
+    // identifies eSIM/physical SIM and the other does not, keep it for review.
+    && ((!a.sim && !b.sim) || (a.sim && b.sim && a.sim === b.sim))
+  )
+  return {
+    score, reasons, conflicts, missing, exactId,
+    canAutoConfirm: Boolean(!conflicts.length && (exactId || phoneVariantComplete)),
+    ours: a, theirs: b,
+  }
 }
 
 /**
@@ -367,7 +392,11 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
     if (a[key] && b[key] && a[key] !== b[key]) reasons.push(label + ' отличается')
     else if (a[key] && !b[key]) reasons.push(label + ' не указан на 05.ru')
   }
-  if ((a.condition === 'used') !== (b.condition === 'used')) reasons.push('состояние отличается')
+  const usedA = a.condition === 'used' || a.condition === 'defective'
+  const usedB = b.condition === 'used' || b.condition === 'defective'
+  if (usedA !== usedB || (a.condition && b.condition && a.condition !== b.condition)) {
+    reasons.push('состояние отличается')
+  }
   if (a.brand && b.brand && a.brand !== b.brand) reasons.push('производитель отличается')
   if (a.brand && !b.brand) reasons.push('производитель не указан на 05.ru')
   if (a.model && !b.model) reasons.push('модель не указана на 05.ru')

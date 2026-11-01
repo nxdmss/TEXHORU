@@ -337,6 +337,14 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
   assert.deepEqual(rankSearchLinks([
     { url: broadPhoneUrl, title: 'Смартфон Apple 128 ГБ' },
   ], 'iphone 13 128', 10), []) // A brand/capacity-only card cannot prove the requested model.
+  const unparsedPhoneUrl = 'https://05.ru/cat/x/p/smartfon-apple-13-128-gb-chernyy-125/'
+  assert.deepEqual(rankSearchLinks([
+    { url: unparsedPhoneUrl, title: 'Смартфон Apple 13 128 ГБ черный' },
+  ], 'apple iphone 13 128 черный', 10), [unparsedPhoneUrl]) // Keep a model-number anchor for page-level review.
+  const liveIphone13Black = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-13-4-gb-128-gb-chernyy-bez-rustore-11211/'
+  assert.deepEqual(rankSearchLinks([
+    { url: liveIphone13Black, title: 'Смартфон Apple iPhone 13 4 Гб/128 Гб черный (без RuStore)' },
+  ], 'apple iphone 13 128 черный', 10), [liveIphone13Black])
   const wrongModelFallback = 'https://05.ru/cat/x/p/smartfon-apple-iphone-14-128-gb-124/'
   assert.deepEqual(rankSearchLinks([
     { url: wrongModelFallback, title: 'Смартфон Apple iPhone 14 128 ГБ' },
@@ -1513,11 +1521,12 @@ test('Bulk 1C matching starts live 05.ru search without waiting for the global c
     page: 0, maxPages: 2300, perPage: 24,
   } })
   await monitor.tick()
-  assert.equal(searchCalls, 1)
+  assert.equal(searchCalls, 3) // Exhaust all three smartphone queries before confirming uniqueness.
   assert.equal(indexCalls, 0)
   const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
   const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: base + '-0' } })
   assert.equal(linked.productId, ours.id)
+  assert.equal(linked.matchStatus, 'CONFIRMED')
   assert.equal(ours.price, 92000)
   assert.equal(await prisma.competitorCatalogEntry.count(), 0)
   const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
@@ -1770,6 +1779,16 @@ test('Complete smartphone variants auto-confirm; incomplete or conflicting varia
     'Apple iPhone 17 Pro 12GB/256GB Blue eSIM']) {
     assert.equal(compareItems(complete, {name, brand:'Apple'}).canAutoConfirm, false)
   }
+
+  // SIM is not a blocker when neither source records it; the actual phone
+  // variant is still uniquely identified by brand, model, storage and colour.
+  const noSim = { name: 'Смартфон Apple iPhone 13 128 Гб черный', brand: 'Apple' }
+  const exactNoSim = { name: 'Смартфон Apple iPhone 13 4 Гб/128 Гб черный (без RuStore)', brand: 'Apple' }
+  assert.equal(compareItems(noSim, exactNoSim).canAutoConfirm, true)
+  assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб белый',brand:'Apple'}).canAutoConfirm, false)
+  assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб черный eSIM',brand:'Apple'}).canAutoConfirm, false)
+  assert.equal(compareItems(noSim, {name:'Смартфон Apple iPhone 13 128 Гб черный (замена платы)',brand:'Apple'}).canAutoConfirm, false)
+  assert.equal(identity({name:'Смартфон Apple iPhone 13 128 Гб черный (замена платы)'}).condition, 'defective')
 })
 
 test('Competitor catalog import never creates draft store inventory', async () => {

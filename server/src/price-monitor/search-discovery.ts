@@ -69,12 +69,26 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     const compatibleMatch = Boolean(requested.compatibleBrand && parsed.compatibleBrand
       && requested.compatibleBrand === parsed.compatibleBrand)
 
+    // Some 05.ru search tiles expose only "Apple + 13 + 128 GB" even though
+    // the product page itself has the complete iPhone model. Keep such links
+    // for a fresh page read and possible manual review; never use this weak
+    // anchor for automatic confirmation. A positively parsed different model
+    // (iPhone 14, iPhone 13 Pro, etc.) remains a hard rejection.
+    const requestedModelParts = requested.model ? normalize(requested.model).split(' ') : []
+    const modelNumberIndex = requestedModelParts.findIndex(part => /^\d{1,2}$/.test(part))
+    const requestedModelNumber = modelNumberIndex >= 0 ? requestedModelParts[modelNumberIndex] : undefined
+    const requestedModelSuffix = modelNumberIndex >= 0 ? requestedModelParts.slice(modelNumberIndex + 1) : []
+    const candidateWords = new Set(combined.split(' '))
+    const modelAnchor = Boolean(
+      requested.kind === 'smartphone' && requested.model && !parsed.model
+      && parsed.kind === 'smartphone' && brandMatch && requestedModelNumber
+      && candidateWords.has(requestedModelNumber)
+      && requestedModelSuffix.every(part => candidateWords.has(part))
+    )
+
     if (requested.kind && parsed.kind && requested.kind !== parsed.kind) return null
     if (requested.model && parsed.model && !sameModel) return null
-    // A smartphone query with a known model must never fall back to another
-    // Apple/Samsung/etc. model, or to a card whose model is not identifiable.
-    // That fallback was opening iPhone Air / iPhone 17 Pro for iPhone 13 queries.
-    if (requested.kind === 'smartphone' && requested.model && !parsed.model) return null
+    if (requested.kind === 'smartphone' && requested.model && !parsed.model && !modelAnchor) return null
 
     // Never send a phone search to accessory cards or another phone brand.
     if (requested.kind === 'smartphone' && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
@@ -92,13 +106,13 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     const sameKind = Boolean(requested.kind && parsed.kind && requested.kind === parsed.kind)
     const phoneFallbackAnchor = requested.kind === 'smartphone'
       && (brandMatch || meaningfulOverlap >= 1)
-    const hasAnchor = sameModel || sameCode || sameCodeFamily || sameCpu || sameGpu
+    const hasAnchor = sameModel || modelAnchor || sameCode || sameCodeFamily || sameCpu || sameGpu
       || (brandMatch && requested.model && !parsed.model && requested.kind !== 'smartphone')
       || (brandMatch && meaningfulOverlap >= 2) || meaningfulOverlap >= 3 || phoneFallbackAnchor
     if (!hasAnchor) return null
 
     let score = 0
-    if (requested.model) score += sameModel ? 120 : parsed.model ? (requested.kind === 'smartphone' ? -70 : -100) : 12
+    if (requested.model) score += sameModel ? 120 : modelAnchor ? 90 : parsed.model ? (requested.kind === 'smartphone' ? -70 : -100) : 12
     if (requested.productCode) score += sameCode ? 160 : sameCodeFamily ? 55 : parsed.productCode ? -35 : 12
     if (requested.brand && parsed.brand) score += brandMatch ? 45 : -60
     if (requested.compatibleBrand && parsed.compatibleBrand) score += compatibleMatch ? 45 : -60
@@ -112,9 +126,9 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     if (requested.sim && parsed.sim) score += requested.sim === parsed.sim ? 10 : -5
     for (const word of queryWords) if (words.has(word) && !stopWords.has(word)) score += 4
 
-    return { ...candidate, score, sameModel, parsedModel: parsed.model, brandMatch, meaningfulOverlap }
+    return { ...candidate, score, sameModel, modelAnchor, parsedModel: parsed.model, brandMatch, meaningfulOverlap }
   }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
     .sort((a, b) => b.score - a.score || a.index - b.index)
-    .filter(candidate => requested.kind !== 'smartphone' || !requested.model || candidate.sameModel)
+    .filter(candidate => requested.kind !== 'smartphone' || !requested.model || candidate.sameModel || candidate.modelAnchor)
     .slice(0, Math.max(0, limit)).map(candidate => candidate.url)
 }

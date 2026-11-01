@@ -193,7 +193,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw error
     } finally { this.parsing = false }
   }
-  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false) {
+  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false, autoConfirmExact = false) {
     return this.prisma.$transaction(async tx => {
       const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
       let productId = existing?.productId || suggestedProductId || null
@@ -214,6 +214,36 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           confirmedFingerprint = externalFingerprint
         }
       }
+
+      let autoConfirmed = false
+      if (autoConfirmExact && suggestedProductId && matchStatus !== 'REVIEW_REQUIRED') {
+        const product = await tx.product.findUnique({ where: { id: suggestedProductId } })
+        if (!product || product.status !== ProductStatus.ACTIVE) {
+          throw new ConflictException('Товар 1С изменился до автоматического подтверждения совпадения.')
+        }
+        const check = compareItems(product, theirs)
+        if (!check.canAutoConfirm || check.conflicts.length) {
+          throw new ConflictException('Совпадение больше не является точным. Требуется ручная проверка.')
+        }
+        if (existing?.productId && existing.productId !== suggestedProductId) {
+          throw new ConflictException('Эта ссылка уже назначена другому товару 1С.')
+        }
+        const otherConfirmed = await tx.competitorProduct.findFirst({
+          where: {
+            sourceId, productId: suggestedProductId, matchStatus: 'CONFIRMED',
+            ...(existing ? { id: { not: existing.id } } : {}),
+          },
+          select: { id: true },
+        })
+        if (!otherConfirmed) {
+          productId = suggestedProductId
+          matchStatus = 'CONFIRMED'
+          confirmedFingerprint = externalFingerprint
+          confirmedProductFingerprint = fingerprint(product)
+          autoConfirmed = true
+        }
+      }
+
       if (!productId && matchStatus !== 'REVIEW_REQUIRED') {
         if (forceReview) {
           // Uncertain discoveries remain unlinked unless the 1C product was
@@ -239,6 +269,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         attributes: jsonValue(result.attributes), seller: result.seller, region: result.region, priceSource: result.priceSource,
         latestPrice: result.price, oldPrice: result.oldPrice, inStock: result.inStock, lastCheckedAt: now, lastSuccessAt: now, lastError: null,
         matchStatus, confirmedFingerprint, confirmedProductFingerprint,
+        ...(autoConfirmed ? { confirmedAt: now } : {}),
       }
       const row = await tx.competitorProduct.upsert({ where: { externalUrl: result.url }, update: data, create: { ...data, externalUrl: result.url }, include: { source: true, product: true } })
       const previousPrice = existing?.priceSource === 'USER_FILE' ? null : existing?.latestPrice ?? null
@@ -247,15 +278,24 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const historyExists = existing
         ? await tx.competitorPriceHistory.findFirst({ where: { competitorProductId: row.id }, select: { id: true } })
         : null
-      const baselineNeeded = !historyExists || existing?.priceSource === 'USER_FILE'
+      const newlyConfirmed = autoConfirmed && existing?.matchStatus !== 'CONFIRMED'
+      const baselineNeeded = newlyConfirmed || !historyExists || existing?.priceSource === 'USER_FILE'
       const history = baselineNeeded || priceChanged || stockChanged
         ? await tx.competitorPriceHistory.create({
             data: { competitorProductId: row.id, price: result.price,
-              oldPrice: priceChanged ? previousPrice : null, inStock: result.inStock, checkedAt: now },
+              oldPrice: priceChanged && !newlyConfirmed ? previousPrice : null, inStock: result.inStock, checkedAt: now },
           })
         : null
-      if (priceChanged && history && row.matchStatus === 'CONFIRMED') {
+      // A newly confirmed mapping starts from today's price. Do not replay a
+      // price movement that happened while the URL was only a suggestion.
+      if (priceChanged && history && row.matchStatus === 'CONFIRMED' && !newlyConfirmed) {
         await this.exchange.enqueue(row.id, tx, history.id, previousPrice)
+      }
+      if (autoConfirmed) {
+        await tx.auditLog.create({ data: {
+          action: 'AUTO_CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: row.id,
+          details: { productId: suggestedProductId, basis: 'exact brand/model/storage/colour and compatible SIM data' },
+        } })
       }
       return this.decorated(row)
     })
@@ -282,6 +322,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         && check.ours.screenSize && check.theirs.screenSize && check.ours.screenSize === check.theirs.screenSize
       )
       return base && (check.exactId || exactHardware)
+    }
+    // Smartphone auto-linking requires a complete, conflict-free variant.
+    // SIM may be absent in both sources; if only one side specifies it,
+    // compareItems keeps the candidate in manual review.
+    if (check.ours.kind === 'smartphone' || check.theirs.kind === 'smartphone') {
+      return check.canAutoConfirm
     }
     // Accessory compatibility can produce a review suggestion, not an automatic
     // confirmation. save() still requires an exact GTIN/MPN before confirming it.
@@ -962,11 +1008,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 // A fully variant-filtered smartphone result is already precise.
                 // Accessories keep searching all query variants to improve recall.
                 if (rankedByUrl.size) {
-                  const exact = [...rankedByUrl.values()].filter(row => row.check.exactId)
-                  // A unique GTIN/MPN/manufacturer-code match is stronger than
-                  // additional fuzzy queries. Stop early and keep the manual
-                  // confirmation step unchanged.
-                  if (requestedKind === 'smartphone' || exact.length === 1) break
+                  const exact = [...rankedByUrl.values()].filter(row => row.check.canAutoConfirm)
+                  // Smartphone queries are deliberately all exhausted: a later
+                  // storage/model query may reveal a second exact card. Never
+                  // auto-link until the exact candidate is unique across queries.
+                  if (requestedKind !== 'smartphone' && exact.length === 1) break
                 }
                 for (const row of checked.slice(0, 3)) {
                   const reason = row.check.conflicts.length ? row.check.conflicts.join(', ')
@@ -1014,6 +1060,21 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     ? 'Ошибки чтения: ' + parsingErrors.join('; ')
                     : '05.ru не отдал ссылки на товары. Это сбой формы поиска или пустая выдача; отсутствие товара не подтверждено.'))
               }
+              // Multiple exact smartphone cards are still ambiguous (for example,
+              // duplicate listings or new/refurbished stock). Keep them for review.
+              if (requestedKind === 'smartphone' && ranked.length > 1) {
+                const source = await this.source()
+                let offered = 0
+                for (const option of ranked.slice(0, 3)) {
+                  const claimed = await this.prisma.competitorProduct.findUnique({
+                    where: { externalUrl: option.result.url },
+                  })
+                  if (claimed?.productId && claimed.productId !== product.id) continue
+                  await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
+                  offered++
+                }
+                if (offered) throw new Error('05.ru: найдено несколько точных вариантов для ' + product.name + '; выбери правильную карточку вручную')
+              }
               // More than one plausible variant must be manually reviewed, never silently chosen.
               if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
                 // Keep plausible 05.ru cards in the monitor for manual review,
@@ -1035,7 +1096,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 throw new Error('Карточка 05.ru уже связана с другим товаром: ' + product.name)
               }
               const source = await this.source()
-              await this.save(ranked[0].result, source.id, product.id)
+              const autoConfirmExact = requestedKind === 'smartphone' && ranked.length === 1
+                && ranked[0].check.canAutoConfirm
+              await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact)
               }
               }
             } else {
