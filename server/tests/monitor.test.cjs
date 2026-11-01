@@ -1137,11 +1137,13 @@ test('Smartphone category crawl starts on page 1 and advances to page 2 when no 
     },
     close: async () => {},
   })
+  const context = await parser.context({}, true)
   try {
-    const links = await parser.smartphoneCatalogLinks({})
+    const links = await parser.smartphoneCatalogLinks(context)
     assert.deepEqual(links.map(link => link.url), [first, second])
     assert.deepEqual(navigations, [base, base + '?page=2', base + '?page=3'])
   } finally {
+    await context.close()
     await parser.onModuleDestroy()
   }
 })
