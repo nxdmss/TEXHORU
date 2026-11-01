@@ -657,7 +657,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
       throw new ConflictException('Мониторинг уже запущен. Дождись завершения или останови текущую задачу.')
     }
-    // Daily updates must use only explicitly confirmed, persisted 1C links.
+    // Manual and scheduled updates use only explicitly confirmed, persisted 1C links.
     // Discovery/search is a separate operation, never part of a price refresh.
     const links = await this.prisma.competitorProduct.findMany({
       where: {
