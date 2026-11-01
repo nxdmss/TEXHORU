@@ -63,7 +63,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   const byColor = parsed.color
     ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
     : undefined
-  return [...new Set([byColor, model + (parsed.storage ? ' ' + parsed.storage : ''), model].filter(Boolean))]
+  return [...new Set([byColor, model + (parsed.storage ? ' ' + parsed.storage : ''), model]
+    .filter((query): query is string => Boolean(query)))]
 }
 
 export function isExpectedReviewOutcome(message: string) {
