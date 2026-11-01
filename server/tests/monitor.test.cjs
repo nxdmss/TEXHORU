@@ -760,6 +760,56 @@ test('Manual URL binding rejects a product URL already assigned elsewhere', asyn
   )
 })
 
+test('Confirmed 05.ru mapping is one-to-one: one URL per 1C product and one 1C product per URL', async () => {
+  const idA = randomUUID(), idB = randomUUID(), categoryId = randomUUID()
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: 'Тестовые смартфоны ' + categoryId, slug: 'one-to-one-' + categoryId }],
+    products: [
+      { oneCId: idA, sku: 'MAP-A-' + idA, slug: 'map-a-' + idA, categoryOneCId: categoryId,
+        name: product.name, brand: 'Apple', price: 99990, stockQty: 2 },
+      { oneCId: idB, sku: 'MAP-B-' + idB, slug: 'map-b-' + idB, categoryOneCId: categoryId,
+        name: product.name, brand: 'Apple', price: 99990, stockQty: 2 },
+    ],
+  })
+  const a = await prisma.product.findUniqueOrThrow({ where: { oneCId: idA } })
+  const b = await prisma.product.findUniqueOrThrow({ where: { oneCId: idB } })
+  const urlA = fixture.sourceUrl.replace('24007/', 'mapping-a-' + idA + '/')
+  const urlB = fixture.sourceUrl.replace('24007/', 'mapping-b-' + idB + '/')
+  const parser = { parse: async url => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }) }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const linkA = await monitor.check({ url: urlA, productId: a.id })
+  await monitor.confirm(linkA.id, a.id)
+  const linkB = await monitor.check({ url: urlB, productId: b.id })
+  await monitor.confirm(linkB.id, b.id)
+
+  await assert.rejects(() => monitor.confirm(linkA.id, b.id), /уже подтверждена для другого товара/)
+  await monitor.unmatch(linkB.id)
+  await assert.rejects(() => monitor.confirm(linkB.id, a.id), /у этого товара уже есть подтверждённая ссылка/)
+})
+
+test('Six-hour schedule is persisted and can be disabled without changing product prices', async () => {
+  let saved
+  const monitor = new PriceMonitorService({
+    monitorSettings: { upsert: async input => {
+      saved = input.update
+      return { id: '05ru', ...input.update }
+    } },
+  }, {}, {})
+  const enabled = await monitor.updateSettings({
+    catalogUrl: 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/',
+    intervalMinutes: 360,
+  })
+  assert.equal(enabled.intervalMinutes, 360)
+  assert(saved.nextRunAt instanceof Date)
+  const disabled = await monitor.updateSettings({
+    catalogUrl: 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/',
+    intervalMinutes: 0,
+  })
+  assert.equal(disabled.intervalMinutes, 0)
+  assert.equal(disabled.nextRunAt, null)
+})
+
 test('Unlinked-only discovery excludes products already mapped to 05.ru', async () => {
   const products = [
     { id: 1, name: 'Apple iPhone 17 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '1', status: 'ACTIVE', price: 99000 },
