@@ -50,8 +50,9 @@ function productKind(item: Item): string | undefined {
   if (/(?:смартфон|smartphone|iphone|galaxy|(?:xiaomi|redmi|poco|samsung|honor|huawei|realme|oneplus|tecno|infinix|oppo|vivo|pixel|motorola|nothing)\s+(?:\d|[a-z]\d|note|spark|camon|pova))/i.test(text)) return 'smartphone'
   if (/(?:планшет|tablet|ipad)/.test(text)) return 'tablet'
   if (/(?:ноутбук|laptop|macbook|aspire|vivobook|ideapad|thinkpad|matebook|pavilion|inspiron|latitude|zenbook|elitebook|probook|predator|nitro|swift)/.test(text)) return 'laptop'
-  if (/\b(?:acer|asus|lenovo|msi|dell|hp)\b/.test(text)
+  if (/\b(?:acer|asus|lenovo|msi|dell|hp|huawei|honor)\b/.test(text)
     && /\b(?:[a-z]{1,4}\d{2,4}[a-z]{0,3}(?:-[a-z0-9]{2,8})+|\d{2}[a-z]{2}\d{2}[a-z0-9]{2,4}|\d{5}[a-z]{3})\b/i.test(item.name)) return 'laptop'
+  if (/\bapple\b/.test(text) && /\bA\d{4}\b/i.test(item.name)) return 'laptop'
   return undefined
 }
 
