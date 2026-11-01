@@ -116,16 +116,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
       // Explicit user confirmation is allowed with missing fields; the UI lists them.
       await tx.monitorDelivery.updateMany({ where: { linkId: id, status: 'PENDING' }, data: { status: 'CANCELLED', lastError: 'Связь подтверждена заново' } })
-      // The first confirmed observation is the baseline, not a price-change
-      // proposal. save() normally created it; backfill only legacy links.
-      const baseline = await tx.competitorPriceHistory.findFirst({
-        where: { competitorProductId: id }, orderBy: { checkedAt: 'desc' },
+      // A new/reconfirmed mapping starts a fresh baseline. Never replay a
+      // price change that belonged to the previous mapping after it is reviewed.
+      await tx.competitorPriceHistory.create({
+        data: { competitorProductId: id, price: link.latestPrice, oldPrice: null, inStock: link.inStock, checkedAt: new Date() },
       })
-      if (!baseline) {
-        await tx.competitorPriceHistory.create({
-          data: { competitorProductId: id, price: link.latestPrice, oldPrice: null, inStock: link.inStock, checkedAt: link.lastSuccessAt },
-        })
-      }
       const row = await tx.competitorProduct.update({ where: { id }, data: {
         productId, matchStatus: 'CONFIRMED', confirmedAt: new Date(),
         confirmedFingerprint: fingerprint({ name: link.externalName, attributes: link.attributes }), confirmedProductFingerprint: fingerprint(product),
