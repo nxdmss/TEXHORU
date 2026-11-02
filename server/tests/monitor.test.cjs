@@ -467,6 +467,9 @@ test('All-store discovery creates independent matching jobs for 05.ru, M.Video a
       },
     },
     product: { findMany: async () => [product, zeroStock] },
+    monitorSettings: {
+      upsert: async ({ where }) => ({ id: where.id, region: 'Махачкала' }),
+    },
     competitorProduct: {
       findMany: async ({ where }) => where.source.key === 'dns' ? [{ productId: product.id }] : [],
     },
