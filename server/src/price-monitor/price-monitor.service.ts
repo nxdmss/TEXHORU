@@ -120,6 +120,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       create: { key, name: definition.name, baseUrl: definition.baseUrl },
     })
   }
+  private nameForSource(key: StoreKey) {
+    return STORE_DEFINITIONS.find(item => item.key === key)?.name || key
+  }
   private parserFor(key: StoreKey): StorefrontAdapter {
     if (key === '05ru') return this.fiveRu
     if (key === 'mvideo') return this.mvideo
