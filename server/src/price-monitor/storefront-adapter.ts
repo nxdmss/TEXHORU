@@ -377,7 +377,7 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
       const uniqueSpecs = [...new Map(specs.map(item => [item.label.toLowerCase() + ':' + item.value.toLowerCase(), item])).values()]
       const region = visibleText(document, config.regionSelectors)
         || visibleText(document.querySelector('header') || document, ['[data-testid*="city"]','[class*="city"]','[class*="location"]'])
-      const sellerText = visibleText(main, ['[data-testid*="seller"]','[class*="seller-name"]','[class*="merchant"]'])
+      const sellerText = visibleText(main, ['[itemprop="seller"]','[data-testid*="seller"]','[class*="seller-name"]','[class*="seller"]','[class*="merchant"]'])
       const availability = visibleText(main, ['[itemprop="availability"]','[data-testid*="availability"]','[class*="availability"]','[class*="stock"]'])
       return {
         h1: document.querySelector('h1')?.textContent?.trim() || '',
