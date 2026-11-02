@@ -57,7 +57,7 @@ export function storeKeyFromUrl(raw: string): StoreKey {
   throw new BadRequestException('Поддерживаются только 05.ru, М.Видео и DNS')
 }
 
-type RetailerConfig = {
+export type RetailerConfig = {
   key: Exclude<StoreKey, '05ru'>
   name: string
   baseUrl: string
@@ -70,7 +70,7 @@ type RetailerConfig = {
   searchFallback: (query: string) => string
   officialSellerPattern: RegExp
 }
-type ProductSnapshot = {
+export type ProductSnapshot = {
   h1: string
   scripts: string[]
   metaPrice: string | null
@@ -131,7 +131,7 @@ export function normalizeRetailerProductUrl(raw: string, config: RetailerConfig)
   return url.toString()
 }
 
-function extractRetailerProduct(snapshot: ProductSnapshot, url: string, config: RetailerConfig): StoreProductResult {
+export function extractRetailerProduct(snapshot: ProductSnapshot, url: string, config: RetailerConfig): StoreProductResult {
   const objects = jsonLdObjects(snapshot.scripts)
   const products = objects.filter(object => hasType(object, 'Product'))
   const h1 = snapshot.h1.trim()
