@@ -1068,6 +1068,53 @@ test('Smartphone discovery stops after two clean searches returning the same uni
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).price, 100000)
 })
 
+test('A 1C smartphone without SIM type chooses the best-ranked 05.ru SIM variant automatically', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const categoryPath = 'SIM DECISION ' + id
+  const ours = {
+    oneCId: id, sku: 'SIM-DECISION-' + id, slug: 'sim-decision-' + id,
+    name: 'Смартфон Apple iPhone 17 256 Гб белый',
+    brand: 'Apple', categoryOneCId: categoryId, price: 79900, stockQty: 2,
+  }
+  const plainName = 'Смартфон Apple iPhone 17 8 Гб/256 Гб белый'
+  const esimName = 'Смартфон Apple iPhone 17 8 Гб/256 Гб белый (E-Sim)'
+  const plainUrl = 'https://05.ru/cat/396f7486/p/iphone-17-256-white-' + id + '/'
+  const esimUrl = 'https://05.ru/cat/396f7486/p/iphone-17-256-white-esim-' + id + '/'
+  const makeResult = (url, name, price) => ({
+    url, name, brand: 'Apple', attributes: identity({ name, brand: 'Apple' }),
+    categoryName: 'Смартфоны', price, inStock: true, seller: '05.ru',
+  })
+  const plain = makeResult(plainUrl, plainName, 74990)
+  const esim = makeResult(esimUrl, esimName, 73990)
+  const plainCheck = compareItems(ours, plain)
+  const esimCheck = compareItems(ours, esim)
+  assert.equal(plainCheck.canAutoConfirm, true)
+  assert.equal(esimCheck.canAutoConfirm, true)
+  assert.equal(plainCheck.ours.sim, undefined)
+  assert.equal(esimCheck.theirs.sim, 'esim')
+  assert(plainCheck.score > esimCheck.score, 'The exact title without an unspecified SIM suffix should rank first')
+
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'sim-decision-group-' + categoryId }],
+    products: [ours],
+  })
+  const parser = { searchProducts: async () => [plain, esim] }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath, maxItems: 10 })
+  await monitor.tick()
+
+  const completed = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(completed.status, 'COMPLETED')
+  assert.equal(completed.errors, 0)
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  const selected = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: plainUrl } })
+  assert.equal(selected.productId, product.id)
+  assert.equal(selected.matchStatus, 'CONFIRMED')
+  assert.equal(selected.latestPrice, 74990)
+  assert.equal(await prisma.competitorProduct.count({ where: { externalUrl: esimUrl } }), 0)
+})
+
 test('Universal selection: parent group includes nested 1C category; 05.ru auto-match never changes site prices', async () => {
   const id = randomUUID()
   const catId = randomUUID()

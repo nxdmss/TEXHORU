@@ -376,7 +376,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (autoConfirmed) {
         await tx.auditLog.create({ data: {
           action: 'AUTO_CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: row.id,
-          details: { productId: suggestedProductId ?? null, basis: 'unique exact product identity or complete model/variant configuration without explicit conflicts' },
+          details: { productId: suggestedProductId ?? null, basis: 'complete model/variant configuration without explicit conflicts; best-ranked candidate selected when alternatives are weaker or 1C omits SIM type' },
         } })
       }
       return this.decorated(row)
@@ -1295,24 +1295,34 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 throw new Error('' + source.name + ': нет подтверждённого совпадения для ' + product.name +
                   '. Поиск: ' + summary + '. ' + reason)
               }
-              // Multiple exact smartphone cards are still ambiguous (for example,
-              // duplicate listings or new/refurbished stock). Keep them for review.
-              if (requestedKind === 'smartphone' && ranked.length > 1) {
-                let offered = 0
-                for (const option of ranked.slice(0, 3)) {
-                  const claimed = await this.prisma.competitorProduct.findUnique({
-                    where: { externalUrl: option.result.url },
-                  })
-                  if (claimed?.productId && claimed.productId !== product.id) continue
-                  await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
-                  offered++
-                }
-                if (offered) throw new Error('' + source.name + ': найдено несколько точных вариантов для ' + product.name + '; выбери правильную карточку вручную')
-              }
-              // More than one plausible variant must be manually reviewed, never silently chosen.
-              if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
-                // Keep plausible 05.ru cards in the monitor for manual review,
-                // but do NOT choose a winner or apply a price automatically.
+              // Be decisive when 1C omits SIM type: if otherwise complete,
+              // conflict-free phone candidates differ only by SIM profile, choose
+              // the highest-ranked 05.ru offer instead of rejecting every candidate.
+              // Explicit SIM data in 1C still filters incompatible variants out.
+              const simProfiles = new Set(ranked.map(row => row.check.theirs.sim || 'unspecified'))
+              const nonSimProfiles = new Set(ranked.map(row => {
+                const item = row.check.theirs
+                return JSON.stringify({
+                  brand: item.brand, model: canonicalModel(item.model), productCode: item.productCode,
+                  storage: item.storage, ram: item.ram, color: item.color,
+                  cpu: item.cpu, gpu: item.gpu, screenSize: item.screenSize, wattage: item.wattage,
+                  gtin: item.gtin, mpn: item.mpn, condition: item.condition, kind: item.kind,
+                  compatibleBrand: item.compatibleBrand,
+                })
+              }))
+              const simVariantDecision = requestedKind === 'smartphone'
+                && ranked.length > 1
+                && !ranked[0].check.ours.sim
+                && simProfiles.size > 1
+                && nonSimProfiles.size === 1
+              const scoreGap = ranked.length > 1
+                ? ranked[0].check.score - ranked[1].check.score
+                : Number.POSITIVE_INFINITY
+              const hasClearWinner = ranked.length === 1 || scoreGap >= 10 || simVariantDecision
+
+              // If the alternatives are genuinely close and cannot be separated
+              // by the known 1C identity or the SIM fallback above, keep review.
+              if (ranked.length > 1 && !hasClearWinner) {
                 let offered = 0
                 for (const option of ranked.slice(0, 3)) {
                   const claimed = await this.prisma.competitorProduct.findUnique({
@@ -1331,7 +1341,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               // Auto-confirm only one unique candidate whose full identity
               // is complete. This includes exact laptop hardware/SKU matches;
               // missing optional fields are allowed, explicit conflicts are not.
-              const autoConfirmExact = ranked.length === 1 && ranked[0].check.canAutoConfirm
+              const autoConfirmExact = hasClearWinner && ranked[0].check.canAutoConfirm
               await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact)
               }
               }
