@@ -321,6 +321,11 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
   }
 
   private async snapshot(page: Page): Promise<ProductSnapshot> {
+    const snapshotConfig = {
+      priceSelectors: this.config.priceSelectors,
+      oldPriceSelectors: this.config.oldPriceSelectors,
+      regionSelectors: this.config.regionSelectors,
+    }
     return page.evaluate((config) => {
       const main = document.querySelector('main') || document.body
       const visibleText = (root: ParentNode, selectors: string[]) => {
@@ -375,7 +380,7 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
         category: Array.from(document.querySelectorAll('nav a, [aria-label*="breadcrumb"] a, .breadcrumb a'))
           .map(node => node.textContent?.trim() || '').filter(Boolean).slice(-1)[0] || null,
       }
-    }, this.config)
+    }, snapshotConfig)
   }
 
   private rankLinks(links: Array<{ url: string; title: string }>, query: string) {
