@@ -178,11 +178,15 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const oldestQueued = (kind?: string) => jobs
     .filter(job => job.status === 'QUEUED' && (!kind || job.kind === kind))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]
+  const queuedIndex = jobs.filter(job => job.status === 'QUEUED'
+    && ['INDEX_05RU_SMARTPHONES', 'INDEX_05RU'].includes(job.kind))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]
   const active = jobs.find(j => j.status === 'RUNNING')
+    ?? queuedIndex
     ?? oldestQueued('MATCH_1C')
-    ?? oldestQueued('INDEX_05RU')
     ?? oldestQueued()
-  const activeSourceName = sources.find(item => item.key === active?.sourceKey)?.name || (active?.kind === 'INDEX_05RU' ? '05.ru' : sourceName)
+  const activeIsIndex = active?.kind === 'INDEX_05RU' || active?.kind === 'INDEX_05RU_SMARTPHONES'
+  const activeSourceName = sources.find(item => item.key === active?.sourceKey)?.name || (activeIsIndex ? '05.ru' : sourceName)
   const belongsToSelectedSource = (job: MonitorJob) => job.sourceKey === sourceKey || (sourceKey === '05ru' && !job.sourceKey)
   const last = jobs.find(j => j.kind === 'MATCH_1C' && belongsToSelectedSource(j))
   const lastRecheck = jobs.find(j => j.kind === 'RECHECK' && belongsToSelectedSource(j))
@@ -201,8 +205,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     await run('match', async () => {
       const number = Math.min(5000, phones.length)
       if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
-      const job = await api.monitorAutoFindOneC(displayPath, number, false, false, true, 'all')
-      setNotice('Первичное сопоставление запущено для ' + job.queued + ' товарных связей во всех магазинах. Результаты появятся по вкладкам источников.')
+      const job = await api.monitorAutoFindOneC(displayPath, number, true, false, true, 'all')
+      setNotice('Для 05.ru сначала собирается каталог смартфонов, затем выполняется локальное сопоставление. Для DNS и М.Видео поиск идёт по их каталогам. Запущено связей: ' + job.queued + '.')
     })
   }
 
@@ -425,7 +429,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Первичное сопоставление всех магазинов (' + phones.length + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Один запуск ищет товары во всех подключённых магазинах. Спорные варианты остаются на проверку. После подтверждения каждый магазин проверяется по собственной сохранённой ссылке. Цены 1С и сайта не меняются без отдельного действия.</p>
+    <p className="mp-helper">Для 05.ru сначала собирается локальный индекс смартфонов, затем 1С сопоставляется с ним. DNS и М.Видео проверяются отдельно. Спорные варианты остаются на ручную проверку; цены не меняются без отдельного подтверждения.</p>
     {sourceKey !== '05ru' && <div className="mp-region-setting">
       <label>Город цен и наличия для {sourceName}
         <input value={region} onChange={e => setRegion(e.target.value)} placeholder="Например, Кизилюрт или Махачкала" />
@@ -443,12 +447,13 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       </span>
     </label>
     {active && <div className="mp-progress" role="status">
-      <span>{active.kind === 'INDEX_05RU'
-        ? 'Сбор каталога 05.ru · страница ' + active.page + ' / ' + active.maxPages + ' · карточек ' + active.processed
-        : (active.kind === 'MATCH_1C' ? 'Поиск совпадений в ' + activeSourceName : active.kind === 'RECHECK' ? 'Обновление цен ' + activeSourceName : 'Проверка ' + activeSourceName) + ' · ' + active.processed + ' / ' + (active.perPage || '…')}</span>
+      <span>{activeIsIndex
+        ? (active.kind === 'INDEX_05RU_SMARTPHONES' ? 'Сбор каталога смартфонов 05.ru' : 'Сбор каталога 05.ru')
+          + ' · страница ' + active.page + ' / ' + active.maxPages + ' · карточек ' + active.processed
+        : (active.kind === 'MATCH_1C' ? 'Локальное сопоставление в ' + activeSourceName : active.kind === 'RECHECK' ? 'Обновление цен ' + activeSourceName : 'Проверка ' + activeSourceName) + ' · ' + active.processed + ' / ' + (active.perPage || '…')}</span>
       <button disabled={Boolean(busy)} onClick={() => void run('stop', () => api.monitorJobAction(active.id, 'cancel'))}>Остановить</button>
-      <progress aria-label="Ход проверки" max={Math.max(1, active.kind === 'INDEX_05RU' ? active.maxPages : (active.perPage || active.processed || 1))}
-        value={active.kind === 'INDEX_05RU' ? active.page : active.processed} />
+      <progress aria-label="Ход проверки" max={Math.max(1, activeIsIndex ? active.maxPages : (active.perPage || active.processed || 1))}
+        value={activeIsIndex ? active.page : active.processed} />
     </div>}
     {lastRecheck && !active && <div className="mp-last">
       Последнее обновление цен ({sources.find(item => item.key === lastRecheck.sourceKey)?.name || sourceName}): {lastRecheck.processed} / {lastRecheck.perPage || lastRecheck.processed} · ошибок: {lastRecheck.errors}

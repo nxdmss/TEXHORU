@@ -774,7 +774,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const scoped = imported.filter(p => p.stockQty > p.reservedQty
       && (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
       && (!dto.onlyInStockSmartphones || /(?:смартфон|smartphone)/i.test(p.category.name)))
-    if (!scoped.length) return { sourceKey, eligible: 0, queued: 0, job: null }
+    if (!scoped.length) return { sourceKey, eligible: 0, queued: 0, job: null, hasSmartphones: false }
     const confirmed = dto.onlyUnlinked
       ? await this.prisma.competitorProduct.findMany({
           where: { source: { key: sourceKey }, productId: { not: null } },
@@ -783,8 +783,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       : []
     const linkedIds = new Set(confirmed.map(link => link.productId))
     const eligible = dto.onlyUnlinked ? scoped.filter(product => !linkedIds.has(product.id)) : scoped
-    if (!eligible.length) return { sourceKey, eligible: 0, queued: 0, job: null }
+    if (!eligible.length) return { sourceKey, eligible: 0, queued: 0, job: null, hasSmartphones: false }
     const selected = eligible.slice(0, limit)
+    const hasSmartphones = selected.some(product => identity(product).kind === 'smartphone'
+      || /(?:смартфон|smartphone)/i.test(product.category.name))
     const job = await this.prisma.monitorJob.create({
       data: {
         kind: 'MATCH_1C', sourceKey, url: path || null, maxPages: 1, perPage: selected.length,
@@ -792,7 +794,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         visitedUrls: [...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])],
       },
     })
-    return { sourceKey, eligible: eligible.length, queued: selected.length, job }
+    return { sourceKey, eligible: eligible.length, queued: selected.length, job, hasSmartphones }
   }
   async autoFindOneCSection(dto: AutoFindOneCSectionDto) {
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
@@ -818,26 +820,31 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const queued = results.reduce((sum, result) => sum + result.queued, 0)
     const eligible = results.reduce((sum, result) => sum + result.eligible, 0)
     if (!queued) throw new BadRequestException('Нет непривязанных товаров для выбранных источников. Проверь импорт 1С и существующие связи.')
+    const fiveRuBatch = results.find(result => result.sourceKey === '05ru')
+    if (dto.indexCatalog === true && fiveRuBatch?.hasSmartphones) {
+      await this.ensureIndexJob()
+    }
     if (sourceKeys.length === 1) {
       const single = results[0]
       if (!single.job) throw new BadRequestException('Для выбранного магазина нет товаров для сопоставления')
       return { ...single.job, sourceKey: single.sourceKey, eligible: single.eligible, queued: single.queued }
     }
-    return { sourceKey: 'all', eligible, queued, jobs: results.filter(result => result.job).map(result => result.job), sources: results }
+    return { sourceKey: 'all', eligible, queued, jobs: results.filter(result => result.job).map(result => result.job),
+      sources: results.map(result => ({ sourceKey: result.sourceKey, eligible: result.eligible, queued: result.queued, job: result.job })) }
   }
 
   private async ensureIndexJob() {
-    const last = await this.prisma.competitorCatalogEntry.findFirst({
-      orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true },
-    })
     const lastJob = await this.prisma.monitorJob.findFirst({
-      where: { kind: 'INDEX_05RU' }, orderBy: { createdAt: 'desc' },
+      where: { kind: 'INDEX_05RU_SMARTPHONES' }, orderBy: { createdAt: 'desc' },
     })
-    if (last && Date.now() - last.lastSeenAt.getTime() < 7 * 86400_000
-      && lastJob?.status === 'COMPLETED' && !lastJob.lastError) return null
+    if (lastJob?.status === 'COMPLETED' && lastJob.processed > 0 && lastJob.finishedAt
+      && Date.now() - lastJob.finishedAt.getTime() < 7 * 86400_000 && !lastJob.lastError) return null
     return this.prisma.monitorJob.create({
-      data: { kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
-        page: 0, maxPages: 2300, perPage: 24, processed: 0, visitedUrls: [] },
+      data: {
+        kind: 'INDEX_05RU_SMARTPHONES', sourceKey: '05ru',
+        url: 'https://05.ru/cat/mc/396f7486/smartfony/',
+        page: 0, maxPages: 50, perPage: 24, processed: 0, visitedUrls: [],
+      },
     })
   }
 
@@ -977,15 +984,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           data: { nextRunAt: new Date(Date.now() + setting.intervalMinutes * 60000) },
         })
       }
-      // Process 1C matching before any optional/background full-catalog index.
-      // A global seller index must never hold up direct live product search.
+      // Build the persistent 05.ru smartphone index before running 1C matching.
+      // The matcher then searches local candidates; live search remains a fallback.
+      const indexJob = await this.prisma.monitorJob.findFirst({
+        where: { status: 'QUEUED', kind: { in: ['INDEX_05RU_SMARTPHONES', 'INDEX_05RU'] } },
+        orderBy: { createdAt: 'asc' },
+      })
       const matchJob = await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED', kind: 'MATCH_1C' }, orderBy: { createdAt: 'asc' },
       })
-      const indexJob = await this.prisma.monitorJob.findFirst({
-        where: { status: 'QUEUED', kind: 'INDEX_05RU' }, orderBy: { createdAt: 'asc' },
-      })
-      const job = matchJob ?? indexJob ?? await this.prisma.monitorJob.findFirst({
+      const job = indexJob ?? matchJob ?? await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' },
       })
       if (!job) return
@@ -1004,10 +1012,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           }
           return
         }
-        if (job.kind === 'INDEX_05RU') {
+        if (job.kind === 'INDEX_05RU_SMARTPHONES' || job.kind === 'INDEX_05RU') {
           // Progress is persisted every page. A restart resumes from job.page.
           const pageNumber = job.page + 1
-          const links = await this.fiveRu.indexCatalogPage(pageNumber)
+          this.parsing = true
+          let links: Array<{ url: string; title: string }>
+          try {
+            links = job.kind === 'INDEX_05RU_SMARTPHONES'
+              ? await this.fiveRu.indexSmartphoneCatalogPage(pageNumber)
+              : await this.fiveRu.indexCatalogPage(pageNumber)
+          } finally { this.parsing = false }
           const visited = this.strings(job.visitedUrls)
           if (!links.length) {
             // A transient empty render must not silently truncate the catalog.
@@ -1044,7 +1058,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             })
           }
           if (pageNumber >= job.maxPages && links.length) {
-            throw new Error('Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.')
+            throw new Error(job.kind === 'INDEX_05RU_SMARTPHONES'
+              ? 'Достигнут защитный лимит страниц каталога смартфонов; полный индекс не подтверждён.'
+              : 'Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.')
           }
           const finished = !links.length
           await this.prisma.monitorJob.update({

@@ -1760,7 +1760,54 @@ test('05.ru seller index reads distinct product pages using observed ?page=N pag
   } finally { await parser.onModuleDestroy() }
 })
 
-test('Bulk 1C matching starts live 05.ru search without waiting for the global catalog index', async () => {
+test('05.ru smartphone index reads the public smartphone category with observed ?page=N pagination', async () => {
+  const parser = new FiveRuParser()
+  let launches = 0
+  const navigations = []
+  parser.browser = async () => {
+    launches++
+    return { isConnected: () => true, close: async () => {} }
+  }
+  parser.context = async () => ({
+    newPage: async () => {
+      let requestedUrl = ''
+      return {
+        goto: async (url, options) => {
+          requestedUrl = url; navigations.push(url)
+          assert.equal(options.waitUntil, 'commit')
+          return { status: () => 200 }
+        },
+        url: () => requestedUrl,
+        locator: () => ({
+          first: () => ({ waitFor: async () => {} }),
+          evaluateAll: async () => {
+            const n = new URL(requestedUrl).searchParams.get('page') || '1'
+            return [{ url: 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-18-pro-' + n + '/',
+              title: 'Смартфон Apple iPhone 18 Pro 256 Гб оранжевый' }]
+          },
+        }),
+        evaluate: async () => {},
+        waitForTimeout: async () => {},
+        close: async () => {},
+      }
+    },
+    close: async () => {},
+  })
+  try {
+    const first = await parser.indexSmartphoneCatalogPage(1)
+    const second = await parser.indexSmartphoneCatalogPage(2)
+    assert.equal(first.length, 1)
+    assert.equal(second.length, 1)
+    assert.notEqual(first[0].url, second[0].url)
+    assert.deepEqual(navigations, [
+      'https://05.ru/cat/mc/396f7486/smartfony/',
+      'https://05.ru/cat/mc/396f7486/smartfony/?page=2',
+    ])
+    assert.equal(launches, 1)
+  } finally { await parser.onModuleDestroy() }
+})
+
+test('Bulk 1C matching builds a persistent 05.ru smartphone index before local matching', async () => {
   await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
     data: { status: 'CANCELLED', finishedAt: new Date() } })
   await prisma.competitorCatalogEntry.deleteMany()
@@ -1784,41 +1831,54 @@ test('Bulk 1C matching starts live 05.ru search without waiting for the global c
     h1: fixture.snapshot.h1.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro'),
     scripts: fixture.snapshot.scripts.map(script => script.replaceAll('iPhone 17 Pro', 'iPhone 18 Pro')),
   }
-  let searchCalls = 0, indexCalls = 0
+  let searchCalls = 0, parseCalls = 0
+  const indexCalls = []
   const parser = {
-    indexCatalogPage: async () => { indexCalls++; throw new Error('05.ru: первая страница каталога дважды не отдала товары') },
+    indexSmartphoneCatalogPage: async pageNumber => {
+      indexCalls.push(pageNumber)
+      return pageNumber === 1 ? [{ url, title: currentSnapshot.h1 }] : []
+    },
     searchProducts: async () => {
       searchCalls++
       return [{ ...extractFiveRu(currentSnapshot, url), url }]
     },
-    parse: async link => { throw new Error('Unexpected product-page reparse: ' + link) },
+    parse: async link => {
+      parseCalls++
+      return { ...extractFiveRu(currentSnapshot, link), url: link }
+    },
   }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   const enqueued = await monitor.autoFindOneCSection({ categoryPath, maxItems: 2000, indexCatalog: true })
   assert.equal(enqueued.eligible, size)
   assert.equal(enqueued.queued, size)
-  assert.equal(await prisma.monitorJob.count({ where: { kind: 'INDEX_05RU', status: 'QUEUED' } }), 0)
+  const indexJob = await prisma.monitorJob.findFirst({ where: { kind: 'INDEX_05RU_SMARTPHONES', status: 'QUEUED' } })
+  assert(indexJob)
+  const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
 
-  // A legacy queued index must not block the direct 1C matching job.
-  const legacyIndex = await prisma.monitorJob.create({ data: {
-    kind: 'INDEX_05RU', url: 'https://05.ru/cat/seller/05-ru-133/',
-    page: 0, maxPages: 2300, perPage: 24,
-  } })
+  // The index was created after MATCH_1C, but the worker must finish it first.
   await monitor.tick()
-  assert.equal(searchCalls, 3) // Exhaust all three smartphone queries before confirming uniqueness.
-  assert.equal(indexCalls, 0)
+  assert.deepEqual(indexCalls, [1])
+  assert.equal((await prisma.monitorJob.findUniqueOrThrow({ where: { id: matchJob.id } })).processed, 0)
+  await monitor.tick() // First empty page is retried, not treated as end-of-catalog.
+  await monitor.tick() // The repeated empty page confirms the end of the catalog.
+  assert.deepEqual(indexCalls, [1, 2, 2])
+  const completedIndex = await prisma.monitorJob.findUniqueOrThrow({ where: { id: indexJob.id } })
+  assert.equal(completedIndex.status, 'COMPLETED')
+  assert.equal(completedIndex.processed, 1)
+  assert.equal(await prisma.competitorCatalogEntry.count(), 1)
+
+  await monitor.tick() // 1C matching now uses the saved local index.
+  assert.equal(searchCalls, 0)
+  assert.equal(parseCalls, 1)
   const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
   const ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: base + '-0' } })
   assert.equal(linked.productId, ours.id)
   assert.equal(linked.matchStatus, 'CONFIRMED')
   assert.equal(ours.price, 92000)
-  assert.equal(await prisma.competitorCatalogEntry.count(), 0)
-  const matchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: enqueued.id } })
-  assert.equal(matchJob.processed, 1)
-  assert.equal(matchJob.status, 'QUEUED')
-  assert.equal((await prisma.monitorJob.findUniqueOrThrow({ where: { id: legacyIndex.id } })).status, 'QUEUED')
+  const savedMatchJob = await prisma.monitorJob.findUniqueOrThrow({ where: { id: matchJob.id } })
+  assert.equal(savedMatchJob.processed, 1)
+  assert.equal(savedMatchJob.status, 'QUEUED')
   await monitor.cancelJob(matchJob.id)
-  await monitor.cancelJob(legacyIndex.id)
 })
 
 test('1C smartphones appear on the storefront only with available stock, and batch pricing is confirmed, atomic and fresh', async () => {
