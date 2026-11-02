@@ -13,7 +13,7 @@ const { ProductsService } = require('../dist/products/products.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
 const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
-const { rankSearchLinks } = require('../dist/price-monitor/search-discovery')
+const { rankSearchLinks, rankSearchLinksForInspection } = require('../dist/price-monitor/search-discovery')
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/05ru-iphone17pro.json'), 'utf8'))
 const name = fixture.snapshot.h1
 const product = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
@@ -427,6 +427,41 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: greenLion, title: 'Накладка Green Lion Tough Guard Case для iPhone 15 Pro Deep Blue' },
   ]
   assert.equal(rankSearchLinks(accessoryLinks, 'green lion чехол iphone 15 pro', 1)[0], greenLion)
+})
+
+test('POCO/Redmi identity aliases work and recall ranking opens close phone candidates for inspection', () => {
+  const pocoName = 'Смартфон POCO X7 12/512 Гб серебристый'
+  const poco = identity({ name: pocoName, brand: 'Xiaomi' })
+  assert.equal(poco.brand, 'xiaomi')
+  assert.equal(poco.model, 'poco x7')
+  const pocoUrl = 'https://05.ru/cat/396f7486/p/smartfon-poco-x7-12-gb-512-gb-serebristyy-20505/'
+  assert.deepEqual(rankSearchLinks([
+    { url: pocoUrl, title: 'Смартфон POCO X7 12 Гб/512 Гб серебристый' },
+  ], 'xiaomi poco x7 512 серебристый'), [pocoUrl])
+  assert.equal(compareItems(
+    { name: pocoName, brand: 'Xiaomi' },
+    { name: 'Смартфон POCO X7 12 Гб/512 Гб серебристый' },
+  ).canAutoConfirm, true)
+
+  const redmi = identity({ name: 'Смартфон Xiaomi Redmi Note 14S 8/256 Гб черный' })
+  assert.equal(redmi.model, 'redmi note 14s')
+
+  const a26 = 'https://05.ru/cat/396f7486/p/smartfon-samsung-galaxy-a26-8-256-gb-beliy-21147/'
+  const a36 = 'https://05.ru/cat/396f7486/p/smartfon-samsung-galaxy-a36-8-256-gb-beliy-21148/'
+  const misleadingTile = [
+    { url: a26, title: 'Смартфон Xiaomi Galaxy A26 8 Гб/256 Гб белый' },
+    { url: a36, title: 'Смартфон Samsung Galaxy A36 8 Гб/256 Гб белый' },
+    { url: 'https://05.ru/cat/x/p/chehol-samsung-galaxy-a26-123/', title: 'Чехол Samsung Galaxy A26' },
+  ]
+  // Strict ranking can distrust a noisy tile brand. The recall pass still opens
+  // the URL whose own slug identifies A26; the real product page decides later.
+  assert.deepEqual(rankSearchLinks(misleadingTile, 'samsung galaxy a26 128 черный'), [])
+  assert.deepEqual(rankSearchLinksForInspection(misleadingTile, 'samsung galaxy a26 128 черный'), [a26])
+
+  const nearRedmi = 'https://05.ru/cat/396f7486/p/smartfon-xiaomi-redmi-note-14-8-256-gb-cherniy-12345/'
+  assert.deepEqual(rankSearchLinksForInspection([
+    { url: nearRedmi, title: 'Смартфон Xiaomi Redmi Note 14 8/256 Гб черный' },
+  ], 'xiaomi redmi note 14s 256 черный'), [nearRedmi])
 })
 
 test('Validates GTIN and never accepts a conflicting variant just because its identifier is equal', () => {
