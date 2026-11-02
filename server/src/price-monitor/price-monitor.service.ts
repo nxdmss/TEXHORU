@@ -165,7 +165,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
   async confirm(id: string, productId: number) {
     const updated = await this.prisma.$transaction(async tx => {
-      const link = await tx.competitorProduct.findUnique({ where: { id } })
+      const link = await tx.competitorProduct.findUnique({ where: { id }, include: { source: true } })
       const product = await tx.product.findUnique({ where: { id: productId } })
       if (!link || !product || product.status !== 'ACTIVE') throw new NotFoundException('Карточка или активный товар не найдены')
       if (!link.externalName || !link.lastSuccessAt || link.lastError || link.latestPrice == null) {
@@ -179,7 +179,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, externalUrl: true },
       })
       if (other) {
-        throw new ConflictException('У этого товара уже есть подтверждённая ссылка 05.ru. Сначала сними старую привязку.')
+        throw new ConflictException('У этого товара уже есть подтверждённая ссылка в источнике «' + link.source.name + '». Сначала сними старую привязку.')
       }
       const check = compareItems(product, { name: link.externalName, attributes: link.attributes })
       const blockers = manualConfirmationBlockers(product, { name: link.externalName, attributes: link.attributes })
@@ -212,23 +212,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   async history(id: string) { return this.prisma.competitorPriceHistory.findMany({ where: { competitorProductId: id }, orderBy: { checkedAt: 'desc' }, take: 100 }) }
 
   async check(dto: CheckCompetitorPriceDto) {
-    const url = fiveRuUrl(dto.url, 'product')
+    const sourceKey = storeKeyFromUrl(dto.url)
+    const parser = this.parserFor(sourceKey)
+    const url = parser.normalizeProductUrl(dto.url)
     if (this.parsing) throw new ConflictException('Парсер занят. Дождись текущей проверки.')
     if (dto.productId && !await this.prisma.product.findUnique({ where: { id: dto.productId } })) throw new NotFoundException('Товар TEXHORU не найден')
+    const source = await this.source(sourceKey)
     if (dto.productId) {
       const claimed = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: url } })
       if (claimed?.productId && claimed.productId !== dto.productId) {
-        throw new ConflictException('Эта карточка 05.ru уже связана с другим товаром. Сначала сними прежнюю привязку.')
+        throw new ConflictException('Эта карточка уже связана с другим товаром. Сначала сними прежнюю привязку.')
       }
       const other = await this.prisma.competitorProduct.findFirst({
-        where: { productId: dto.productId, matchStatus: 'CONFIRMED', externalUrl: { not: url } },
+        where: { sourceId: source.id, productId: dto.productId, matchStatus: 'CONFIRMED', externalUrl: { not: url } },
       })
-      if (other) throw new ConflictException('У товара уже есть подтверждённая ссылка 05.ru. Сними старую привязку перед заменой.')
+      if (other) throw new ConflictException('У товара уже есть подтверждённая ссылка в «' + source.name + '». Сними старую привязку перед заменой.')
     }
-    const source = await this.source()
     this.parsing = true
     try {
-      const result = await this.fiveRu.parse(url)
+      const settings = await this.settings(sourceKey)
+      const result = await parser.parse(url, settings.region)
       return await this.save(result, source.id, dto.productId)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Ошибка проверки'
