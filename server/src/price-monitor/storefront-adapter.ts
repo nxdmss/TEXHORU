@@ -118,7 +118,7 @@ function normalizeHost(host: string) { return host.toLowerCase().replace(/^www\.
 export function normalizeRetailerProductUrl(raw: string, config: RetailerConfig): string {
   let url: URL
   try { url = new URL(raw.trim()) } catch { throw new BadRequestException('Некорректная ссылка на товар') }
-  if (url.protocol !== 'https:' || !config.allowedHosts.includes(url.hostname.toLowerCase())
+  if (url.protocol !== 'https:' || !config.allowedHosts.some(root => url.hostname.toLowerCase() === root || url.hostname.toLowerCase().endsWith('.' + root))
     || url.username || url.password || (url.port && url.port !== '443')) {
     throw new BadRequestException('Нужна HTTPS-ссылка на официальную карточку ' + config.name)
   }
