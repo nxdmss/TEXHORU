@@ -100,9 +100,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fiveRu: FiveRuParser,
+    private readonly exchange: MonitorExchangeService,
     private readonly mvideo: MvideoParser,
     private readonly dns: DnsParser,
-    private readonly exchange: MonitorExchangeService,
   ) {}
 
   onModuleInit() {
@@ -230,8 +230,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }
     this.parsing = true
     try {
-      const settings = await this.settings(sourceKey)
-      const result = await parser.parse(url, settings.region)
+      const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
+      const result = await parser.parse(url, settings?.region)
       return await this.save(result, source.id, dto.productId)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Ошибка проверки'
@@ -828,7 +828,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const queued = results.reduce((sum, result) => sum + result.queued, 0)
     const eligible = Math.max(0, ...results.map(result => result.eligible))
     if (!queued) throw new BadRequestException('Нет непривязанных товаров для выбранных источников. Проверь импорт 1С и существующие связи.')
-    return { sourceKey: dto.sourceKey || '05ru', eligible, queued, jobs: results.filter(result => result.job).map(result => result.job), sources: results }
+    if (sourceKeys.length === 1) {
+      const single = results[0]
+      if (!single.job) throw new BadRequestException('Для выбранного магазина нет товаров для сопоставления')
+      return { ...single.job, sourceKey: single.sourceKey, eligible: single.eligible, queued: single.queued }
+    }
+    return { sourceKey: 'all', eligible, queued, jobs: results.filter(result => result.job).map(result => result.job), sources: results }
   }
 
   private async ensureIndexJob() {
@@ -870,12 +875,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }
     const queued = sources.reduce((sum, item) => sum + item.queued, 0)
     if (!queued) throw new BadRequestException('Нет подтверждённых ссылок. Сначала выполни первоначальный поиск и привязку.')
+    if (sourceKeys.length === 1) return { ...jobs[0], sourceKey: sourceKeys[0], queued }
     return { queued, jobs, sources }
   }
 
   // Price refresh reads only saved links for the selected store. Discovery is
   // never invoked from this path.
-  private async recheckBatch(jobId: string, pending: string[], sourceKey: StoreKey, previousError: string | null = null) {
+  private async recheckBatch(jobId: string, pending: string[], sourceKey: StoreKey = '05ru', previousError: string | null = null) {
     const batch = pending.slice(0, 4)
     const parser = this.parserFor(sourceKey)
     const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
