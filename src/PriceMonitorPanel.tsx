@@ -317,22 +317,22 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <strong className="mp-product-name">{p.name}</strong>
       <div className="mp-prices">
         <div><small>Наш сайт</small><b>{rub(p.price)}</b></div>
-        <div><small>05.ru</small><b>{linked?.latestPrice && isFresh(linked) ? rub(linked.latestPrice) : '—'}</b></div>
+        <div><small>{sourceName}</small><b>{linked?.latestPrice && isFresh(linked) ? rub(linked.latestPrice) : '—'}</b></div>
       </div>
       {linked
         ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
             {opened === linked.id ? 'Скрыть детали' : linked.matchStatus === 'CONFIRMED' ? 'Детали' : 'Проверить'}
           </button>
-        : <span className="mp-no-match">Подходящая карточка 05.ru пока не найдена</span>}
+        : <span className="mp-no-match">Подходящая карточка {sourceName} пока не найдена</span>}
       {linked?.matchStatus !== 'CONFIRMED' && <>
         <button className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
           onClick={() => { setLinkingProduct(linkingProduct === p.id ? null : p.id); setLinkUrl('') }}>
           {linkingProduct === p.id ? 'Отменить' : 'Привязать по ссылке'}
         </button>
         {linkingProduct === p.id && <div className="mp-expanded">
-          <label>Ссылка на точную карточку 05.ru
+          <label>Ссылка на точную карточку {sourceName}
             <input aria-label={'Ссылка 05.ru для ' + p.name} value={linkUrl}
-              onChange={e => setLinkUrl(e.target.value)} placeholder="https://05.ru/cat/…/p/…"/>
+              onChange={e => setLinkUrl(e.target.value)} placeholder={sourceKey === 'mvideo' ? 'https://www.mvideo.ru/products/…' : sourceKey === 'dns' ? 'https://www.dns-shop.ru/product/…' : 'https://05.ru/cat/…/p/…'}/>
           </label>
           <button disabled={Boolean(busy) || Boolean(active) || !linkUrl.trim()}
             onClick={() => void bindManually(p)}>Проверить и сохранить связь</button>
@@ -340,7 +340,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       </>}
       {linked && opened === linked.id && <div className="mp-expanded">
         {linked.matchStatus === 'SUGGESTED' && <p>Предложение для проверки, не подтверждено. Цена 1С не изменится.</p>}
-        <p><a href={linked.externalUrl} target="_blank" rel="noreferrer">Карточка 05.ru ↗</a> · {prettyDate(linked.lastSuccessAt)}</p>
+        <p><a href={linked.externalUrl} target="_blank" rel="noreferrer">Карточка {linked.source.name} ↗</a> · {prettyDate(linked.lastSuccessAt)}{linked.region ? ' · ' + linked.region : ''}</p>
         {linked.lastError && <p className="form-error">{linked.lastError}</p>}
         {matchLoading ? <p>Проверяем варианты…</p> : <>
           {linked.matchStatus !== 'CONFIRMED' && <>
@@ -357,18 +357,18 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
             {chosen?.manualBlockers.length ? <p className="form-error">
               Нельзя подтвердить: {chosen.manualBlockers.join(', ')}. Выбери другую карточку.
             </p> : chosen?.conflicts.length ? <p className="mp-helper">
-              Отличия: {chosen.conflicts.join(', ')}. Можно подтвердить вручную, если ты сверил полную карточку 05.ru. Автоматическая привязка не выполняется.
+              Отличия: {chosen.conflicts.join(', ')}. Можно подтвердить вручную, если ты сверил полную карточку магазина. Автоматическая привязка не выполняется.
             </p> : null}
             <button disabled={Boolean(busy) || !selected || Boolean(active) || Boolean(chosen?.manualBlockers.length)}
               onClick={() => void confirm(linked)}>Подтвердить совпадение</button>
           </>}
           <button className="mp-link-button" disabled={Boolean(busy) || Boolean(active)}
-            onClick={() => void run('check', () => api.adminCheckCompetitorPrice({ url: linked.externalUrl }), 'Цена 05.ru обновлена.')}>Проверить цену сейчас</button>
+            onClick={() => void run('check', () => api.adminCheckCompetitorPrice({ url: linked.externalUrl }), 'Цена магазина обновлена.')}>Проверить цену сейчас</button>
           {linked.product?.id && <button disabled={Boolean(busy) || Boolean(active)}
             onClick={() => {
               const confirmedLink = linked.matchStatus === 'CONFIRMED'
               if (window.confirm(confirmedLink
-                ? 'Снять подтверждённую привязку к 05.ru? Цена товара не изменится.'
+                ? 'Снять подтверждённую привязку к магазину? Цена товара не изменится.'
                 : 'Отклонить этот вариант? Товар снова попадёт в список непривязанных.')) {
                 void run('unmatch', () => api.monitorUnmatch(linked.id),
                   confirmedLink ? 'Привязка снята.' : 'Вариант отклонён. Можно запустить новый поиск.')
@@ -384,9 +384,16 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   return <div className="mp-shell">
     <header className="mp-top">
-      <div><h2>Мониторинг цен</h2><p>Сравнение с 05.ru</p></div>
+      <div><h2>Мониторинг цен</h2><p>Сравнение с {sourceName}</p></div>
       <div className="mp-top-count"><b>{phones.length}</b><span>из 1С с ценой</span></div>
     </header>
+
+    <nav className="mp-source-tabs" aria-label="Магазины">
+      {sources.map(store => <button key={store.key} className={store.key === sourceKey ? 'active' : ''}
+        onClick={() => { setSourceKey(store.key); setOpened(null); setLinkingProduct(null) }}>
+        <b>{store.name}</b><small>{store.counts.confirmed} привязано · {store.counts.review} проверить</small>
+      </button>)}
+    </nav>
 
     <div className="mp-summary">
       <span><b>{confirmed}</b> привязано</span>
@@ -396,18 +403,24 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     </div>
 
     <div className="mp-toolbar">
-      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !confirmed}
-        onClick={() => void refreshSavedPrices()}>{busy === 'refresh' ? 'Запуск…' : 'Обновить цены 05.ru'}</button>
-      <button disabled={Boolean(busy) || Boolean(active) || !unlinkedInScope}
-        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Найти совпадения (' + unlinkedInScope + ')'}</button>
+      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !sources.some(store => store.counts.confirmed)}
+        onClick={() => void refreshSavedPrices()}>{busy === 'refresh' ? 'Запуск…' : 'Обновить цены во всех магазинах'}</button>
+      <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Первичное сопоставление всех магазинов (' + phones.length + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Автопривязка создаётся только при одном полном совпадении. Спорные варианты остаются на проверку. После подтверждения цена читается по сохранённой ссылке; цены 1С и сайта не меняются без отдельного действия.</p>
+    <p className="mp-helper">Один запуск ищет товары во всех подключённых магазинах. Спорные варианты остаются на проверку. После подтверждения каждый магазин проверяется по собственной сохранённой ссылке. Цены 1С и сайта не меняются без отдельного действия.</p>
+    {sourceKey !== '05ru' && <div className="mp-region-setting">
+      <label>Город цен и наличия для {sourceName}
+        <input value={region} onChange={e => setRegion(e.target.value)} placeholder="Например, Кизилюрт или Махачкала" />
+      </label>
+      <button disabled={Boolean(busy) || Boolean(active)} onClick={() => void saveSourceRegion()}>Сохранить регион</button>
+    </div>}
     <label className="mp-schedule">
       <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
         onChange={e => void setAutomaticChecks(e.target.checked)}/>
       <span>
-        <b>Автопроверка</b>
+        <b>Автопроверка {sourceName}</b>
         <small>{!settingsReady ? 'Загрузка расписания…' : intervalMinutes > 0
           ? 'Каждые ' + (intervalMinutes / 60) + ' ч · следующая: ' + prettyDate(nextRunAt)
           : 'Выключена · включить на 6 часов'}</small>
@@ -416,13 +429,13 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     {active && <div className="mp-progress" role="status">
       <span>{active.kind === 'INDEX_05RU'
         ? 'Сбор каталога 05.ru · страница ' + active.page + ' / ' + active.maxPages + ' · карточек ' + active.processed
-        : (active.kind === 'MATCH_1C' ? 'Поиск совпадений' : active.kind === 'RECHECK' ? 'Обновление сохранённых цен' : 'Проверка 05.ru') + ' · ' + active.processed + ' / ' + (active.perPage || '…')}</span>
+        : (active.kind === 'MATCH_1C' ? 'Поиск совпадений в ' + activeSourceName : active.kind === 'RECHECK' ? 'Обновление цен ' + activeSourceName : 'Проверка ' + activeSourceName) + ' · ' + active.processed + ' / ' + (active.perPage || '…')}</span>
       <button disabled={Boolean(busy)} onClick={() => void run('stop', () => api.monitorJobAction(active.id, 'cancel'))}>Остановить</button>
       <progress aria-label="Ход проверки" max={Math.max(1, active.kind === 'INDEX_05RU' ? active.maxPages : (active.perPage || active.processed || 1))}
         value={active.kind === 'INDEX_05RU' ? active.page : active.processed} />
     </div>}
     {lastRecheck && !active && <div className="mp-last">
-      Последнее обновление цен: {lastRecheck.processed} / {lastRecheck.perPage || lastRecheck.processed} · ошибок: {lastRecheck.errors}
+      Последнее обновление цен ({sources.find(item => item.key === lastRecheck.sourceKey)?.name || sourceName}): {lastRecheck.processed} / {lastRecheck.perPage || lastRecheck.processed} · ошибок: {lastRecheck.errors}
       {lastRecheck.status === 'FAILED' && <>
         {' · остановлено из-за ошибки доступа. '}
         <button disabled={Boolean(busy)} onClick={() => void run('retry', () => api.monitorJobAction(lastRecheck.id, 'retry'),
@@ -431,7 +444,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       {lastRecheck.lastError && <details><summary>Ошибки проверки</summary><p>{lastRecheck.lastError}</p></details>}
     </div>}
     {last && !active && <div className="mp-last">
-      Последний поиск: {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
+      Последний поиск ({sources.find(item => item.key === last.sourceKey)?.name || sourceName}): {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
       {last.lastError && <details className="mp-diagnostic"><summary>Диагностика поиска</summary><pre>{last.lastError}</pre></details>}
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
@@ -468,7 +481,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     </section>
 
     {unlinked.length > 0 && <details className="mp-extra" onToggle={e => setShowUnlinked(e.currentTarget.open)}>
-      <summary>Не разобрано: {unlinked.length} карточек 05.ru</summary>
+      <summary>Не разобрано: {unlinked.length} карточек {sourceName}</summary>
       {showUnlinked && <div className="mp-extra-grid">{unlinked.slice(0, unlinkedLimit).map(item => <div key={item.id} className="mp-extra-card">
         <b>{cleanName(item.externalName || 'Без названия')}</b>
         <p>{item.latestPrice ? rub(item.latestPrice) : 'Цена неизвестна'} · {item.matchStatus === 'CONFIRMED' ? 'связано' : 'не сопоставлено'}</p>
@@ -494,8 +507,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <div className="mp-advanced">
         <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
           onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены к товарам TEXHORU'}</button>
-        <label>Проверить одну ссылку 05.ru
-          <input value={manualUrl} onChange={e => setManualUrl(e.target.value)} placeholder="https://05.ru/cat/…/p/…"/>
+        <label>Проверить одну ссылку магазина
+          <input value={manualUrl} onChange={e => setManualUrl(e.target.value)} placeholder="Вставь ссылку на карточку магазина"/>
         </label>
         <button disabled={Boolean(busy) || Boolean(active) || !manualUrl.trim()}
           onClick={() => void run('manual', () => api.adminCheckCompetitorPrice({ url: manualUrl }), 'Карточка проверена.')}>Проверить</button>
