@@ -14,6 +14,7 @@ const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchan
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
 const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
 const { rankSearchLinks, rankSearchLinksForInspection } = require('../dist/price-monitor/search-discovery')
+const { DnsParser, MvideoParser, storeKeyFromUrl, extractRetailerProduct } = require('../dist/price-monitor/storefront-adapter')
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/05ru-iphone17pro.json'), 'utf8'))
 const name = fixture.snapshot.h1
 const product = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
@@ -427,6 +428,69 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
     { url: greenLion, title: 'Накладка Green Lion Tough Guard Case для iPhone 15 Pro Deep Blue' },
   ]
   assert.equal(rankSearchLinks(accessoryLinks, 'green lion чехол iphone 15 pro', 1)[0], greenLion)
+})
+
+test('DNS and M.Video adapters normalize official URLs and read the retailer offer, not marketplace offers', () => {
+  const dns = new DnsParser()
+  const mvideo = new MvideoParser()
+  const dnsUrl = 'https://www.dns-shop.ru/product/91f112efa89cd21a/667-smartfon-poco-x7-512-gb-serebristyj/'
+  const mvideoUrl = 'https://www.mvideo.ru/products/4253150'
+  assert.equal(storeKeyFromUrl(dnsUrl), 'dns')
+  assert.equal(storeKeyFromUrl(mvideoUrl), 'mvideo')
+  assert.equal(dns.normalizeProductUrl(dnsUrl), dnsUrl)
+  assert.equal(mvideo.normalizeProductUrl(mvideoUrl), 'https://www.mvideo.ru/products/4253150/')
+  assert.throws(() => dns.normalizeProductUrl('https://evil.example/product/91f112efa89cd21a/phone/'))
+
+  const dnsConfig = {
+    key: 'dns', name: 'DNS', baseUrl: 'https://www.dns-shop.ru', allowedHosts: ['dns-shop.ru'],
+    productLinkSelector: 'a[href*="/product/"]', productPath: /^\\/product\\/[a-f0-9]+\\/[a-z0-9-]+\\/?$/i,
+    priceSelectors: [], oldPriceSelectors: [], regionSelectors: [], searchFallback: q => q,
+    officialSellerPattern: /\\bdns\\b|днс/i,
+  }
+  const dnsSnapshot = {
+    h1: '6.67" Смартфон POCO X7 512 ГБ серебристый',
+    scripts: [JSON.stringify({
+      '@type': 'Product', name: '6.67" Смартфон POCO X7 512 ГБ серебристый',
+      brand: { name: 'POCO' }, sku: '5606820',
+      offers: { '@type': 'Offer', price: '24990', priceCurrency: 'RUB', availability: 'https://schema.org/InStock', seller: { name: 'DNS' } },
+    })],
+    metaPrice: null, metaCurrency: null, domPrice: '24 990 ₽', oldPrice: null,
+    availability: 'В наличии', specs: [{ label: 'Память (ОЗУ/ПЗУ)', value: '12 ГБ / 512 ГБ' }],
+    seller: 'DNS', region: 'Махачкала', category: 'Смартфоны',
+  }
+  const dnsResult = extractRetailerProduct(dnsSnapshot, dnsUrl, dnsConfig)
+  assert.equal(dnsResult.price, 24990)
+  assert.equal(dnsResult.attributes.ram, '12')
+  assert.equal(dnsResult.attributes.storage, '512')
+  assert.equal(dnsResult.region, 'Махачкала')
+
+  const mvideoConfig = {
+    key: 'mvideo', name: 'М.Видео', baseUrl: 'https://www.mvideo.ru', allowedHosts: ['mvideo.ru'],
+    productLinkSelector: 'a[href*="/products/"]', productPath: /^\\/products\\/\\d+\\/?$/,
+    priceSelectors: [], oldPriceSelectors: [], regionSelectors: [], searchFallback: q => q,
+    officialSellerPattern: /м\\.?\\s*видео|mvideo/i,
+  }
+  const mvideoSnapshot = {
+    h1: 'Смартфон Apple iPhone 16 128GB Black',
+    scripts: [JSON.stringify({
+      '@type': 'Product', name: 'Смартфон Apple iPhone 16 128GB Black', brand: { name: 'Apple' },
+      offers: [
+        { '@type': 'Offer', price: '79990', priceCurrency: 'RUB', seller: { name: 'М.Видео' }, availability: 'https://schema.org/InStock' },
+        { '@type': 'Offer', price: '64990', priceCurrency: 'RUB', seller: { name: 'Сторонний продавец' }, availability: 'https://schema.org/InStock' },
+      ],
+    })],
+    metaPrice: null, metaCurrency: null, domPrice: '79 990 ₽', oldPrice: '99 990 ₽',
+    availability: 'В наличии', specs: [{ label: 'Встроенная память (ROM)', value: '128 ГБ' }],
+    seller: 'М.Видео', region: 'Москва', category: 'Смартфоны',
+  }
+  const mvideoResult = extractRetailerProduct(mvideoSnapshot, 'https://www.mvideo.ru/products/4253150/', mvideoConfig)
+  assert.equal(mvideoResult.price, 79990)
+  assert.equal(mvideoResult.seller, 'М.Видео')
+  assert.throws(() => extractRetailerProduct({
+    ...mvideoSnapshot, seller: 'Сторонний продавец',
+    scripts: [JSON.stringify({ '@type': 'Product', name: mvideoSnapshot.h1,
+      offers: [{ '@type': 'Offer', price: '64990', priceCurrency: 'RUB', seller: { name: 'Сторонний продавец' } }] })],
+  }, 'https://www.mvideo.ru/products/4253150/', mvideoConfig), /стороннего продавца/)
 })
 
 test('POCO/Redmi identity aliases work and recall ranking opens close phone candidates for inspection', () => {
