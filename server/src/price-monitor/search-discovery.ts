@@ -4,6 +4,80 @@ export type SearchLink = string | { url: string; title?: string }
 
 // Rank broadly before opening product pages. Only a clear product-family/model
 // conflict is discarded here; variant differences are scored for manual review.
+
+/**
+ * Recall-first inspection ranking. Unlike rankSearchLinks, this pass does not
+ * decide whether a listing is a match. It selects plausible product pages to
+ * open when the strict title/slug filter returned nothing. Variant and brand
+ * conflicts are checked again against the real product page before linking.
+ */
+export function rankSearchLinksForInspection(input: SearchLink[], query: string, limit = 18): string[] {
+  const requested = identity({ name: query })
+  if (requested.kind !== 'smartphone' || !requested.model) return []
+  const requestedModel = canonicalModel(requested.model) || ''
+  const modelTokens = requestedModel.split(' ').filter(Boolean)
+  const stem = (value: string) => value.replace(/^(\\d{1,2})[a-z]$/, '$1')
+  const requestedStems = modelTokens.map(stem)
+  const brandFamily = (value?: string) => value && /^(?:xiaomi|redmi|poco)$/.test(value) ? 'xiaomi' : value
+  const stopWords = new Set([
+    'iphone', 'apple', 'samsung', 'galaxy', 'xiaomi', 'redmi', 'poco',
+    'smartfon', 'smartphone', 'смартфон', 'gb', 'гб', 'tb', 'тб',
+  ])
+  const unique = new Map<string, { url: string; title: string; index: number }>()
+  for (const [index, entry] of input.entries()) {
+    const url = typeof entry === 'string' ? entry : entry.url
+    if (!url || unique.has(url)) continue
+    unique.set(url, { url, title: typeof entry === 'string' ? '' : entry.title || '', index })
+  }
+
+  return [...unique.values()].map(candidate => {
+    let rawSlug = ''
+    try {
+      rawSlug = decodeURIComponent(new URL(candidate.url).pathname.split('/p/').at(-1) || '')
+        .replace(/-\\d+\\/?$/, '').replace(/_/g, ' ')
+    } catch { return null }
+    const title = candidate.title || ''
+    const combined = normalize(title + ' ' + rawSlug)
+    if (/(?:^|\\s)(?:чехол|чехлы|стекло|пленка|бампер|кабель|адаптер|зарядное|case|cover|protector)(?=\\s|$)/.test(combined)) return null
+
+    const fromTitle = identity({ name: title })
+    const fromSlug = identity({ name: rawSlug })
+    const candidateModel = canonicalModel(fromSlug.model || fromTitle.model) || ''
+    const candidateTokens = candidateModel.split(' ').filter(Boolean)
+    const candidateStems = candidateTokens.map(stem)
+    const words = new Set(combined.split(' '))
+    const exactModel = candidateModel === requestedModel
+    const stemOverlap = requestedStems.filter(token => candidateStems.includes(token)).length
+    const wordOverlap = requestedStems.filter(token => words.has(token)).length
+    const sameModelFamily = !exactModel && requestedStems.length >= 2
+      && stemOverlap >= Math.min(2, requestedStems.length)
+    const modelAnchored = exactModel || sameModelFamily
+      || (candidateModel ? false : wordOverlap === requestedStems.length)
+    if (!modelAnchored) return null
+
+    const candidateBrand = brandFamily(fromTitle.brand || fromSlug.brand)
+    const requestedBrand = brandFamily(requested.brand)
+    const brandMatch = Boolean(requestedBrand && candidateBrand && requestedBrand === candidateBrand)
+    const candidateStorage = fromSlug.storage || fromTitle.storage
+    const candidateColor = fromSlug.color || fromTitle.color
+    let score = exactModel ? 120 : sameModelFamily ? 72 : 55
+    if (brandMatch) score += 24
+    else if (requestedBrand && candidateBrand) score -= 8
+    if (requested.storage && candidateStorage) score += requested.storage === candidateStorage ? 18 : -2
+    if (requested.color && candidateColor) score += requested.color === candidateColor ? 10 : -1
+    for (const token of new Set(normalize(query).split(' '))) {
+      if (words.has(token) && !stopWords.has(token)) score += 3
+    }
+    // A real phone product slug is a useful positive signal even if the tile
+    // title is incomplete or the page's brand field uses a sub-brand.
+    if (/\\b(?:smartfon|smartphone|iphone|galaxy|poco|redmi)\\b/.test(normalize(rawSlug))) score += 8
+    return { url: candidate.url, score, index: candidate.index }
+  }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, Math.max(0, limit))
+    .map(candidate => candidate.url)
+}
+
 export function rankSearchLinks(input: SearchLink[], query: string, limit = 18): string[] {
   const requested = identity({ name: query })
   const queryWords = new Set(normalize(query).split(' ').filter(word => word.length > 1))
