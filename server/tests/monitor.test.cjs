@@ -1226,8 +1226,8 @@ test('Six-hour schedule is persisted and can be disabled without changing produc
 
 test('Unlinked-only discovery excludes products already mapped to 05.ru', async () => {
   const products = [
-    { id: 1, name: 'Apple iPhone 17 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '1', status: 'ACTIVE', price: 99000 },
-    { id: 2, name: 'Apple iPhone 18 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '2', status: 'ACTIVE', price: 109000 },
+    { id: 1, name: 'Apple iPhone 17 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '1', status: 'ACTIVE', price: 99000, stockQty: 1, reservedQty: 0 },
+    { id: 2, name: 'Apple iPhone 18 Pro 256 Гб', category: { name: 'Смартфоны' }, oneCId: '2', status: 'ACTIVE', price: 109000, stockQty: 1, reservedQty: 0 },
   ]
   let created
   const monitor = new PriceMonitorService({
