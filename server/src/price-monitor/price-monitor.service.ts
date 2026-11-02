@@ -828,7 +828,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       results.push(await this.queueAutoFindForSource(dto, sourceKey, path, limit))
     }
     const queued = results.reduce((sum, result) => sum + result.queued, 0)
-    const eligible = Math.max(0, ...results.map(result => result.eligible))
+    const eligible = results.reduce((sum, result) => sum + result.eligible, 0)
     if (!queued) throw new BadRequestException('Нет непривязанных товаров для выбранных источников. Проверь импорт 1С и существующие связи.')
     if (sourceKeys.length === 1) {
       const single = results[0]
