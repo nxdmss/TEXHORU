@@ -2,7 +2,7 @@ import { BadGatewayException, BadRequestException, Injectable, OnModuleDestroy }
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { identity, normalize, type Identity } from './product-matching'
 import { existsSync } from 'node:fs'
-import { rankSearchLinks } from './search-discovery'
+import { rankSearchLinks, rankSearchLinksForInspection } from './search-discovery'
 
 type JsonObject = Record<string, unknown>
 export type FiveRuResult = {
@@ -13,6 +13,7 @@ export type FiveRuResult = {
 export type FiveRuSearchTrace = {
   query: string; linksFound: number; rankedLinks: number; cardsParsed: number; rejectedCards: string[]
   cached?: boolean; pageUrl?: string; searchMode?: string; searchPages?: number
+  directLinksFound?: number; catalogLinksFound?: number; rankingMode?: string
 }
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
@@ -93,7 +94,8 @@ export class FiveRuParser implements OnModuleDestroy {
   private browserIdleTimer?: NodeJS.Timeout
   private readonly queryCache = new Map<string, {
     expires: number; results: FiveRuResult[];
-    trace: { linksFound: number; rankedLinks: number; searchPages: number; pageUrl?: string; searchMode?: string }
+    trace: { linksFound: number; rankedLinks: number; searchPages: number; pageUrl?: string; searchMode?: string
+      directLinksFound?: number; catalogLinksFound?: number; rankingMode?: string }
   }>()
   private smartphoneCatalogCache?: { expires: number; links: Array<{ url: string; title: string }> }
 
@@ -399,15 +401,20 @@ export class FiveRuParser implements OnModuleDestroy {
                 if (!links.has(url)) links.set(url, link)
               }
             }
-            if (trace) trace.searchPages = searchPages
+            if (trace) {
+              trace.searchPages = searchPages
+              trace.directLinksFound = links.size
+            }
 
             let catalogUsed = false
+            let catalogLinksFound = 0
             // Search tiles are often incomplete or fuzzy. For smartphones,
             // merge the site's public category listing before ranking candidates.
             // This fallback runs even when direct search returned unrelated links.
             if (identity({ name: text }).kind === 'smartphone') {
               try {
                 const catalogLinks = await this.smartphoneCatalogLinks(context)
+                catalogLinksFound = catalogLinks.length
                 for (const link of catalogLinks) {
                   if (!links.has(link.url)) links.set(link.url, link)
                 }
@@ -427,13 +434,27 @@ export class FiveRuParser implements OnModuleDestroy {
               trace.pageUrl = landed.toString()
               trace.searchPages = searchPages
               trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
+              trace.catalogLinksFound = catalogLinksFound
             }
             urls = rankSearchLinks(unique, text, limit)
+            if (trace) trace.rankingMode = 'strict'
+            // Strict ranking is the automatic-link safety gate, not a reason
+            // to stop discovery. If it returns nothing, inspect the closest
+            // phone-family candidates and validate their real H1/specs later.
+            if (!urls.length && identity({ name: text }).kind === 'smartphone') {
+              urls = rankSearchLinksForInspection(unique, text, limit)
+              if (urls.length && trace) {
+                trace.rankingMode = 'recall-inspection'
+                trace.searchMode = (trace.searchMode || 'direct-search') + '+recall'
+              }
+            }
             if (trace) trace.rankedLinks = urls.length
             if (!urls.length) {
-              throw new Error('Прямой поиск 05.ru открылся (' + landed.pathname +
+              throw new Error('Поиск 05.ru открылся (' + landed.pathname +
                 '), найдено ссылок: ' + unique.length +
-                ', подходящих карточек после проверки названия: 0. Это не означает, что товара нет.')
+                ' (прямой поиск: ' + (trace?.directLinksFound ?? 0) +
+                ', каталог смартфонов: ' + catalogLinksFound +
+                '), строгий и расширенный подбор не нашли кандидатов. Это не доказательство отсутствия товара.')
             }
           } finally {
             await searchPage.close()
@@ -478,6 +499,9 @@ export class FiveRuParser implements OnModuleDestroy {
                 searchPages: trace?.searchPages ?? 1,
                 pageUrl: trace?.pageUrl,
                 searchMode: trace?.searchMode,
+                directLinksFound: trace?.directLinksFound,
+                catalogLinksFound: trace?.catalogLinksFound,
+                rankingMode: trace?.rankingMode,
               },
             })
           }
