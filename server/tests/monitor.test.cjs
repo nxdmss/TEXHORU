@@ -443,9 +443,9 @@ test('DNS and M.Video adapters normalize official URLs and read the retailer off
 
   const dnsConfig = {
     key: 'dns', name: 'DNS', baseUrl: 'https://www.dns-shop.ru', allowedHosts: ['dns-shop.ru'],
-    productLinkSelector: 'a[href*="/product/"]', productPath: /^\\/product\\/[a-f0-9]+\\/[a-z0-9-]+\\/?$/i,
+    productLinkSelector: 'a[href*="/product/"]', productPath: /^\/product\/[a-f0-9]+\/[a-z0-9-]+\/?$/i,
     priceSelectors: [], oldPriceSelectors: [], regionSelectors: [], searchFallback: q => q,
-    officialSellerPattern: /\\bdns\\b|днс/i,
+    officialSellerPattern: /\bdns\b|днс/i,
   }
   const dnsSnapshot = {
     h1: '6.67" Смартфон POCO X7 512 ГБ серебристый',
@@ -466,9 +466,9 @@ test('DNS and M.Video adapters normalize official URLs and read the retailer off
 
   const mvideoConfig = {
     key: 'mvideo', name: 'М.Видео', baseUrl: 'https://www.mvideo.ru', allowedHosts: ['mvideo.ru'],
-    productLinkSelector: 'a[href*="/products/"]', productPath: /^\\/products\\/\\d+\\/?$/,
+    productLinkSelector: 'a[href*="/products/"]', productPath: /^\/products\/\d+\/?$/,
     priceSelectors: [], oldPriceSelectors: [], regionSelectors: [], searchFallback: q => q,
-    officialSellerPattern: /м\\.?\\s*видео|mvideo/i,
+    officialSellerPattern: /м\.?\s*видео|mvideo/i,
   }
   const mvideoSnapshot = {
     h1: 'Смартфон Apple iPhone 16 128GB Black',
