@@ -189,6 +189,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
+    const missingRegions = sources.filter(store => store.key !== '05ru' && !store.settings.region?.trim())
+    if (missingRegions.length) {
+      setError('Сначала укажи город для каждого магазина: ' + missingRegions.map(store => store.name).join(', '))
+      return
+    }
     await run('match', async () => {
       const number = Math.min(5000, phones.length)
       if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
@@ -199,6 +204,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   async function refreshSavedPrices() {
     if (active) { setError('Сначала заверши текущую проверку'); return }
+    const missingRegions = sources.filter(store => store.key !== '05ru'
+      && store.counts.confirmed > 0 && !store.settings.region?.trim())
+    if (missingRegions.length) {
+      setError('Перед обновлением укажи город для: ' + missingRegions.map(store => store.name).join(', '))
+      return
+    }
     await run('refresh', () => api.monitorCheckAll('all'),
       'Обновление запущено для всех магазинов. Читаются только подтверждённые ссылки; повторного поиска нет.')
   }
