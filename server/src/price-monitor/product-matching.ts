@@ -124,8 +124,10 @@ export function identity(item: Item): Identity {
   }
   const memoryPair = specs.find(item => /память.*(?:озу|пзу)|(?:озу.*пзу)|ram.*rom|оперативн.*встроенн/i.test(item.label))
   const pairValues = memoryPair?.value.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
-  const storageText = attrs.storage || spec(/встроенн|объем накоп|storage|пзу|rom/i)
-    || (pairValues.length > 1 ? pairValues[1] : undefined)
+  const storageSpec = attrs.storage || spec(/встроенн|объем накоп|storage|пзу|rom/i)
+  const storageParts = storageSpec?.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
+  const storageText = storageParts.length > 1 ? storageParts.at(-1)
+    : storageSpec || (pairValues.length > 1 ? pairValues[1] : undefined)
   const capacities = [...text.matchAll(/(\d+)\s*(gb|гб|tb|тб)/g)].map(m => units(m[0])!)
   // 1C frequently uses 12/512 without a unit after the storage value.
   // Do not apply this shortcut to iPhones: "iPhone 16 256" is model 16 +
@@ -135,7 +137,9 @@ export function identity(item: Item): Identity {
   const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1024)\b/)?.[1]
     : /xiaomi|redmi|poco|galaxy|samsung|honor|huawei|pixel|realme|oneplus|tecno|infinix|nothing/.test(text) ? compactMemory?.[1] : undefined
   const storage = storageText ? units(storageText) || (/^\d+$/.test(storageText) ? storageText : undefined) : capacities.length ? capacities.at(-1) : bareStorage
-  const ramText = attrs.ram || spec(/оперативн|ram|озу/i) || (pairValues.length > 1 ? pairValues[0] : undefined)
+  const ramSpec = attrs.ram || spec(/оперативн|ram|озу/i)
+  const ramParts = ramSpec?.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
+  const ramText = ramParts.length > 1 ? ramParts[0] : ramSpec || (pairValues.length > 1 ? pairValues[0] : undefined)
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : capacities.length > 1 ? capacities[0]
     : compactMemory ? compactMemory[0].match(/^(4|6|8|12|16|18|24|32)\b/)?.[1] : undefined
