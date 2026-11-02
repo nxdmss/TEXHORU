@@ -798,7 +798,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (!scoped.length) return { sourceKey, eligible: 0, queued: 0, job: null }
     const confirmed = dto.onlyUnlinked
       ? await this.prisma.competitorProduct.findMany({
-          where: { source: { key: sourceKey }, productId: { not: null }, matchStatus: 'CONFIRMED' },
+          where: { source: { key: sourceKey }, productId: { not: null } },
           select: { productId: true },
         })
       : []
