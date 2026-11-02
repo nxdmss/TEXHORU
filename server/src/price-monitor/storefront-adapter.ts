@@ -28,6 +28,8 @@ export type StoreSearchTrace = {
   pageUrl?: string
   searchMode?: string
   searchPages?: number
+  directLinksFound?: number
+  catalogLinksFound?: number
   rankingMode?: string
 }
 export interface StorefrontAdapter {
