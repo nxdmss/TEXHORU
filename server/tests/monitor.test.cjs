@@ -453,6 +453,11 @@ test('All-store discovery creates independent matching jobs for 05.ru, M.Video a
     status: 'ACTIVE', price: 70000, stockQty: 2, reservedQty: 0,
     category: { name: 'Смартфоны' },
   }
+  const zeroStock = {
+    id: 902, oneCId: 'onec-902', name: 'Apple iPhone 16 256GB Black',
+    status: 'ACTIVE', price: 75000, stockQty: 0, reservedQty: 0,
+    category: { name: 'Смартфоны' },
+  }
   const prismaStub = {
     monitorJob: {
       count: async () => 0,
@@ -461,7 +466,7 @@ test('All-store discovery creates independent matching jobs for 05.ru, M.Video a
         return { id: 'job-' + data.sourceKey, ...data }
       },
     },
-    product: { findMany: async () => [product] },
+    product: { findMany: async () => [product, zeroStock] },
     competitorProduct: {
       findMany: async ({ where }) => where.source.key === 'dns' ? [{ productId: product.id }] : [],
     },
@@ -474,7 +479,7 @@ test('All-store discovery creates independent matching jobs for 05.ru, M.Video a
   assert.equal(result.queued, 2)
   assert.equal(result.eligible, 2)
   assert.deepEqual(created.map(job => job.sourceKey), ['05ru', 'mvideo'])
-  assert(created.every(job => job.kind === 'MATCH_1C'))
+  assert(created.every(job => job.kind === 'MATCH_1C' && job.pendingUrls.length === 1))
 })
 
 test('Manual M.Video check uses its own adapter and saved region', async () => {
