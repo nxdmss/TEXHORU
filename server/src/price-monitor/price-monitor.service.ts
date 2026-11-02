@@ -757,7 +757,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async settings(sourceKey: StoreKey = '05ru') {
-    const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)!
+    const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)
+    if (!definition) throw new BadRequestException('Неизвестный магазин мониторинга')
     return this.prisma.monitorSettings.upsert({
       where: { id: sourceKey },
       update: {},
