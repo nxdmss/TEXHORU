@@ -1323,6 +1323,47 @@ test('Smartphone search merges the public category crawl when direct search retu
   }
 })
 
+test('05.ru recall fallback opens smartphone pages when strict title ranking rejects a noisy tile', async () => {
+  const parser = new FiveRuParser()
+  const a26 = 'https://05.ru/cat/396f7486/p/smartfon-samsung-galaxy-a26-8-256-gb-beliy-21147/'
+  let currentUrl = ''
+  const opened = []
+  parser.browser = async () => ({ isConnected: () => true, close: async () => {} })
+  parser.context = async () => ({
+    newPage: async () => ({
+      goto: async url => { currentUrl = url; return { status: () => 200 } },
+      url: () => currentUrl,
+      locator: () => ({
+        first: () => ({ waitFor: async () => {} }),
+        evaluateAll: async () => [],
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  })
+  parser.smartphoneCatalogLinks = async () => [{
+    url: a26, title: 'Смартфон Xiaomi Galaxy A26 8 Гб/256 Гб белый',
+  }]
+  parser.open = async (_, url) => {
+    opened.push(url)
+    return { close: async () => {} }
+  }
+  parser.snapshot = async () => fixture.snapshot
+  try {
+    const trace = {}
+    const results = await parser.searchProducts('samsung galaxy a26 128 черный', 18, trace)
+    assert.deepEqual(opened, [a26])
+    assert.equal(results.length, 1)
+    assert.equal(trace.directLinksFound, 0)
+    assert.equal(trace.catalogLinksFound, 1)
+    assert.equal(trace.rankingMode, 'recall-inspection')
+    assert.equal(trace.searchMode, 'direct+smartphone-catalog+recall')
+    assert.equal(trace.cardsParsed, 1)
+  } finally {
+    await parser.onModuleDestroy()
+  }
+})
+
 test('Business price-list import links 1C products safely, never claims 05.ru verification and rolls back invalid rows', async () => {
   const categoryId = randomUUID(), id = randomUUID(), secondId = randomUUID()
   const categoryPath = 'Бизнес импорт тест ' + categoryId
