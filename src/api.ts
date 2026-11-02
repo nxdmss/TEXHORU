@@ -64,12 +64,12 @@ export type PriceMonitorItem = {
   priceSource?: string | null
   matchStatus: string
   lastSuccessAt?: string | null
-  source: { id: string; key: string; name: string; baseUrl: string }
+  source: { id: string; key: string; name: string; baseUrl: string; isActive?: boolean }
   product?: { id: number; oneCId?: string | null; sku: string; name: string; price: number; priceSyncEnabled?: boolean; category?: ApiCategory } | null
 }
 
 export type MonitorJob = {
-  id: string; kind: string; status: string; page: number; maxPages: number; perPage?: number; processed: number; errors: number
+  id: string; kind: string; sourceKey?: string | null; status: string; page: number; maxPages: number; perPage?: number; processed: number; errors: number
   lastError?: string | null; url?: string | null; createdAt: string; pendingUrls: string[]
 }
 export type MatchCandidate = {
@@ -77,6 +77,11 @@ export type MatchCandidate = {
   score: number; reviewScore?: number; reasons: string[]; conflicts: string[]; missing: string[]
   manualBlockers: string[]
   ours: Record<string, string>; theirs: Record<string, string>
+}
+export type MonitorSource = {
+  id: string; key: '05ru' | 'mvideo' | 'dns'; name: string; baseUrl: string; isActive: boolean
+  settings: { id: string; catalogUrl: string; region?: string | null; intervalMinutes: number; nextRunAt: string | null }
+  counts: { confirmed: number; review: number; total: number }
 }
 export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
 
@@ -201,19 +206,20 @@ export const api = {
   monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
   monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
-  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false) {
+  monitorSources() { return request<MonitorSource[]>('/admin/price-monitor/sources') },
+  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false, sourceKey: string = '05ru') {
     return request<MonitorJob & { eligible: number; queued: number }>('/admin/price-monitor/auto-find-1c',
-      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones, onlyUnlinked }) })
+      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones, onlyUnlinked, sourceKey }) })
   },
   monitorScan(url: string, maxPages: number) { return request<MonitorJob>('/admin/price-monitor/scan', { method: 'POST', body: JSON.stringify({ url, maxPages }) }) },
-  monitorCheckAll() { return request<MonitorJob>('/admin/price-monitor/check-all', { method: 'POST' }) },
+  monitorCheckAll(sourceKey: string = '05ru') { return request<{ queued: number; jobs: MonitorJob[]; sources: Array<{ sourceKey: string; queued: number }> }>('/admin/price-monitor/check-all', { method: 'POST', body: JSON.stringify({ sourceKey }) }) },
   monitorJobAction(id: string, action: 'retry' | 'cancel') { return request(`/admin/price-monitor/jobs/${id}/${action}`, { method: 'POST' }) },
   monitorQueue() { return request<{ queued: number }>('/admin/price-monitor/queue-1c', { method: 'POST' }) },
   monitorDeliveries() { return request<MonitorDelivery[]>('/admin/price-monitor/deliveries') },
-  monitorSettings() { return request<{ catalogUrl: string; intervalMinutes: number; nextRunAt: string | null }>('/admin/price-monitor/settings') },
-  monitorSaveSettings(catalogUrl: string, intervalMinutes: number) {
-    return request<{ catalogUrl: string; intervalMinutes: number; nextRunAt: string | null }>('/admin/price-monitor/settings',
-      { method: 'POST', body: JSON.stringify({ catalogUrl, intervalMinutes }) })
+  monitorSettings(sourceKey: string = '05ru') { return request<{ id: string; catalogUrl: string; region?: string | null; intervalMinutes: number; nextRunAt: string | null }>('/admin/price-monitor/settings?sourceKey=' + encodeURIComponent(sourceKey)) },
+  monitorSaveSettings(sourceKey: string, catalogUrl: string, intervalMinutes: number, region?: string) {
+    return request<{ id: string; catalogUrl: string; region?: string | null; intervalMinutes: number; nextRunAt: string | null }>('/admin/price-monitor/settings',
+      { method: 'POST', body: JSON.stringify({ sourceKey, catalogUrl, intervalMinutes, region }) })
   },
   monitorExport() { return request<{ schemaVersion: number; items: Array<Record<string, unknown>> }>('/admin/price-monitor/export-1c') },
   monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
