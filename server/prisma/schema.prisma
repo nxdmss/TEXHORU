@@ -345,6 +345,7 @@ model MonitorJob {
   createdAt   DateTime @default(now())
   finishedAt  DateTime?
   @@index([status, createdAt])
+  @@index([sourceKey, status, createdAt])
 }
 
 model MonitorSettings {
