@@ -2,8 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { createHash } from 'node:crypto'
 import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
+import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter } from './storefront-adapter'
 import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
@@ -96,16 +97,45 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
   private working = false
   private parsing = false
-  constructor(private readonly prisma: PrismaService, private readonly fiveRu: FiveRuParser, private readonly exchange: MonitorExchangeService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fiveRu: FiveRuParser,
+    private readonly mvideo: MvideoParser,
+    private readonly dns: DnsParser,
+    private readonly exchange: MonitorExchangeService,
+  ) {}
 
   onModuleInit() {
+    void this.sources().catch(error => console.error('Источники мониторинга:', error instanceof Error ? error.message : 'Ошибка'))
     if (process.env.MONITOR_WORKER_DISABLED === 'true') return
     this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 1000)
     this.timer.unref()
   }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer) }
-  private source() {
-    return this.prisma.competitorSource.upsert({ where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' } })
+  private source(key: StoreKey = '05ru') {
+    const definition = STORE_DEFINITIONS.find(item => item.key === key)!
+    return this.prisma.competitorSource.upsert({
+      where: { key },
+      update: { name: definition.name, baseUrl: definition.baseUrl },
+      create: { key, name: definition.name, baseUrl: definition.baseUrl },
+    })
+  }
+  private parserFor(key: StoreKey): StorefrontAdapter {
+    if (key === '05ru') return this.fiveRu
+    if (key === 'mvideo') return this.mvideo
+    return this.dns
+  }
+  async sources() {
+    return Promise.all(STORE_DEFINITIONS.map(async definition => {
+      const source = await this.source(definition.key)
+      const settings = await this.settings(definition.key)
+      const [confirmed, review, total] = await Promise.all([
+        this.prisma.competitorProduct.count({ where: { sourceId: source.id, matchStatus: 'CONFIRMED' } }),
+        this.prisma.competitorProduct.count({ where: { sourceId: source.id, matchStatus: { in: ['SUGGESTED', 'REVIEW_REQUIRED'] } } }),
+        this.prisma.competitorProduct.count({ where: { sourceId: source.id } }),
+      ])
+      return { ...source, settings, counts: { confirmed, review, total } }
+    }))
   }
   private decorated<T extends { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null; product?: { name: string; price: number; costPrice?: number | null } | null; matchStatus: string; confirmedFingerprint?: string | null; confirmedProductFingerprint?: string | null; externalName?: string | null; attributes: unknown }>(row: T) {
     const valid = row.matchStatus === 'CONFIRMED' && row.product && fingerprint(row.product) === row.confirmedProductFingerprint && fingerprint({ name: row.externalName || '', attributes: row.attributes }) === row.confirmedFingerprint
