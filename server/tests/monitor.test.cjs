@@ -430,6 +430,22 @@ test('Search ranking promotes Xiaomi 15T Pro beyond the first 12 unrelated links
   assert.equal(rankSearchLinks(accessoryLinks, 'green lion чехол iphone 15 pro', 1)[0], greenLion)
 })
 
+test('Normalizes storage units and paired RAM/ROM labels across retailer wording', () => {
+  const pair = identity({
+    name: 'POCO X7 512GB Silver',
+    specs: [{ label: 'Память (ОЗУ/ПЗУ)', value: '12 ГБ / 512 ГБ' }],
+  })
+  assert.equal(pair.ram, '12')
+  assert.equal(pair.storage, '512')
+  const match = compareItems(
+    { name: 'Apple iPhone 16 256 ГБ черный' },
+    { name: 'Apple iPhone 16 256GB Black' },
+  )
+  assert.equal(match.ours.storage, '256')
+  assert.equal(match.theirs.storage, '256')
+  assert.equal(match.canAutoConfirm, true)
+})
+
 test('DNS and M.Video adapters normalize official URLs and read the retailer offer, not marketplace offers', () => {
   const dns = new DnsParser()
   const mvideo = new MvideoParser()
