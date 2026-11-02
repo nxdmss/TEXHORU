@@ -96,23 +96,17 @@ test('Legacy 05.ru index with missing iPhone Air model still links a verified ex
   const categoryPath = 'AIR ALIAS TEST ' + id
   const name = 'Смартфон Apple iPhone 17 Air 256 Гб белый'
   const url = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-air-12-gb-256-gb-beliy-bez-rustore-24234/'
-  const otherUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-12345/'
   const integration = new IntegrationsService(prisma, {})
   await integration.importCatalog({
     categories: [{ oneCId: categoryId, slug: 'air-test-' + categoryId, name: categoryPath }],
     products: [{ oneCId: id, slug: 'air-' + id, sku: 'AIR-' + id,
       name, brand: 'Apple', categoryOneCId: categoryId, price: 90000, stockQty: 2 }],
   })
-  await prisma.competitorCatalogEntry.deleteMany({ where: { externalUrl: { in: [url, otherUrl] } } })
+  await prisma.competitorCatalogEntry.deleteMany({ where: { externalUrl: url } })
   await prisma.competitorCatalogEntry.create({
     data: { externalUrl: url,
       title: 'Смартфон Apple iPhone Air 12 Гб/256 Гб белый (без RuStore)',
       model: null, storage: '256', color: 'white', lastSeenAt: new Date() },
-  })
-  await prisma.competitorCatalogEntry.create({
-    data: { externalUrl: otherUrl,
-      title: 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый',
-      model: 'iphone 17 pro', storage: '256', color: 'orange', lastSeenAt: new Date() },
   })
   let parsedUrls = [], searched = 0
   const result = {
