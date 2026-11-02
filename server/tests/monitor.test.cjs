@@ -446,6 +446,64 @@ test('Normalizes storage units and paired RAM/ROM labels across retailer wording
   assert.equal(match.canAutoConfirm, true)
 })
 
+test('All-store discovery creates independent matching jobs for 05.ru, M.Video and DNS', async () => {
+  const created = []
+  const product = {
+    id: 901, oneCId: 'onec-901', name: 'Apple iPhone 16 128GB Black',
+    status: 'ACTIVE', price: 70000, stockQty: 2, reservedQty: 0,
+    category: { name: 'Смартфоны' },
+  }
+  const prismaStub = {
+    monitorJob: {
+      count: async () => 0,
+      create: async ({ data }) => {
+        created.push(data)
+        return { id: 'job-' + data.sourceKey, ...data }
+      },
+    },
+    product: { findMany: async () => [product] },
+    competitorProduct: {
+      findMany: async ({ where }) => where.source.key === 'dns' ? [{ productId: product.id }] : [],
+    },
+  }
+  const monitor = new PriceMonitorService(prismaStub, {}, {})
+  const result = await monitor.autoFindOneCSection({
+    sourceKey: 'all', categoryPath: 'Смартфоны', maxItems: 10, onlyUnlinked: true,
+  })
+  assert.equal(result.sourceKey, 'all')
+  assert.equal(result.queued, 2)
+  assert.equal(result.eligible, 2)
+  assert.deepEqual(created.map(job => job.sourceKey), ['05ru', 'mvideo'])
+  assert(created.every(job => job.kind === 'MATCH_1C'))
+})
+
+test('Manual M.Video check uses its own adapter and saved region', async () => {
+  let parsed
+  let saved
+  const prismaStub = {
+    competitorSource: {
+      upsert: async ({ create }) => ({ id: 'source-mvideo', ...create }),
+    },
+    monitorSettings: {
+      upsert: async () => ({ region: 'Кизилюрт' }),
+    },
+  }
+  const mvideo = {
+    key: 'mvideo', name: 'М.Видео', baseUrl: 'https://www.mvideo.ru',
+    normalizeProductUrl: url => url,
+    parse: async (url, region) => {
+      parsed = { url, region }
+      return { name: 'iPhone 16', url, price: 70000, region, attributes: {}, categoryName: 'Смартфоны' }
+    },
+  }
+  const monitor = new PriceMonitorService(prismaStub, {}, {}, mvideo, {})
+  monitor.save = async (result, sourceId) => { saved = { result, sourceId }; return result }
+  const url = 'https://www.mvideo.ru/products/4253150/'
+  await monitor.check({ url })
+  assert.deepEqual(parsed, { url, region: 'Кизилюрт' })
+  assert.equal(saved.sourceId, 'source-mvideo')
+})
+
 test('DNS and M.Video adapters normalize official URLs and read the retailer offer, not marketplace offers', () => {
   const dns = new DnsParser()
   const mvideo = new MvideoParser()
