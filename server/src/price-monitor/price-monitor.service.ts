@@ -755,50 +755,80 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }, { timeout: 120000 })
   }
 
-  async settings() { return this.prisma.monitorSettings.upsert({ where: { id: '05ru' }, update: {}, create: { id: '05ru' } }) }
-  async updateSettings(dto: MonitorSettingsDto) {
-    const catalogUrl = fiveRuUrl(dto.catalogUrl, 'catalog')
-    if (dto.intervalMinutes > 0 && dto.intervalMinutes < 120) throw new BadRequestException('Минимальный интервал — 120 минут')
-    return this.prisma.monitorSettings.upsert({ where: { id: '05ru' }, create: { id: '05ru', catalogUrl, intervalMinutes: dto.intervalMinutes, nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null }, update: { catalogUrl, intervalMinutes: dto.intervalMinutes, nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null } })
+  async settings(sourceKey: StoreKey = '05ru') {
+    const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)!
+    return this.prisma.monitorSettings.upsert({
+      where: { id: sourceKey },
+      update: {},
+      create: { id: sourceKey, catalogUrl: sourceKey === '05ru' ? 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/' : definition.baseUrl },
+    })
   }
-  jobs() { return this.prisma.monitorJob.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }) }
+  async updateSettings(dto: MonitorSettingsDto) {
+    const sourceKey = (dto.sourceKey || '05ru') as StoreKey
+    const current = await this.settings(sourceKey)
+    const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)!
+    const catalogUrl = sourceKey === '05ru'
+      ? fiveRuUrl(dto.catalogUrl || current.catalogUrl, 'catalog')
+      : definition.baseUrl
+    if (dto.intervalMinutes > 0 && dto.intervalMinutes < 120) throw new BadRequestException('Минимальный интервал — 120 минут')
+    const region = dto.region === undefined ? current.region : (dto.region.trim() || null)
+    return this.prisma.monitorSettings.upsert({
+      where: { id: sourceKey },
+      create: { id: sourceKey, catalogUrl, region, intervalMinutes: dto.intervalMinutes,
+        nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
+      update: { catalogUrl, region, intervalMinutes: dto.intervalMinutes,
+        nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
+    })
+  }
+  jobs() { return this.prisma.monitorJob.findMany({ orderBy: { createdAt: 'desc' }, take: 30 }) }
   async scan(dto: ScanFiveRuDto) {
     const url = fiveRuUrl(dto.url, 'catalog')
-    return this.prisma.monitorJob.create({ data: { kind: 'CATALOG', url, maxPages: dto.maxPages || 1, perPage: 200 } })
+    return this.prisma.monitorJob.create({ data: { kind: 'CATALOG', sourceKey: '05ru', url, maxPages: dto.maxPages || 1, perPage: 200 } })
   }
-  async autoFindOneCSection(dto: AutoFindOneCSectionDto) {
-    const path = (dto.categoryPath || '').trim()
-    const limit = dto.maxItems || 30
+  private async queueAutoFindForSource(dto: AutoFindOneCSectionDto, sourceKey: StoreKey, path: string, limit: number) {
     const imported = await this.prisma.product.findMany({
       where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
     const scoped = imported.filter(p => (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
       && (!dto.onlyInStockSmartphones || (p.stockQty > p.reservedQty && /(?:смартфон|smartphone)/i.test(p.category.name))))
-    if (!scoped.length) throw new BadRequestException('В выбранном разделе нет импортированных из 1С товаров с ценой и остатком')
-    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
-      throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
-    }
+    if (!scoped.length) return { sourceKey, eligible: 0, queued: 0, job: null }
     const confirmed = dto.onlyUnlinked
       ? await this.prisma.competitorProduct.findMany({
-          where: { source: { key: '05ru' }, productId: { not: null } },
+          where: { source: { key: sourceKey }, productId: { not: null }, matchStatus: 'CONFIRMED' },
           select: { productId: true },
         })
       : []
     const linkedIds = new Set(confirmed.map(link => link.productId))
     const eligible = dto.onlyUnlinked ? scoped.filter(product => !linkedIds.has(product.id)) : scoped
-    if (!eligible.length) throw new BadRequestException('В этом разделе все товары уже привязаны. Используй «Обновить цены 05.ru».')
+    if (!eligible.length) return { sourceKey, eligible: 0, queued: 0, job: null }
     const selected = eligible.slice(0, limit)
-    // Live 05.ru search is the primary discovery path. A full seller-catalog
-    // crawl is too fragile to be a prerequisite for matching thousands of 1C
-    // products. Existing index entries may accelerate a match, but an empty or
-    // stale index must always fall through to searchProducts().
     const job = await this.prisma.monitorJob.create({
-      data: { kind: 'MATCH_1C', url: path || null, maxPages: 1, perPage: selected.length,
-        pendingUrls: selected.map(p => 'product:' + p.id),
-        visitedUrls: [...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])] },
+      data: {
+        kind: 'MATCH_1C', sourceKey, url: path || null, maxPages: 1, perPage: selected.length,
+        pendingUrls: selected.map(product => 'product:' + product.id),
+        visitedUrls: [...(dto.onlyInStockSmartphones ? ['STOCKED_SMARTPHONES'] : [])],
+      },
     })
-    return { ...job, eligible: eligible.length, queued: selected.length }
+    return { sourceKey, eligible: eligible.length, queued: selected.length, job }
+  }
+  async autoFindOneCSection(dto: AutoFindOneCSectionDto) {
+    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+      throw new ConflictException('Мониторинг уже выполняет задачу. Дождись завершения или останови её.')
+    }
+    const path = (dto.categoryPath || '').trim()
+    const limit = Math.min(5000, dto.maxItems || 30)
+    const sourceKeys: StoreKey[] = dto.sourceKey === 'all'
+      ? STORE_DEFINITIONS.map(item => item.key)
+      : [(dto.sourceKey || '05ru') as StoreKey]
+    const results = []
+    for (const sourceKey of sourceKeys) {
+      results.push(await this.queueAutoFindForSource(dto, sourceKey, path, limit))
+    }
+    const queued = results.reduce((sum, result) => sum + result.queued, 0)
+    const eligible = Math.max(0, ...results.map(result => result.eligible))
+    if (!queued) throw new BadRequestException('Нет непривязанных товаров для выбранных источников. Проверь импорт 1С и существующие связи.')
+    return { sourceKey: dto.sourceKey || '05ru', eligible, queued, jobs: results.filter(result => result.job).map(result => result.job), sources: results }
   }
 
   private async ensureIndexJob() {
