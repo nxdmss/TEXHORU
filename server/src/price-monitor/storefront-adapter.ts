@@ -418,10 +418,15 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
     try {
       const home = await page.goto(this.baseUrl, { waitUntil: 'domcontentloaded', timeout: 25_000 })
       if (home && home.status() >= 400) throw new Error(this.name + ' ответил HTTP ' + home.status())
+      const host = new URL(page.url()).hostname.toLowerCase()
+      if (!this.config.allowedHosts.some(root => host === root || host.endsWith('.' + root))) {
+        throw new Error(this.name + ' перенаправил главную страницу на другой домен')
+      }
       const selectors = [
         'input[type="search"]', 'input[placeholder*="Поиск"]', 'input[placeholder*="поиск"]',
         'input[aria-label*="Поиск"]', 'input[name="q"]', 'input[name="query"]',
       ]
+      await page.locator(selectors.join(',')).first().waitFor({ state: 'visible', timeout: 8_000 }).catch(() => undefined)
       let submitted = false
       for (const selector of selectors) {
         const input = page.locator(selector).first()
@@ -434,24 +439,34 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
           } catch {}
         }
       }
-      if (submitted) {
-        await page.waitForTimeout(1200)
-      } else {
+      const collectLinks = async () => {
+        await page.locator(this.config.productLinkSelector).first()
+          .waitFor({ state: 'attached', timeout: 8_000 }).catch(() => undefined)
+        return page.locator(this.config.productLinkSelector).evaluateAll((nodes, pattern) =>
+          nodes.map(node => ({
+            url: (node as HTMLAnchorElement).href,
+            title: (node.getAttribute('title') || node.getAttribute('aria-label')
+              || node.querySelector('img')?.getAttribute('alt')
+              || node.closest('article,[class*="product-card"],[class*="catalog-product"],[data-product-id]')?.textContent
+              || (node as HTMLElement).innerText || '').trim().slice(0, 260),
+          })).filter(link => {
+            try { return new RegExp(pattern).test(new URL(link.url).pathname) } catch { return false }
+          })
+        , this.config.productPath.source)
+      }
+      let links = submitted ? await collectLinks() : []
+      // Search widgets sometimes show suggestions but do not navigate. Fall back
+      // to the retailer's public search route if the form produced no product links.
+      if (!links.length) {
         const fallback = this.config.searchFallback(query)
         const response = await page.goto(fallback, { waitUntil: 'domcontentloaded', timeout: 25_000 })
         if (response && response.status() >= 400) throw new Error(this.name + ' ответил HTTP ' + response.status() + ' при поиске')
+        const searchHost = new URL(page.url()).hostname.toLowerCase()
+        if (!this.config.allowedHosts.some(root => searchHost === root || searchHost.endsWith('.' + root))) {
+          throw new Error(this.name + ' перенаправил поисковую выдачу на другой домен')
+        }
+        links = await collectLinks()
       }
-      const links = await page.locator(this.config.productLinkSelector).evaluateAll((nodes, pattern) =>
-        nodes.map(node => ({
-          url: (node as HTMLAnchorElement).href,
-          title: (node.getAttribute('title') || node.getAttribute('aria-label')
-            || node.querySelector('img')?.getAttribute('alt')
-            || node.closest('article,[class*="product-card"],[class*="catalog-product"],[data-product-id]')?.textContent
-            || (node as HTMLElement).innerText || '').trim().slice(0, 260),
-        })).filter(link => {
-          try { return new RegExp(pattern).test(new URL(link.url).pathname) } catch { return false }
-        })
-      , this.config.productPath.source)
       const unique = new Map<string, { url: string; title: string }>()
       for (const link of links) {
         try {
