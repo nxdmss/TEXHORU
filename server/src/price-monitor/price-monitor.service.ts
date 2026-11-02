@@ -4,7 +4,7 @@ import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
-import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter } from './storefront-adapter'
+import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter, type StoreProductResult } from './storefront-adapter'
 import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
@@ -381,39 +381,38 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return base && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
   }
 
-  private async refreshKnownMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
-    // Reuse only cards already assigned to this exact 1C product. Unlinked
-    // review candidates must not block a fresh catalog/search discovery run.
+  private async refreshKnownMatch(
+    product: { id: number; name: string; brand?: string | null; attributes?: unknown },
+    sourceKey: StoreKey,
+    parser: StorefrontAdapter,
+    region?: string | null,
+  ): Promise<boolean> {
+    // Reuse only cards already assigned to this exact 1C product and this store.
     const saved = await this.prisma.competitorProduct.findMany({
-      where: { source: { key: '05ru' }, productId: product.id, matchStatus: 'CONFIRMED', externalName: { not: null } },
+      where: { source: { key: sourceKey }, productId: product.id, matchStatus: 'CONFIRMED', externalName: { not: null } },
       orderBy: { lastSuccessAt: 'desc' }, take: 50,
     })
-    // Only a confirmed mapping is a reusable monitoring key. Suggestions are
-    // handled by the one-time review flow and must not silently become links.
     if (!saved.length) return false
+    const source = await this.source(sourceKey)
     if (saved.length !== 1) throw new Error(
-      'У товара ' + product.name + ' несколько подтверждённых ссылок 05.ru. Исправь привязки вручную.'
+      'У товара ' + product.name + ' несколько подтверждённых ссылок в «' + source.name + '». Исправь привязки вручную.'
     )
     const url = saved[0].externalUrl
-    // Do not re-use the stored observation from 26.10 as if it was checked today.
-    let fresh: FiveRuResult
-    try { fresh = await this.fiveRu.parse(url) }
+    let fresh: StoreProductResult
+    try { fresh = await parser.parse(url, region) }
     catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       await this.prisma.competitorProduct.update({
         where: { id: saved[0].id },
         data: { lastCheckedAt: new Date(), lastError: reason.slice(0, 2000) },
       })
-      throw new Error('05.ru: карточка уже известна (' + url + '), но повторная проверка не удалась: ' + reason)
+      throw new Error(source.name + ': сохранённая карточка (' + url + ') не прочитана: ' + reason)
     }
     const updated = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
     if (!this.strongVariant(updated)) {
-      // Preserve the observation and invalidate stale confirmed fingerprints.
-      const source = await this.source()
       await this.save(fresh, source.id)
-      throw new Error('05.ru: сохранённая карточка изменилась, совпадение требует проверки: ' + fresh.name)
+      throw new Error(source.name + ': сохранённая карточка изменилась, совпадение требует проверки: ' + fresh.name)
     }
-    const source = await this.source()
     await this.save(fresh, source.id, product.id)
     return true
   }
