@@ -503,10 +503,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
     <details className="mp-extra" open={advanced} onToggle={e => setAdvanced(e.currentTarget.open)}>
       <summary>Дополнительно</summary>
-      <p>Товары поступают автоматически при настроенном обмене 1С → TEXHORU. Импорт файлов для ежедневного мониторинга не нужен.</p>
+      <p>Товары поступают автоматически при настроенном обмене 1С → TEXHORU. Поиск и обновление цен работают отдельно для каждого магазина. Автоматическое изменение цен на сайте пока доступно только для 05.ru.</p>
       <div className="mp-advanced">
-        <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
-          onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены к товарам TEXHORU'}</button>
+        {sourceKey === '05ru' && <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
+          onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены 05.ru к товарам TEXHORU'}</button>}
         <label>Проверить одну ссылку магазина
           <input value={manualUrl} onChange={e => setManualUrl(e.target.value)} placeholder="Вставь ссылку на карточку магазина"/>
         </label>
