@@ -1067,6 +1067,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     (trace.cached ? ' (кеш)' : '') +
                     (trace.searchPages ? ' · страниц поиска: ' + trace.searchPages : '') +
                     (trace.pageUrl ? ' · страница ' + new URL(trace.pageUrl).pathname : '') +
+                    (trace.directLinksFound !== undefined ? ' · прямой поиск: ' + trace.directLinksFound +
+                      ', каталог смартфонов: ' + (trace.catalogLinksFound ?? 0) : '') +
+                    (trace.rankingMode ? ' · подбор: ' + trace.rankingMode : '') +
                     (trace.searchMode ? ' · режим ' + trace.searchMode : '')
                 ).join('; ')
                 const parsingErrors = traces.flatMap(trace => trace.rejectedCards).slice(0, 2)
