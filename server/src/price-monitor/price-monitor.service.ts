@@ -792,8 +792,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
-    const scoped = imported.filter(p => (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
-      && (!dto.onlyInStockSmartphones || (p.stockQty > p.reservedQty && /(?:смартфон|smartphone)/i.test(p.category.name))))
+    const scoped = imported.filter(p => p.stockQty > p.reservedQty
+      && (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
+      && (!dto.onlyInStockSmartphones || /(?:смартфон|smartphone)/i.test(p.category.name)))
     if (!scoped.length) return { sourceKey, eligible: 0, queued: 0, job: null }
     const confirmed = dto.onlyUnlinked
       ? await this.prisma.competitorProduct.findMany({
