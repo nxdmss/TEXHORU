@@ -507,6 +507,14 @@ test('DNS and M.Video adapters normalize official URLs and read the retailer off
     scripts: [JSON.stringify({ '@type': 'Product', name: mvideoSnapshot.h1,
       offers: [{ '@type': 'Offer', price: '64990', priceCurrency: 'RUB', seller: { name: 'Сторонний продавец' } }] })],
   }, 'https://www.mvideo.ru/products/4253150/', mvideoConfig), /стороннего продавца/)
+  assert.throws(() => extractRetailerProduct({
+    ...mvideoSnapshot, seller: null,
+    scripts: [JSON.stringify({ '@type': 'Product', name: mvideoSnapshot.h1,
+      offers: [
+        { '@type': 'Offer', price: '79990', priceCurrency: 'RUB', seller: { name: 'Неизвестный продавец' } },
+        { '@type': 'Offer', price: '64990', priceCurrency: 'RUB', seller: { name: 'Другой продавец' } },
+      ] })],
+  }, 'https://www.mvideo.ru/products/4253150/', mvideoConfig), /не подтверждён официальный продавец/)
 })
 
 test('POCO/Redmi identity aliases work and recall ranking opens close phone candidates for inspection', () => {
