@@ -496,8 +496,10 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
     try {
       return await this.withBrowser(async browser => {
         const context = await this.context(browser)
-        try { return await this.parseInContext(context, url, region) }
-        finally { await context.close() }
+        try {
+          const result = await this.parseInContext(context, url, region)
+          return { ...result, region: result.region || region?.trim() || null }
+        } finally { await context.close() }
       })
     } catch (error) {
       throw new BadGatewayException('Не удалось проверить ' + this.name + ': ' + (error instanceof Error ? error.message : 'Ошибка'))
