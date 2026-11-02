@@ -2061,7 +2061,7 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
     { name: 'Зарядное устройство Green Lion 20W', brand: 'Green Lion', gtin: exactGtin },
   )
   assert.equal(exactAccessory.exactId, true)
-  assert.equal(monitor.strongVariant(exactAccessory), true)
+  assert.equal(matching.strongVariant(exactAccessory), true)
   assert.equal(exactAccessory.canAutoConfirm, true)
 })
 
