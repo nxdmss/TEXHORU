@@ -140,7 +140,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const sourceBaseUrl = source?.baseUrl || (sourceKey === 'mvideo' ? 'https://www.mvideo.ru' : sourceKey === 'dns' ? 'https://www.dns-shop.ru' : 'https://05.ru')
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
-    && product.price > 0
+    && product.price > 0 && product.stockQty > (product.reservedQty || 0)
   ), [stock])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
