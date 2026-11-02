@@ -217,17 +217,18 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const url = sourceKey === '05ru' ? fiveRuUrl(dto.url, 'product') : parser.normalizeProductUrl(dto.url)
     if (this.parsing) throw new ConflictException('Парсер занят. Дождись текущей проверки.')
     if (dto.productId && !await this.prisma.product.findUnique({ where: { id: dto.productId } })) throw new NotFoundException('Товар TEXHORU не найден')
-    const source = await this.source(sourceKey)
     if (dto.productId) {
       const claimed = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: url } })
       if (claimed?.productId && claimed.productId !== dto.productId) {
         throw new ConflictException('Эта карточка уже связана с другим товаром. Сначала сними прежнюю привязку.')
       }
+      const source = await this.source(sourceKey)
       const other = await this.prisma.competitorProduct.findFirst({
         where: { sourceId: source.id, productId: dto.productId, matchStatus: 'CONFIRMED', externalUrl: { not: url } },
       })
       if (other) throw new ConflictException('У товара уже есть подтверждённая ссылка в «' + source.name + '». Сними старую привязку перед заменой.')
     }
+    const source = await this.source(sourceKey)
     this.parsing = true
     try {
       const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
@@ -406,7 +407,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         where: { id: saved[0].id },
         data: { lastCheckedAt: new Date(), lastError: reason.slice(0, 2000) },
       })
-      throw new Error(source.name + ': сохранённая карточка (' + url + ') не прочитана: ' + reason)
+      throw new Error(source.name + ': сохранённая карточка (' + url + '), повторная проверка не удалась: ' + reason)
     }
     const updated = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
     if (!this.strongVariant(updated)) {
