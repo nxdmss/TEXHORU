@@ -3,18 +3,11 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { identity, normalize, type Identity } from './product-matching'
 import { existsSync } from 'node:fs'
 import { rankSearchLinks, rankSearchLinksForInspection } from './search-discovery'
+import type { StorefrontAdapter, StoreProductResult, StoreSearchTrace } from './storefront-adapter'
 
 type JsonObject = Record<string, unknown>
-export type FiveRuResult = {
-  name: string; price: number; oldPrice: number | null; inStock: boolean | null
-  externalSku: string | null; categoryName: string; brand: string; url: string
-  attributes: Identity; seller: string | null; region: string | null; priceSource: string
-}
-export type FiveRuSearchTrace = {
-  query: string; linksFound: number; rankedLinks: number; cardsParsed: number; rejectedCards: string[]
-  cached?: boolean; pageUrl?: string; searchMode?: string; searchPages?: number
-  directLinksFound?: number; catalogLinksFound?: number; rankingMode?: string
-}
+export type FiveRuResult = StoreProductResult
+export type FiveRuSearchTrace = StoreSearchTrace
 export type ProductSnapshot = {
   h1: string; scripts: string[]; metaPrice: string | null; domPrice: string | null
   oldPrice: string | null; availability: string | null; specs: Array<{ label: string; value: string }>
@@ -88,7 +81,11 @@ export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuRes
 }
 
 @Injectable()
-export class FiveRuParser implements OnModuleDestroy {
+export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
+  readonly key = '05ru' as const
+  readonly name = '05.ru'
+  readonly baseUrl = 'https://05.ru'
+  normalizeProductUrl(raw: string) { return fiveRuUrl(raw, 'product') }
   private sharedBrowser?: Promise<Browser>
   private browserUsers = 0
   private browserIdleTimer?: NodeJS.Timeout
@@ -329,7 +326,7 @@ export class FiveRuParser implements OnModuleDestroy {
    * site's own search control. No anti-bot bypass, external navigation or
    * third-party price source is allowed.
    */
-  async searchProducts(query: string, limit = 18, trace?: FiveRuSearchTrace): Promise<FiveRuResult[]> {
+  async searchProducts(query: string, limit = 18, trace?: FiveRuSearchTrace, _region?: string | null): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
     if (!text || limit < 1 || limit > 18) throw new BadRequestException('Неправильный поисковый запрос')
     trace ??= { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
@@ -515,7 +512,7 @@ export class FiveRuParser implements OnModuleDestroy {
     }
   }
 
-  async parse(raw: string): Promise<FiveRuResult> {
+  async parse(raw: string, _region?: string | null): Promise<FiveRuResult> {
     const url = fiveRuUrl(raw, 'product')
     try {
       // Reuse Chromium between cards, keeping every request in an isolated
