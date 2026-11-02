@@ -7,6 +7,7 @@ import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } fr
 import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter, type StoreProductResult } from './storefront-adapter'
 import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
+import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
 // Storefront search often fails on 1C-only labels such as "(EAC)" and the
@@ -97,6 +98,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
   private working = false
   private parsing = false
+  private readonly matching = new MatchingEngine()
   constructor(
     private readonly prisma: PrismaService,
     private readonly fiveRu: FiveRuParser,
@@ -355,38 +357,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
-  private strongVariant(check: ReturnType<typeof compareItems>): boolean {
-    if (check.exactId && !check.conflicts.length) return true
-    const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
-    const accessory = accessories.includes(check.ours.kind || '')
-    const base = check.score >= 40 && !check.conflicts.length
-      && Boolean(check.ours.model && canonicalModel(check.theirs.model) === canonicalModel(check.ours.model))
-      && (!check.ours.storage || check.theirs.storage === check.ours.storage)
-      && (!check.ours.color || check.theirs.color === check.ours.color)
-
-    // A laptop family (for example MacBook Air) is not a unique model number.
-    // Auto-confirm only when the manufacturer code/GTIN/MPN is exact, or when
-    // the critical hardware configuration is fully present and identical.
-    if (check.ours.kind === 'laptop' || check.theirs.kind === 'laptop') {
-      const exactHardware = Boolean(
-        check.ours.cpu && check.theirs.cpu && check.ours.cpu === check.theirs.cpu
-        && check.ours.ram && check.theirs.ram && check.ours.ram === check.theirs.ram
-        && check.ours.storage && check.theirs.storage && check.ours.storage === check.theirs.storage
-        && check.ours.screenSize && check.theirs.screenSize && check.ours.screenSize === check.theirs.screenSize
-      )
-      return base && (check.exactId || exactHardware)
-    }
-    // Smartphone auto-linking requires a complete, conflict-free variant.
-    // SIM may be omitted by either source; only an explicit SIM disagreement
-    // blocks confirmation. Model, storage and colour must still match.
-    if (check.ours.kind === 'smartphone' || check.theirs.kind === 'smartphone') {
-      return check.canAutoConfirm
-    }
-    // Accessory compatibility can produce a review suggestion, not an automatic
-    // confirmation. save() still requires an exact GTIN/MPN before confirming it.
-    if (accessory) return base && check.ours.kind === check.theirs.kind
-    return base && (!check.ours.sim || !check.theirs.sim || check.theirs.sim === check.ours.sim)
-  }
 
   private async refreshKnownMatch(
     product: { id: number; name: string; brand?: string | null; attributes?: unknown },
@@ -416,7 +386,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw new Error(source.name + ': сохранённая карточка (' + url + '), повторная проверка не удалась: ' + reason)
     }
     const updated = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
-    if (!this.strongVariant(updated)) {
+    if (!this.matching.strongVariant(updated)) {
       await this.save(fresh, source.id)
       throw new Error(source.name + ': сохранённая карточка изменилась, совпадение требует проверки: ' + fresh.name)
     }
@@ -566,7 +536,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       try {
         const result = await this.fiveRu.parse(link.externalUrl)
         const check = compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes })
-        if (this.strongVariant(check)) verified.push({ result, check })
+        if (this.matching.strongVariant(check)) verified.push({ result, check })
       } catch (error) {
         if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(error instanceof Error ? error.message : String(error))) throw error
       }
@@ -1137,7 +1107,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
                 for (const row of checked) {
-                  if (this.strongVariant(row.check)) {
+                  if (this.matching.strongVariant(row.check)) {
                     const previous = rankedByUrl.get(row.result.url)
                     if (!previous || row.check.score > previous.check.score) rankedByUrl.set(row.result.url, row)
                   } else {
