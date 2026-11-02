@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiProduct, type MatchCandidate, type MonitorJob, type PriceMonitorItem } from './api'
+import { api, type ApiProduct, type MatchCandidate, type MonitorJob, type MonitorSource, type PriceMonitorItem } from './api'
 import './price-monitor-simple.css'
 
 const rub = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽'
@@ -36,6 +36,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const [stock, setStock] = useState<ApiProduct[]>(products)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
+  const [sources, setSources] = useState<MonitorSource[]>([])
+  const [sourceKey, setSourceKey] = useState<'05ru' | 'mvideo' | 'dns'>('05ru')
+  const [region, setRegion] = useState('')
   const [path, setPath] = useState('')
   const [search, setSearch] = useState('')
   const [opened, setOpened] = useState<string | null>(null)
@@ -62,19 +65,42 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   useEffect(() => { setStock(products) }, [products])
   useEffect(() => {
     let mounted = true
-    void api.monitorSettings().then(settings => {
+    void api.monitorSources().then(list => {
       if (!mounted) return
-      setIntervalMinutes(settings.intervalMinutes)
-      setNextRunAt(settings.nextRunAt)
+      setSources(list)
+      const initial = list.find(source => source.key === sourceKey)
+      if (initial) {
+        setIntervalMinutes(initial.settings.intervalMinutes)
+        setNextRunAt(initial.settings.nextRunAt)
+        setRegion(initial.settings.region || '')
+      }
       setSettingsReady(true)
     }).catch(e => {
       if (mounted) {
         setSettingsReady(true)
-        setError(e instanceof Error ? e.message : 'Не удалось загрузить расписание')
+        setError(e instanceof Error ? e.message : 'Не удалось загрузить магазины')
       }
     })
     return () => { mounted = false }
   }, [])
+  useEffect(() => {
+    if (!sources.length) return
+    let mounted = true
+    setSettingsReady(false)
+    void api.monitorSettings(sourceKey).then(settings => {
+      if (!mounted) return
+      setIntervalMinutes(settings.intervalMinutes)
+      setNextRunAt(settings.nextRunAt)
+      setRegion(settings.region || '')
+      setSettingsReady(true)
+    }).catch(e => {
+      if (mounted) {
+        setSettingsReady(true)
+        setError(e instanceof Error ? e.message : 'Не удалось загрузить настройки магазина')
+      }
+    })
+    return () => { mounted = false }
+  }, [sourceKey, sources.length])
   useEffect(() => { setVisibleLimit(80) }, [path, search])
   const refresh = useCallback(async (includeProducts = false) => {
     const [list, tasks, inventory] = await Promise.all([
@@ -109,6 +135,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     } finally { setBusy('') }
   }
 
+  const source = sources.find(item => item.key === sourceKey)
+  const sourceName = source?.name || (sourceKey === 'mvideo' ? 'М.Видео' : sourceKey === 'dns' ? 'DNS' : '05.ru')
+  const sourceBaseUrl = source?.baseUrl || (sourceKey === 'mvideo' ? 'https://www.mvideo.ru' : sourceKey === 'dns' ? 'https://www.dns-shop.ru' : 'https://05.ru')
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
     && product.price > 0
@@ -127,7 +156,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const byProduct = useMemo(() => {
     const grouped = new Map<number, PriceMonitorItem[]>()
     for (const item of items) {
-      if (!item.product?.id) continue
+      if (item.source.key !== sourceKey || !item.product?.id) continue
       const current = grouped.get(item.product.id) || []
       current.push(item)
       grouped.set(item.product.id, current)
@@ -139,7 +168,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       return score(b) - score(a)
     })
     return grouped
-  }, [items])
+  }, [items, sourceKey])
   const confirmed = phones.filter(p => byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
   const needsReview = phones.filter(p => byProduct.get(p.id)?.some(i =>
     i.matchStatus === 'SUGGESTED' || i.matchStatus === 'REVIEW_REQUIRED')).length
@@ -149,9 +178,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const active = jobs.find(j => j.status === 'RUNNING')
     ?? jobs.find(j => j.kind === 'INDEX_05RU' && j.status === 'QUEUED')
     ?? jobs.find(j => j.status === 'QUEUED')
-  const last = jobs.find(j => j.kind === 'MATCH_1C')
-  const lastRecheck = jobs.find(j => j.kind === 'RECHECK')
-  const unlinked = items.filter(i => !i.product?.oneCId || !phones.some(p => p.id === i.product?.id))
+  const activeSourceName = sources.find(item => item.key === active?.sourceKey)?.name || (active?.kind === 'INDEX_05RU' ? '05.ru' : sourceName)
+  const last = jobs.find(j => j.kind === 'MATCH_1C' && j.sourceKey === sourceKey) ?? jobs.find(j => j.kind === 'MATCH_1C')
+  const lastRecheck = jobs.find(j => j.kind === 'RECHECK' && j.sourceKey === sourceKey) ?? jobs.find(j => j.kind === 'RECHECK')
+  const unlinked = items.filter(i => i.source.key === sourceKey && (!i.product?.oneCId || !phones.some(p => p.id === i.product?.id)))
   const level = pathSegments(path)
   // Searching filters tiles only; never widen a price-changing scope silently.
   const displayPath = path
@@ -159,33 +189,43 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
     await run('match', async () => {
-      const number = Math.min(5000, unlinkedInScope)
-      if (!number) throw new Error('Все товары уже привязаны. Обновляй цены одной кнопкой.')
-      const onlyInStockSmartphones = /(?:смартфон|smartphone)/i.test(displayPath)
-      // Do not make a 2,000+ page seller-catalog crawl a gate for live search.
-      // The matcher already falls back to the site's public search when the
-      // optional local catalog index has no candidate.
-      const job = await api.monitorAutoFindOneC(displayPath, number, false, onlyInStockSmartphones, true)
-      setNotice('Прямой поиск 05.ru запущен для ' + job.queued + ' товаров. Результаты появятся в карточках.')
+      const number = Math.min(5000, phones.length)
+      if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
+      const job = await api.monitorAutoFindOneC(displayPath, number, false, false, true, 'all')
+      setNotice('Первичное сопоставление запущено для ' + job.queued + ' товарных связей во всех магазинах. Результаты появятся по вкладкам источников.')
     })
   }
 
   async function refreshSavedPrices() {
     if (active) { setError('Сначала заверши текущую проверку'); return }
-    await run('refresh', () => api.monitorCheckAll(),
-      'Проверка запущена. Читаются только подтверждённые ссылки; повторного поиска нет.')
+    await run('refresh', () => api.monitorCheckAll('all'),
+      'Обновление запущено для всех магазинов. Читаются только подтверждённые ссылки; повторного поиска нет.')
+  }
+
+  async function saveSourceRegion() {
+    await run('region', async () => {
+      const settings = await api.monitorSaveSettings(sourceKey, sourceKey === '05ru' ? MONITOR_CATALOG_URL : sourceBaseUrl, intervalMinutes, region)
+      setIntervalMinutes(settings.intervalMinutes)
+      setNextRunAt(settings.nextRunAt)
+      setSources(await api.monitorSources())
+    }, 'Регион магазина сохранён.')
   }
 
   async function setAutomaticChecks(enabled: boolean) {
+    if (enabled && sourceKey !== '05ru' && !region.trim()) {
+      setError('Укажи город для ' + sourceName + '. Цены и наличие зависят от региона.')
+      return
+    }
     await run('schedule', async () => {
-      const settings = await api.monitorSaveSettings(MONITOR_CATALOG_URL, enabled ? 360 : 0)
+      const settings = await api.monitorSaveSettings(sourceKey, sourceKey === '05ru' ? MONITOR_CATALOG_URL : sourceBaseUrl, enabled ? 360 : 0, region)
       setIntervalMinutes(settings.intervalMinutes)
       setNextRunAt(settings.nextRunAt)
-    }, enabled ? 'Автопроверка включена. Подтверждённые ссылки будут проверяться каждые 6 часов.' : 'Автопроверка выключена.')
+      setSources(await api.monitorSources())
+    }, enabled ? 'Автопроверка ' + sourceName + ' включена. Подтверждённые ссылки будут проверяться каждые 6 часов.' : 'Автопроверка ' + sourceName + ' выключена.')
   }
 
   async function bindManually(product: ApiProduct) {
-    if (!linkUrl.trim()) { setError('Вставь ссылку на карточку товара 05.ru'); return }
+    if (!linkUrl.trim()) { setError('Вставь ссылку на карточку товара ' + sourceName); return }
     await run('bind', async () => {
       const link = await api.adminCheckCompetitorPrice({ url: linkUrl.trim(), productId: product.id })
       if (link.matchStatus !== 'CONFIRMED' || link.product?.id !== product.id) {
