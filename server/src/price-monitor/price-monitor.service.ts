@@ -232,6 +232,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     this.parsing = true
     try {
       const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
+      if (sourceKey !== '05ru' && !settings?.region?.trim()) {
+        throw new BadRequestException('Сначала укажи город для магазина ' + source.name)
+      }
       const result = await parser.parse(url, settings?.region)
       return await this.save(result, source.id, dto.productId)
     } catch (error) {
@@ -774,6 +777,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       : definition.baseUrl
     if (dto.intervalMinutes > 0 && dto.intervalMinutes < 120) throw new BadRequestException('Минимальный интервал — 120 минут')
     const region = dto.region === undefined ? current.region : (dto.region.trim() || null)
+    if (sourceKey !== '05ru' && dto.intervalMinutes > 0 && !region) {
+      throw new BadRequestException('Для автоматического мониторинга ' + definition.name + ' сначала укажи город')
+    }
     return this.prisma.monitorSettings.upsert({
       where: { id: sourceKey },
       create: { id: sourceKey, catalogUrl, region, intervalMinutes: dto.intervalMinutes,
@@ -824,6 +830,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const sourceKeys: StoreKey[] = dto.sourceKey === 'all'
       ? STORE_DEFINITIONS.map(item => item.key)
       : [(dto.sourceKey || '05ru') as StoreKey]
+    for (const sourceKey of sourceKeys) {
+      if (sourceKey === '05ru') continue
+      const settings = await this.settings(sourceKey)
+      const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)!
+      if (!settings.region?.trim()) {
+        throw new BadRequestException('Перед поиском укажи город для магазина ' + definition.name)
+      }
+    }
     const results = []
     for (const sourceKey of sourceKeys) {
       results.push(await this.queueAutoFindForSource(dto, sourceKey, path, limit))
@@ -863,6 +877,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       : [(dto?.sourceKey || '05ru') as StoreKey]
     const jobs = []
     const sources = []
+    const batches: Array<{ sourceKey: StoreKey; links: Array<{ externalUrl: string }> }> = []
     for (const sourceKey of sourceKeys) {
       const links = await this.prisma.competitorProduct.findMany({
         where: {
@@ -871,9 +886,19 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         },
         select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
       })
+      if (links.length && sourceKey !== '05ru') {
+        const settings = await this.settings(sourceKey)
+        const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)!
+        if (!settings.region?.trim()) {
+          throw new BadRequestException('Перед обновлением цен укажи город для магазина ' + definition.name)
+        }
+      }
+      batches.push({ sourceKey, links })
       sources.push({ sourceKey, queued: links.length })
-      if (links.length) jobs.push(await this.prisma.monitorJob.create({
-        data: { kind: 'RECHECK', sourceKey, perPage: links.length, pendingUrls: links.map(row => row.externalUrl) },
+    }
+    for (const batch of batches) {
+      if (batch.links.length) jobs.push(await this.prisma.monitorJob.create({
+        data: { kind: 'RECHECK', sourceKey: batch.sourceKey, perPage: batch.links.length, pendingUrls: batch.links.map(row => row.externalUrl) },
       }))
     }
     const queued = sources.reduce((sum, item) => sum + item.queued, 0)
@@ -888,6 +913,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const batch = pending.slice(0, 4)
     const parser = this.parserFor(sourceKey)
     const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
+    if (sourceKey !== '05ru' && !settings?.region?.trim()) {
+      throw new Error('Для обновления цен ' + this.nameForSource(sourceKey) + ' не указан город')
+    }
     const results = await Promise.allSettled(batch.map(url => parser.parse(url, settings?.region)))
     const source = await this.source(sourceKey)
     const deferred: string[] = []
