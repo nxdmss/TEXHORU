@@ -155,6 +155,9 @@ export function identity(item: Item): Identity {
   const genericCode = text.match(/\b[a-z]{1,5}\d{2,5}[a-z]?\b/)?.[0]
   const safeGenericCode = genericCode && !/^(?:n\d{4}|i[3579]\d{4,5}[a-z]{0,2})$/i.test(genericCode) ? genericCode : undefined
   const model = attrs.model || laptopFamily || text.match(/\biphone\s*\d{1,2}(?:\s*(?:pro max|pro|plus|mini|air|e))?\b/)?.[0]
+    // Apple markets the 2025 model as "iPhone Air" (no generation number).
+    // 1C often calls the same handset "iPhone 17 Air".
+    || text.match(/\biphone\s+air\b/)?.[0]
     || text.match(/\b(?:galaxy\s*)?(?:s|a|z)\d{1,3}(?:\s*(?:ultra|plus|fe|fold|flip))?\b/)?.[0]
     // Without these, Xiaomi 15, 15T, 15T Pro and 15 Ultra are all treated
     // as model-less and can be incorrectly considered interchangeable.
@@ -242,6 +245,9 @@ export function fingerprint(item: Item) {
 export function canonicalModel(value?: string) {
   if (!value) return undefined
   const normalized = normalize(value).replace(/^galaxy\s+/, '')
+  // This alias is deliberately narrow: do not collapse future numbered Air
+  // models, regular iPhone 17, or iPhone Pro into the 2025 iPhone Air.
+  if (normalized === 'iphone 17 air') return 'iphone air'
   const macbookFamily = normalized.match(/\bmacbook\s+(air|pro)\b/)
   if (macbookFamily) return 'macbook ' + macbookFamily[1]
   return normalized

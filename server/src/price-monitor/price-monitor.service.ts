@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
 import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter, type StoreProductResult } from './storefront-adapter'
-import { compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
+import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
@@ -53,8 +53,11 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     const focused = [parsed.brand, parsed.model, parsed.storage].filter(Boolean).join(' ')
     return [...new Set([focused, cleanName].filter(Boolean))]
   }
-  const model = parsed.brand === 'samsung' && !parsed.model.startsWith('samsung ')
+  const originalModel = parsed.brand === 'samsung' && !parsed.model.startsWith('samsung ')
     ? 'samsung ' + parsed.model : parsed.model
+  // Search under Apple's actual retail name before trying the incorrect 1C
+  // generation label. This avoids hundreds of unrelated iPhone 17 results.
+  const model = canonicalModel(originalModel) === 'iphone air' ? 'iphone air' : originalModel
   const modelWithoutBrand = parsed.brand && model.startsWith(parsed.brand + ' ')
     ? model.slice(parsed.brand.length + 1) : model
   const searchColor: Record<string, string> = {
@@ -79,6 +82,9 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     model + (parsed.storage ? ' ' + parsed.storage : ''),
     compactModel + (parsed.storage ? ' ' + parsed.storage : ''),
     model, compactModel,
+    ...(model === 'iphone air'
+      ? [originalModel + (parsed.storage ? ' ' + parsed.storage : '')]
+      : []),
   ].filter((query): query is string => Boolean(query)))]
 }
 
@@ -535,9 +541,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (!requested.model && !requested.productCode && !requested.mpn) return false
     const catalogFilters: Prisma.CompetitorCatalogEntryWhereInput[] = []
     if (requested.model) catalogFilters.push({
-      model: requested.model,
+      model: canonicalModel(requested.model) === 'iphone air'
+        ? { in: ['iphone air', 'iphone 17 air'] }
+        : requested.model,
       ...(requested.storage ? { OR: [{ storage: requested.storage }, { storage: null }] } : {}),
     })
+    // Older indices predate iPhone Air recognition and stored model=null.
+    // Use the real 05.ru title as a discovery hint until the next reindex.
+    // Actual model, storage and colour are checked from the product page.
+    if (canonicalModel(requested.model) === 'iphone air') {
+      catalogFilters.push({ title: { contains: 'iPhone Air' } })
+    }
     if (requested.productCode) catalogFilters.push({ title: { contains: requested.productCode } })
     if (requested.mpn) catalogFilters.push({ title: { contains: requested.mpn } })
     const options = await this.prisma.competitorCatalogEntry.findMany({
@@ -548,7 +562,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // a real product before reading its specifications.
     const ranked = options.map(link => ({ link, check: compareItems(product, { name: link.title }) }))
       .filter(option => !option.check.conflicts.length
-        && (!requested.model || option.check.theirs.model === requested.model
+        && (!requested.model || (option.check.theirs.model
+          && canonicalModel(option.check.theirs.model) === canonicalModel(requested.model))
           || Boolean(requested.productCode && option.check.theirs.productCode === requested.productCode)))
       .sort((a, b) => b.check.score - a.check.score).slice(0, 8)
     // One DB query for all candidate ownership checks, instead of up to eight.

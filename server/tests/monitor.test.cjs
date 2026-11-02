@@ -48,6 +48,101 @@ test('Identifies Apple variants across Russian/English; flags memory, colour, SI
   assert.equal(identity({ name: 'Айфон 17 ПМ 256 оранж eSIM' }).model, 'iphone 17 pro max')
 })
 
+test('iPhone 17 Air in 1C safely matches the officially named iPhone Air on 05.ru', () => {
+  const oursWhite = { name: 'Смартфон Apple iPhone 17 Air 256 Гб белый', brand: 'Apple' }
+  const oursBlack = { name: 'Смартфон Apple iPhone 17 Air 256 Гб черный', brand: 'Apple' }
+  const airWhite = { name: 'Смартфон Apple iPhone Air 12 Гб/256 Гб белый (без RuStore)', brand: 'Apple' }
+  const airBlack = { name: 'Смартфон Apple iPhone Air 12 Гб/256 Гб черный (без RuStore)', brand: 'Apple' }
+  assert.equal(identity(oursWhite).model, 'iphone 17 air')
+  assert.equal(identity(airWhite).model, 'iphone air')
+  assert.equal(canonicalModel(identity(oursWhite).model), 'iphone air')
+  assert.equal(canonicalModel(identity(airWhite).model), 'iphone air')
+  assert.equal(compareItems(oursWhite, airWhite).canAutoConfirm, true)
+  assert.equal(compareItems(oursBlack, airBlack).canAutoConfirm, true)
+  assert.deepEqual(compareItems(oursBlack, airWhite).conflicts, ['цвет'])
+  for (const wrong of [
+    'Смартфон Apple iPhone 17 256 Гб белый',
+    'Смартфон Apple iPhone 17 Pro 256 Гб белый',
+    'Смартфон Apple iPhone 17 Pro Max 256 Гб белый',
+    'Смартфон Apple iPhone Air 512 Гб белый',
+    'Смартфон Apple iPhone Air 256 Гб белый Б/У',
+  ]) {
+    const compared = compareItems(oursWhite, { name: wrong, brand: 'Apple' })
+    assert.equal(compared.canAutoConfirm, false, wrong)
+    assert(compared.conflicts.length > 0, wrong)
+  }
+  assert.deepEqual(oneCSearchQueries(oursWhite), [
+    'apple iphone air 256 белый', 'iphone air 256', 'iphone air', 'iphone 17 air 256',
+  ])
+  assert.deepEqual(oneCSearchQueries(oursBlack), [
+    'apple iphone air 256 черный', 'iphone air 256', 'iphone air', 'iphone 17 air 256',
+  ])
+  const whiteUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-air-12-gb-256-gb-beliy-bez-rustore-24234/'
+  const regular = 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-8-gb-256-gb-chernyy-111/'
+  const pro = 'https://05.ru/cat/x/p/smartfon-apple-iphone-17-pro-256-gb-beliy-123/'
+  const entries = [
+    { url: regular, title: 'Смартфон Apple iPhone 17 256 Гб черный' },
+    { url: pro, title: 'Смартфон Apple iPhone 17 Pro 256 Гб белый' },
+    { url: whiteUrl, title: airWhite.name },
+  ]
+  assert.deepEqual(rankSearchLinks(entries, 'iphone air 256', 18), [whiteUrl])
+  assert.deepEqual(rankSearchLinksForInspection(entries, 'iphone 17 air 256', 18), [whiteUrl])
+})
+
+test('Legacy 05.ru index with missing iPhone Air model still links a verified exact 1C variant', async () => {
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() } })
+  const id = randomUUID(), categoryId = randomUUID()
+  const categoryPath = 'AIR ALIAS TEST ' + id
+  const name = 'Смартфон Apple iPhone 17 Air 256 Гб белый'
+  const url = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-air-12-gb-256-gb-beliy-bez-rustore-24234/'
+  const otherUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-256-gb-oranzheviy-12345/'
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, slug: 'air-test-' + categoryId, name: categoryPath }],
+    products: [{ oneCId: id, slug: 'air-' + id, sku: 'AIR-' + id,
+      name, brand: 'Apple', categoryOneCId: categoryId, price: 90000, stockQty: 2 }],
+  })
+  await prisma.competitorCatalogEntry.deleteMany({ where: { externalUrl: { in: [url, otherUrl] } } })
+  await prisma.competitorCatalogEntry.create({
+    data: { externalUrl: url,
+      title: 'Смартфон Apple iPhone Air 12 Гб/256 Гб белый (без RuStore)',
+      model: null, storage: '256', color: 'white', lastSeenAt: new Date() },
+  })
+  await prisma.competitorCatalogEntry.create({
+    data: { externalUrl: otherUrl,
+      title: 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый',
+      model: 'iphone 17 pro', storage: '256', color: 'orange', lastSeenAt: new Date() },
+  })
+  let parsedUrls = [], searched = 0
+  const result = {
+    ...extractFiveRu({
+      ...fixture.snapshot,
+      h1: 'Смартфон Apple iPhone Air 12 Гб/256 Гб белый (без RuStore)',
+      scripts: [JSON.stringify({ '@context': 'https://schema.org', '@type': 'Product',
+        name: 'Смартфон Apple iPhone Air 12 Гб/256 Гб белый (без RuStore)',
+        brand: { '@type': 'Brand', name: 'Apple' }, offers: { '@type': 'Offer',
+          price: '99990', priceCurrency: 'RUB', availability: 'https://schema.org/InStock' } })],
+      specs: [{ label: 'Цвет', value: 'белый' }],
+    }, url), url,
+  }
+  const parser = {
+    parse: async current => { parsedUrls.push(current); return result },
+    searchProducts: async () => { searched++; return [] },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath, maxItems: 1 })
+  await monitor.tick()
+  const finished = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(finished.status, 'COMPLETED')
+  assert.equal(finished.processed, 1)
+  assert.deepEqual(parsedUrls, [url])
+  assert.equal(searched, 0)
+  const link = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
+  assert.equal(link.matchStatus, 'CONFIRMED')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).price, 90000)
+})
+
 test('A missing SIM label does not block an otherwise exact phone variant; explicit SIM conflicts still block', () => {
   const ours = { name: 'Смартфон Apple iPhone 16 256 Гб черный', brand: 'Apple' }
   const listed = { name: 'Смартфон Apple iPhone 16 8 Гб/256 Гб черный (E-Sim, без RuStore)', brand: 'Apple' }
