@@ -570,7 +570,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         const check = compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes })
         if (this.matching.strongVariant(check)) verified.push({ result, check })
       } catch (error) {
-        if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(error instanceof Error ? error.message : String(error))) throw error
+        if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(error instanceof Error ? error.message : String(error))) throw error
       }
     }
     if (!verified.length) return false
@@ -949,7 +949,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         processed++
       } catch (error) {
         const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000)
-        if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) {
+        if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(message)) {
           blocked = true
           deferred.push(url)
           problems.push(url + ': сайт ограничил запросы, задача остановлена')
@@ -1158,7 +1158,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     : await parser.searchProducts(query, 18, trace, settings.region)
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error)
-                  if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
+                  if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(message)) throw error
                   trace.rejectedCards.push(message)
                   continue
                 }
@@ -1307,7 +1307,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             // Explicit access-denial/rate-limit responses pause the job.
             // A browser/network timeout is a per-product failure, not an access-denial:
             // record it and continue the remaining 1C products instead of aborting at 0/10.
-            if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
+            if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(message)) throw error
             const diagnostic = job.kind === 'MATCH_1C'
               ? [job.lastError, message].filter(Boolean).join('\n').slice(-7000)
               : message

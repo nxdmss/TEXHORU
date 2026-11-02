@@ -283,7 +283,9 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
   private async open(context: BrowserContext, url: string) {
     const page = await context.newPage()
     try {
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 })
+      // Do not wait for every analytics/image script. Commit is enough to
+      // validate HTTP status; the product heading/data have their own wait below.
+      const response = await page.goto(url, { waitUntil: 'commit', timeout: 15_000 })
       if (response && response.status() >= 400) {
         throw new Error(this.name + ' ответил HTTP ' + response.status() + '. Ограничения доступа не обходятся.')
       }
@@ -417,58 +419,62 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
 
   private async searchPage(context: BrowserContext, query: string) {
     const page = await context.newPage()
-    try {
-      const home = await page.goto(this.baseUrl, { waitUntil: 'domcontentloaded', timeout: 25_000 })
-      if (home && home.status() >= 400) throw new Error(this.name + ' ответил HTTP ' + home.status())
+    const assertOfficialResponse = (response: Awaited<ReturnType<Page['goto']>>, stage: string) => {
+      if (response && response.status() >= 400) {
+        throw new Error(this.name + ' ответил HTTP ' + response.status() + ' ' + stage)
+      }
       const host = new URL(page.url()).hostname.toLowerCase()
       if (!this.config.allowedHosts.some(root => host === root || host.endsWith('.' + root))) {
-        throw new Error(this.name + ' перенаправил главную страницу на другой домен')
+        throw new Error(this.name + ' перенаправил ' + stage + ' за пределы официального домена')
       }
-      const selectors = [
-        'input[type="search"]', 'input[placeholder*="Поиск"]', 'input[placeholder*="поиск"]',
-        'input[aria-label*="Поиск"]', 'input[name="q"]', 'input[name="query"]',
-      ]
-      await page.locator(selectors.join(',')).first().waitFor({ state: 'visible', timeout: 8_000 }).catch(() => undefined)
-      let submitted = false
-      for (const selector of selectors) {
-        const input = page.locator(selector).first()
-        if (await input.count().catch(() => 0)) {
-          try {
-            await input.fill(query, { timeout: 2500 })
-            await input.press('Enter', { timeout: 2500 })
-            submitted = true
-            break
-          } catch {}
-        }
-      }
-      const collectLinks = async () => {
-        await page.locator(this.config.productLinkSelector).first()
-          .waitFor({ state: 'attached', timeout: 8_000 }).catch(() => undefined)
-        return page.locator(this.config.productLinkSelector).evaluateAll((nodes, pattern) =>
-          nodes.map(node => ({
-            url: (node as HTMLAnchorElement).href,
-            title: (node.getAttribute('title') || node.getAttribute('aria-label')
-              || node.querySelector('img')?.getAttribute('alt')
-              || node.closest('article,[class*="product-card"],[class*="catalog-product"],[data-product-id]')?.textContent
-              || (node as HTMLElement).innerText || '').trim().slice(0, 260),
-          })).filter(link => {
-            try { return new RegExp(pattern).test(new URL(link.url).pathname) } catch { return false }
-          })
-        , this.config.productPath.source)
-      }
-      let links = submitted ? await collectLinks() : []
-      // Search widgets sometimes show suggestions but do not navigate. Fall back
-      // to the retailer's public search route if the form produced no product links.
+    }
+    const collectLinks = async (timeout = 5_000) => {
+      await page.locator(this.config.productLinkSelector).first()
+        .waitFor({ state: 'attached', timeout }).catch(() => undefined)
+      return page.locator(this.config.productLinkSelector).evaluateAll((nodes, pattern) =>
+        nodes.map(node => ({
+          url: (node as HTMLAnchorElement).href,
+          title: (node.getAttribute('title') || node.getAttribute('aria-label')
+            || node.querySelector('img')?.getAttribute('alt')
+            || node.closest('article,[class*="product-card"],[class*="catalog-product"],[data-product-id]')?.textContent
+            || (node as HTMLElement).innerText || '').trim().slice(0, 260),
+        })).filter(link => {
+          try { return new RegExp(pattern).test(new URL(link.url).pathname) } catch { return false }
+        })
+      , this.config.productPath.source)
+    }
+    try {
+      // Start at the retailer's own public search URL. The old flow loaded the
+      // homepage first; a homepage 401/403 or slow hydration prevented search
+      // even when the public search route itself was available.
+      const searchUrl = this.config.searchFallback(query)
+      const response = await page.goto(searchUrl, { waitUntil: 'commit', timeout: 15_000 })
+      assertOfficialResponse(response, 'при открытии публичного поиска')
+      let links = await collectLinks()
+
+      // Some versions of the storefront expose search only through the visible
+      // form. Try it only after the direct public search returned no products.
       if (!links.length) {
-        const fallback = this.config.searchFallback(query)
-        const response = await page.goto(fallback, { waitUntil: 'domcontentloaded', timeout: 25_000 })
-        if (response && response.status() >= 400) throw new Error(this.name + ' ответил HTTP ' + response.status() + ' при поиске')
-        const searchHost = new URL(page.url()).hostname.toLowerCase()
-        if (!this.config.allowedHosts.some(root => searchHost === root || searchHost.endsWith('.' + root))) {
-          throw new Error(this.name + ' перенаправил поисковую выдачу на другой домен')
+        const home = await page.goto(this.baseUrl, { waitUntil: 'commit', timeout: 15_000 })
+        assertOfficialResponse(home, 'при открытии главной страницы')
+        const selectors = [
+          'input[type="search"]', 'input[placeholder*="Поиск"]', 'input[placeholder*="поиск"]',
+          'input[aria-label*="Поиск"]', 'input[name="q"]', 'input[name="query"]',
+        ]
+        await page.locator(selectors.join(',')).first()
+          .waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined)
+        for (const selector of selectors) {
+          const input = page.locator(selector).first()
+          if (!(await input.count().catch(() => 0))) continue
+          try {
+            await input.fill(query, { timeout: 2_500 })
+            await input.press('Enter', { timeout: 2_500 })
+            links = await collectLinks()
+            break
+          } catch { /* Try the next visible search control. */ }
         }
-        links = await collectLinks()
       }
+
       const unique = new Map<string, { url: string; title: string }>()
       for (const link of links) {
         try {
@@ -482,7 +488,6 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
       throw error
     }
   }
-
   private async parseInContext(context: BrowserContext, url: string, region?: string | null) {
     const page = await this.open(context, url)
     try {
@@ -546,7 +551,7 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error)
                   if (trace!.rejectedCards.length < 5) trace!.rejectedCards.push(ranked[index].url + ': ' + message.slice(0, 180))
-                  if (/HTTP\s+(?:403|429)\b/.test(message)) throw error
+                  if (/HTTP\s+(?:401|403|429)\b/.test(message)) throw error
                 }
               }
             }

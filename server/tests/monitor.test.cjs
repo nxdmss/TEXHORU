@@ -513,6 +513,69 @@ test('Manual M.Video check uses its own adapter and saved region', async () => {
   assert.equal(saved.sourceId, 'source-mvideo')
 })
 
+test('Retailer adapters start at their public search URL instead of blocking on homepage hydration', async () => {
+  const cases = [
+    {
+      parser: new MvideoParser(),
+      searchUrl: 'https://www.mvideo.ru/search?query=iPhone%2017%20Air%20256',
+      productUrl: 'https://www.mvideo.ru/products/403508161',
+      title: 'Apple iPhone 17 Air 256GB Black eSIM',
+    },
+    {
+      parser: new DnsParser(),
+      searchUrl: 'https://www.dns-shop.ru/search/?q=iPhone%2017%20Air%20256',
+      productUrl: 'https://www.dns-shop.ru/product/d3b534358dd3d0a4/65-smartfon-apple-iphone-air-256-gb-cernyj/',
+      title: 'Смартфон Apple iPhone Air 256 ГБ черный',
+    },
+  ]
+  for (const item of cases) {
+    let currentUrl = ''
+    const navigations = []
+    const page = {
+      goto: async (url, options) => {
+        currentUrl = url
+        navigations.push(url)
+        assert.equal(options.waitUntil, 'commit')
+        assert(options.timeout <= 15_000)
+        return { status: () => 200 }
+      },
+      url: () => currentUrl,
+      locator: () => ({
+        first: () => ({ waitFor: async () => {} }),
+        evaluateAll: async () => [{ url: item.productUrl, title: item.title }],
+      }),
+      close: async () => {},
+    }
+    const context = { newPage: async () => page }
+    const found = await item.parser.searchPage(context, 'iPhone 17 Air 256')
+    assert.deepEqual(navigations, [item.searchUrl])
+    assert.equal(found.links.length, 1)
+    assert.equal(found.links[0].url, item.productUrl)
+    await found.page.close()
+    await item.parser.onModuleDestroy()
+  }
+})
+
+test('Retailer HTTP 401 is surfaced immediately and does not retry the homepage or next query', async () => {
+  const parser = new DnsParser()
+  let navigations = 0
+  const page = {
+    goto: async (url, options) => {
+      navigations++
+      assert.equal(options.waitUntil, 'commit')
+      return { status: () => 401 }
+    },
+    url: () => 'https://www.dns-shop.ru/search/?q=iphone',
+    close: async () => {},
+  }
+  await assert.rejects(
+    () => parser.searchPage({ newPage: async () => page }, 'iphone 17 pro 256'),
+    /DNS ответил HTTP 401/,
+  )
+  assert.equal(navigations, 1)
+  await parser.onModuleDestroy()
+})
+
 test('DNS and M.Video adapters normalize official URLs and read the retailer offer, not marketplace offers', () => {
   const dns = new DnsParser()
   const mvideo = new MvideoParser()
