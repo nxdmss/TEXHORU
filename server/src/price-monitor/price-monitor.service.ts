@@ -846,32 +846,42 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
-  async checkAll() {
+  async checkAll(dto?: CheckAllDto) {
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
       throw new ConflictException('Мониторинг уже запущен. Дождись завершения или останови текущую задачу.')
     }
-    // Manual and scheduled updates use only explicitly confirmed, persisted 1C links.
-    // Discovery/search is a separate operation, never part of a price refresh.
-    const links = await this.prisma.competitorProduct.findMany({
-      where: {
-        source: { key: '05ru' }, matchStatus: 'CONFIRMED',
-        product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
-      },
-      select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
-    })
-    if (!links.length) throw new BadRequestException('Нет привязанных товаров. Сначала найди или вручную привяжи карточки 05.ru.')
-    return this.prisma.monitorJob.create({
-      data: { kind: 'RECHECK', perPage: links.length, pendingUrls: links.map(row => row.externalUrl) },
-    })
+    const sourceKeys: StoreKey[] = dto?.sourceKey === 'all'
+      ? STORE_DEFINITIONS.map(item => item.key)
+      : [(dto?.sourceKey || '05ru') as StoreKey]
+    const jobs = []
+    const sources = []
+    for (const sourceKey of sourceKeys) {
+      const source = await this.source(sourceKey)
+      const links = await this.prisma.competitorProduct.findMany({
+        where: {
+          sourceId: source.id, matchStatus: 'CONFIRMED',
+          product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
+        },
+        select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
+      })
+      sources.push({ sourceKey, queued: links.length })
+      if (links.length) jobs.push(await this.prisma.monitorJob.create({
+        data: { kind: 'RECHECK', sourceKey, perPage: links.length, pendingUrls: links.map(row => row.externalUrl) },
+      }))
+    }
+    const queued = sources.reduce((sum, item) => sum + item.queued, 0)
+    if (!queued) throw new BadRequestException('Нет подтверждённых ссылок. Сначала выполни первоначальный поиск и привязку.')
+    return { queued, jobs, sources }
   }
 
-  // Parse several saved URLs at once, then commit snapshots one by one.
-  // Serial SQLite writes avoid lock contention; one slow 05.ru page does not block
-  // the other reads. No fuzzy product search is performed in this path.
-  private async recheckBatch(jobId: string, pending: string[], previousError: string | null = null) {
+  // Price refresh reads only saved links for the selected store. Discovery is
+  // never invoked from this path.
+  private async recheckBatch(jobId: string, pending: string[], sourceKey: StoreKey, previousError: string | null = null) {
     const batch = pending.slice(0, 4)
-    const results = await Promise.allSettled(batch.map(url => this.fiveRu.parse(url)))
-    const source = await this.source()
+    const parser = this.parserFor(sourceKey)
+    const settings = await this.settings(sourceKey)
+    const results = await Promise.allSettled(batch.map(url => parser.parse(url, settings.region)))
+    const source = await this.source(sourceKey)
     const deferred: string[] = []
     const problems: string[] = []
     let processed = 0
@@ -965,7 +975,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               data: { status: 'COMPLETED', leaseUntil: null, finishedAt: new Date() },
             })
           } else {
-            await this.recheckBatch(job.id, pending, job.lastError)
+            await this.recheckBatch(job.id, pending, (job.sourceKey || '05ru') as StoreKey, job.lastError)
           }
           return
         }
