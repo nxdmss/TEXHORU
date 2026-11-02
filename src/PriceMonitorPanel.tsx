@@ -37,7 +37,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
   const [sources, setSources] = useState<MonitorSource[]>([])
-  const [sourceKey, setSourceKey] = useState<'05ru' | 'mvideo' | 'dns'>('05ru')
+  const sourceKey = '05ru' as const
   const [region, setRegion] = useState('')
   const [path, setPath] = useState('')
   const [search, setSearch] = useState('')
@@ -67,7 +67,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     let mounted = true
     void api.monitorSources().then(list => {
       if (!mounted) return
-      setSources(list)
+      setSources(list.filter(source => source.key === '05ru'))
       const initial = list.find(source => source.key === sourceKey)
       if (initial) {
         setIntervalMinutes(initial.settings.intervalMinutes)
@@ -135,9 +135,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     } finally { setBusy('') }
   }
 
-  const source = sources.find(item => item.key === sourceKey)
-  const sourceName = source?.name || (sourceKey === 'mvideo' ? 'М.Видео' : sourceKey === 'dns' ? 'DNS' : '05.ru')
-  const sourceBaseUrl = source?.baseUrl || (sourceKey === 'mvideo' ? 'https://www.mvideo.ru' : sourceKey === 'dns' ? 'https://www.dns-shop.ru' : 'https://05.ru')
+  const sourceName = '05.ru'
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
     && product.price > 0 && product.stockQty > (product.reservedQty || 0)
@@ -197,47 +195,23 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
-    const missingRegions = sources.filter(store => store.key !== '05ru' && !store.settings.region?.trim())
-    if (missingRegions.length) {
-      setError('Сначала укажи город для каждого магазина: ' + missingRegions.map(store => store.name).join(', '))
-      return
-    }
     await run('match', async () => {
       const number = Math.min(5000, phones.length)
       if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
-      const job = await api.monitorAutoFindOneC(displayPath, number, true, false, true, 'all')
-      setNotice('Для 05.ru сначала собирается каталог смартфонов, затем выполняется локальное сопоставление. Для DNS и М.Видео поиск идёт по их каталогам. Запущено связей: ' + job.queued + '.')
+      const job = await api.monitorAutoFindOneC(displayPath, number, true, false, true, '05ru')
+      setNotice('05.ru: индекс смартфонов и сопоставление с 1С. Запущено связей: ' + job.queued + '.')
     })
   }
 
   async function refreshSavedPrices() {
     if (active) { setError('Сначала заверши текущую проверку'); return }
-    const missingRegions = sources.filter(store => store.key !== '05ru'
-      && store.counts.confirmed > 0 && !store.settings.region?.trim())
-    if (missingRegions.length) {
-      setError('Перед обновлением укажи город для: ' + missingRegions.map(store => store.name).join(', '))
-      return
-    }
-    await run('refresh', () => api.monitorCheckAll('all'),
-      'Обновление запущено для всех магазинов. Читаются только подтверждённые ссылки; повторного поиска нет.')
-  }
-
-  async function saveSourceRegion() {
-    await run('region', async () => {
-      const settings = await api.monitorSaveSettings(sourceKey, sourceKey === '05ru' ? MONITOR_CATALOG_URL : sourceBaseUrl, intervalMinutes, region)
-      setIntervalMinutes(settings.intervalMinutes)
-      setNextRunAt(settings.nextRunAt)
-      setSources(await api.monitorSources())
-    }, 'Регион магазина сохранён.')
+    await run('refresh', () => api.monitorCheckAll('05ru'),
+      'Обновление 05.ru запущено. Читаются только подтверждённые ссылки, без повторного поиска.')
   }
 
   async function setAutomaticChecks(enabled: boolean) {
-    if (enabled && sourceKey !== '05ru' && !region.trim()) {
-      setError('Укажи город для ' + sourceName + '. Цены и наличие зависят от региона.')
-      return
-    }
     await run('schedule', async () => {
-      const settings = await api.monitorSaveSettings(sourceKey, sourceKey === '05ru' ? MONITOR_CATALOG_URL : sourceBaseUrl, enabled ? 360 : 0, region)
+      const settings = await api.monitorSaveSettings('05ru', MONITOR_CATALOG_URL, enabled ? 360 : 0, region)
       setIntervalMinutes(settings.intervalMinutes)
       setNextRunAt(settings.nextRunAt)
       setSources(await api.monitorSources())
@@ -352,7 +326,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         {linkingProduct === p.id && <div className="mp-expanded">
           <label>Ссылка на точную карточку {sourceName}
             <input aria-label={'Ссылка 05.ru для ' + p.name} value={linkUrl}
-              onChange={e => setLinkUrl(e.target.value)} placeholder={sourceKey === 'mvideo' ? 'https://www.mvideo.ru/products/…' : sourceKey === 'dns' ? 'https://www.dns-shop.ru/product/…' : 'https://05.ru/cat/…/p/…'}/>
+              onChange={e => setLinkUrl(e.target.value)} placeholder="https://05.ru/cat/…/p/…"/>
           </label>
           <button disabled={Boolean(busy) || Boolean(active) || !linkUrl.trim()}
             onClick={() => void bindManually(p)}>Проверить и сохранить связь</button>
@@ -408,13 +382,6 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <div className="mp-top-count"><b>{phones.length}</b><span>из 1С в наличии и с ценой</span></div>
     </header>
 
-    <nav className="mp-source-tabs" aria-label="Магазины">
-      {sources.map(store => <button key={store.key} className={store.key === sourceKey ? 'active' : ''}
-        onClick={() => { setSourceKey(store.key); setOpened(null); setLinkingProduct(null) }}>
-        <b>{store.name}</b><small>{store.counts.confirmed} привязано · {store.counts.review} проверить</small>
-      </button>)}
-    </nav>
-
     <div className="mp-summary">
       <span><b>{confirmed}</b> привязано</span>
       <span><b>{needsReview}</b> требуют подтверждения</span>
@@ -424,18 +391,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
     <div className="mp-toolbar">
       <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !sources.some(store => store.counts.confirmed)}
-        onClick={() => void refreshSavedPrices()}>{busy === 'refresh' ? 'Запуск…' : 'Обновить цены во всех магазинах'}</button>
+        onClick={() => void refreshSavedPrices()}>{busy === 'refresh' ? 'Запуск…' : 'Обновить цены 05.ru'}</button>
       <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
-        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Первичное сопоставление всех магазинов (' + phones.length + ')'}</button>
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Первичное сопоставление с 05.ru (' + phones.length + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Для 05.ru сначала собирается локальный индекс смартфонов, затем 1С сопоставляется с ним. DNS и М.Видео проверяются отдельно. Спорные варианты остаются на ручную проверку; цены не меняются без отдельного подтверждения.</p>
-    {sourceKey !== '05ru' && <div className="mp-region-setting">
-      <label>Город цен и наличия для {sourceName}
-        <input value={region} onChange={e => setRegion(e.target.value)} placeholder="Например, Кизилюрт или Махачкала" />
-      </label>
-      <button disabled={Boolean(busy) || Boolean(active)} onClick={() => void saveSourceRegion()}>Сохранить регион</button>
-    </div>}
+    <p className="mp-helper">Тестовый режим: только 05.ru. Сначала индекс смартфонов, затем сопоставление с 1С. Спорные варианты проверяются вручную; цены не меняются автоматически.</p>
     <label className="mp-schedule">
       <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
         onChange={e => void setAutomaticChecks(e.target.checked)}/>
@@ -524,12 +485,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
     <details className="mp-extra" open={advanced} onToggle={e => setAdvanced(e.currentTarget.open)}>
       <summary>Дополнительно</summary>
-      <p>Товары поступают автоматически при настроенном обмене 1С → TEXHORU. Поиск и обновление цен работают отдельно для каждого магазина. Автоматическое изменение цен на сайте пока доступно только для 05.ru.</p>
+      <p>Товары поступают автоматически при настроенном обмене 1С → TEXHORU. Поиск и обновление цен сейчас работают только с 05.ru. Изменение цен требует отдельного подтверждения.</p>
       <div className="mp-advanced">
         {sourceKey === '05ru' && <button disabled={Boolean(busy) || Boolean(active) || !phones.length}
           onClick={() => void updateAllPrices()}>{busy === 'preview' ? 'Проверяем…' : 'Применить цены 05.ru к товарам TEXHORU'}</button>}
-        <label>Проверить одну ссылку магазина
-          <input value={manualUrl} onChange={e => setManualUrl(e.target.value)} placeholder="Вставь ссылку на карточку магазина"/>
+        <label>Проверить одну ссылку 05.ru
+          <input value={manualUrl} onChange={e => setManualUrl(e.target.value)} placeholder="Вставь ссылку 05.ru на товар"/>
         </label>
         <button disabled={Boolean(busy) || Boolean(active) || !manualUrl.trim()}
           onClick={() => void run('manual', () => api.adminCheckCompetitorPrice({ url: manualUrl }), 'Карточка проверена.')}>Проверить</button>

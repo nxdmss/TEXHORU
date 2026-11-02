@@ -10,6 +10,12 @@ import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
+// Temporary 05.ru-only testing. Retain historical DNS and M.Video data.
+const ENABLED_STORE_KEYS: StoreKey[] = ['05ru']
+function requireEnabledStore(key: StoreKey) {
+  if (!ENABLED_STORE_KEYS.includes(key)) throw new BadRequestException('На время тестирования доступен только 05.ru')
+}
+
 // Storefront search often fails on 1C-only labels such as "(EAC)" and the
 // 1C memory format "12/512". Start with model + capacity, then the model alone.
 // Strict variant comparison controls automatic selection; uncertain variants are kept for manual review.
@@ -119,6 +125,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     this.stopped = false
     void this.sources().catch(error => console.error('Источники мониторинга:', error instanceof Error ? error.message : 'Ошибка'))
+    // Pause old queued tasks; do not delete competitor links or price history.
+    void this.prisma.monitorJob.updateMany({
+      where: { sourceKey: { in: ['dns', 'mvideo'] }, status: { in: ['QUEUED', 'RUNNING'] } },
+      data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() },
+    }).catch(error => console.error('Отключение DNS/М.Видео:', error instanceof Error ? error.message : 'Ошибка'))
     if (process.env.MONITOR_WORKER_DISABLED === 'true') return
     this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 1000)
     this.timer.unref()
@@ -129,6 +140,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (this.followUpTimer) clearTimeout(this.followUpTimer)
   }
   private source(key: StoreKey = '05ru') {
+    requireEnabledStore(key)
     const definition = STORE_DEFINITIONS.find(item => item.key === key)!
     return this.prisma.competitorSource.upsert({
       where: { key },
@@ -140,12 +152,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return STORE_DEFINITIONS.find(item => item.key === key)?.name || key
   }
   private parserFor(key: StoreKey): StorefrontAdapter {
+    requireEnabledStore(key)
     if (key === '05ru') return this.fiveRu
     if (key === 'mvideo') return this.mvideo
     return this.dns
   }
   async sources() {
-    return Promise.all(STORE_DEFINITIONS.map(async definition => {
+    return Promise.all(STORE_DEFINITIONS.filter(definition => ENABLED_STORE_KEYS.includes(definition.key)).map(async definition => {
       const source = await this.source(definition.key)
       const settings = await this.settings(definition.key)
       const [confirmed, review, total] = await Promise.all([
@@ -161,7 +174,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return { ...row, matchStatus: row.matchStatus === 'CONFIRMED' && !valid ? 'REVIEW_REQUIRED' : row.matchStatus, ...recommendation(row, valid ? row.product : null) }
   }
   async list() {
-    const rows = await this.prisma.competitorProduct.findMany({ include: { source: true, product: { include: { category: true } } }, orderBy: [{ lastCheckedAt: 'desc' }, { createdAt: 'desc' }] })
+    const rows = await this.prisma.competitorProduct.findMany({ where: { source: { key: '05ru' } }, include: { source: true, product: { include: { category: true } } }, orderBy: [{ lastCheckedAt: 'desc' }, { createdAt: 'desc' }] })
     return rows.map(row => this.decorated(row))
   }
   async candidates(id: string) {
@@ -780,6 +793,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async settings(sourceKey: StoreKey = '05ru') {
+    requireEnabledStore(sourceKey)
     const definition = STORE_DEFINITIONS.find(item => item.key === sourceKey)
     if (!definition) throw new BadRequestException('Неизвестный магазин мониторинга')
     return this.prisma.monitorSettings.upsert({
@@ -808,7 +822,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
     })
   }
-  jobs() { return this.prisma.monitorJob.findMany({ orderBy: { createdAt: 'desc' }, take: 30 }) }
+  jobs() { return this.prisma.monitorJob.findMany({ where: { OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'desc' }, take: 30 }) }
   async scan(dto: ScanFiveRuDto) {
     const url = fiveRuUrl(dto.url, 'catalog')
     return this.prisma.monitorJob.create({ data: { kind: 'CATALOG', sourceKey: '05ru', url, maxPages: dto.maxPages || 1, perPage: 200 } })
@@ -849,9 +863,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }
     const path = (dto.categoryPath || '').trim()
     const limit = Math.min(5000, dto.maxItems || 30)
-    const sourceKeys: StoreKey[] = dto.sourceKey === 'all'
-      ? STORE_DEFINITIONS.map(item => item.key)
-      : [(dto.sourceKey || '05ru') as StoreKey]
+    const requestedSource = (dto.sourceKey || '05ru') as StoreKey | 'all'
+    if (requestedSource !== 'all') requireEnabledStore(requestedSource)
+    const sourceKeys: StoreKey[] = [...ENABLED_STORE_KEYS]
     for (const sourceKey of sourceKeys) {
       if (sourceKey === '05ru') continue
       const settings = await this.settings(sourceKey)
@@ -899,9 +913,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
       throw new ConflictException('Мониторинг уже запущен. Дождись завершения или останови текущую задачу.')
     }
-    const sourceKeys: StoreKey[] = dto?.sourceKey === 'all'
-      ? STORE_DEFINITIONS.map(item => item.key)
-      : [(dto?.sourceKey || '05ru') as StoreKey]
+    const requestedSource = (dto?.sourceKey || '05ru') as StoreKey | 'all'
+    if (requestedSource !== 'all') requireEnabledStore(requestedSource)
+    const sourceKeys: StoreKey[] = [...ENABLED_STORE_KEYS]
     const jobs = []
     const sources = []
     const batches: Array<{ sourceKey: StoreKey; links: Array<{ externalUrl: string }> }> = []
@@ -994,6 +1008,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   async cancelJob(id: string) { return this.prisma.monitorJob.updateMany({ where: { id, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', finishedAt: new Date() } }) }
   async retryJob(id: string) {
     const job = await this.prisma.monitorJob.findUnique({ where: { id } })
+    if (job?.sourceKey) requireEnabledStore(job.sourceKey as StoreKey)
     if (!job || !['FAILED', 'CANCELLED'].includes(job.status)) throw new BadRequestException('Можно продолжить остановленную задачу')
     return this.prisma.monitorJob.update({ where: { id }, data: { status: 'QUEUED', leaseUntil: null, finishedAt: null, lastError: null } })
   }
@@ -1004,9 +1019,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     let handledJob = false
     try {
       const now = new Date()
-      await this.prisma.monitorJob.updateMany({ where: { status: 'RUNNING', leaseUntil: { lt: now } }, data: { status: 'QUEUED' } })
+      await this.prisma.monitorJob.updateMany({
+        where: { sourceKey: { in: ['dns', 'mvideo'] }, status: { in: ['QUEUED', 'RUNNING'] } },
+        data: { status: 'CANCELLED', leaseUntil: null, finishedAt: now },
+      })
+      await this.prisma.monitorJob.updateMany({
+        where: { status: 'RUNNING', leaseUntil: { lt: now }, OR: [{ sourceKey: '05ru' }, { sourceKey: null }] },
+        data: { status: 'QUEUED' },
+      })
       const dueSettings = await this.prisma.monitorSettings.findMany({
-        where: { intervalMinutes: { gt: 0 }, nextRunAt: { lte: now } },
+        where: { id: '05ru', intervalMinutes: { gt: 0 }, nextRunAt: { lte: now } },
       })
       for (const setting of dueSettings) {
         if (!STORE_DEFINITIONS.some(item => item.key === setting.id)) continue
@@ -1039,10 +1061,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         orderBy: { createdAt: 'asc' },
       })
       const matchJob = await this.prisma.monitorJob.findFirst({
-        where: { status: 'QUEUED', kind: 'MATCH_1C' }, orderBy: { createdAt: 'asc' },
+        where: { status: 'QUEUED', kind: 'MATCH_1C', OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'asc' },
       })
       const job = indexJob ?? matchJob ?? await this.prisma.monitorJob.findFirst({
-        where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' },
+        where: { status: 'QUEUED', OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'asc' },
       })
       if (!job) return
       const claimed = await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'QUEUED' }, data: { status: 'RUNNING', leaseUntil: new Date(Date.now() + 180000) } })

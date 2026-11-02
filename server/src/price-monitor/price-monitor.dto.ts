@@ -25,7 +25,7 @@ export class ScanFiveRuDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) maxPages?: number
 }
 export class AutoFindOneCSectionDto {
-  @IsOptional() @IsIn(['05ru', 'mvideo', 'dns', 'all']) sourceKey?: string
+  @IsOptional() @IsIn(['05ru', 'all']) sourceKey?: string
   // Empty string means all imported 1C products; otherwise an exact category
   // hierarchy path, including every nested subcategory.
   @IsOptional() @IsString() @MaxLength(600) categoryPath?: string
@@ -47,13 +47,13 @@ export class MatchProductDto {
   @Type(() => Number) @IsInt() @Min(1) productId!: number
 }
 export class MonitorSettingsDto {
-  @IsOptional() @IsIn(['05ru', 'mvideo', 'dns']) sourceKey?: string
+  @IsOptional() @IsIn(['05ru']) sourceKey?: string
   @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) catalogUrl?: string
   @IsOptional() @IsString() @MaxLength(120) region?: string
   @Type(() => Number) @IsInt() @Min(0) @Max(10080) intervalMinutes!: number
 }
 export class CheckAllDto {
-  @IsOptional() @IsIn(['05ru', 'mvideo', 'dns', 'all']) sourceKey?: string
+  @IsOptional() @IsIn(['05ru', 'all']) sourceKey?: string
 }
 export class MonitorReceiptDto {
   @IsString() @MaxLength(100) id!: string

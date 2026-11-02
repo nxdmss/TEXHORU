@@ -536,7 +536,7 @@ test('Normalizes storage units and paired RAM/ROM labels across retailer wording
   assert.equal(match.canAutoConfirm, true)
 })
 
-test('All-store discovery creates independent matching jobs for 05.ru, M.Video and DNS', async () => {
+test('Temporary 05.ru-only mode resolves legacy all-store search without scheduling other retailers', async () => {
   const created = []
   const product = {
     id: 901, oneCId: 'onec-901', name: 'Apple iPhone 16 128GB Black',
@@ -568,39 +568,24 @@ test('All-store discovery creates independent matching jobs for 05.ru, M.Video a
   const result = await monitor.autoFindOneCSection({
     sourceKey: 'all', categoryPath: 'Смартфоны', maxItems: 10, onlyUnlinked: true,
   })
-  assert.equal(result.sourceKey, 'all')
-  assert.equal(result.queued, 2)
-  assert.equal(result.eligible, 2)
-  assert.deepEqual(created.map(job => job.sourceKey), ['05ru', 'mvideo'])
+  assert.equal(result.sourceKey, '05ru')
+  assert.equal(result.queued, 1)
+  assert.equal(result.eligible, 1)
+  assert.deepEqual(created.map(job => job.sourceKey), ['05ru'])
   assert(created.every(job => job.kind === 'MATCH_1C' && job.pendingUrls.length === 1))
 })
 
-test('Manual M.Video check uses its own adapter and saved region', async () => {
-  let parsed
-  let saved
-  const prismaStub = {
-    competitorSource: {
-      upsert: async ({ create }) => ({ id: 'source-mvideo', ...create }),
-    },
-    monitorSettings: {
-      upsert: async () => ({ region: 'Кизилюрт' }),
-    },
-  }
-  const mvideo = {
-    key: 'mvideo', name: 'М.Видео', baseUrl: 'https://www.mvideo.ru',
-    normalizeProductUrl: url => url,
-    parse: async (url, region) => {
-      parsed = { url, region }
-      return { name: 'iPhone 16', url, price: 70000, region, attributes: {}, categoryName: 'Смартфоны' }
-    },
-  }
-  const monitor = new PriceMonitorService(prismaStub, {}, {}, mvideo, {})
-  monitor.save = async (result, sourceId) => { saved = { result, sourceId }; return result }
-  const url = 'https://www.mvideo.ru/products/4253150/'
-  await monitor.check({ url })
-  assert.deepEqual(parsed, { url, region: 'Кизилюрт' })
-  assert.equal(saved.sourceId, 'source-mvideo')
+test('Temporary 05.ru-only mode rejects DNS and M.Video requests before browsers open', async () => {
+  const monitor = new PriceMonitorService({ monitorJob: { count: async () => 0 } }, {}, {})
+  await assert.rejects(() => monitor.check({ url: 'https://www.mvideo.ru/products/4253150/' }), /только 05.ru/)
+  await assert.rejects(() => monitor.check({ url: 'https://www.dns-shop.ru/product/91f112efa89cd21a/phone/' }), /только 05.ru/)
+  await assert.rejects(() => monitor.autoFindOneCSection({
+    sourceKey: 'mvideo', categoryPath: 'Смартфоны', maxItems: 10,
+  }), /только 05.ru/)
+  await assert.rejects(() => monitor.checkAll({ sourceKey: 'dns' }), /только 05.ru/)
+  await assert.rejects(() => monitor.settings('dns'), /только 05.ru/)
 })
+
 
 test('Retailer adapters start at their public search URL instead of blocking on homepage hydration', async () => {
   const cases = [
