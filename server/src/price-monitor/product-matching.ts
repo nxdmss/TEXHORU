@@ -122,18 +122,20 @@ export function identity(item: Item): Identity {
     const m = value.match(/(\d+(?:[.,]\d+)?)\s*(tb|тб|gb|гб)/i)
     return m ? String(Math.round(Number(m[1].replace(',', '.')) * (/tb|тб/i.test(m[2]) ? 1024 : 1))) : undefined
   }
-  const storageText = attrs.storage || spec(/встроенн|объем накоп|storage/i)
+  const memoryPair = specs.find(item => /память.*(?:озу|пзу)|(?:озу.*пзу)|ram.*rom|оперативн.*встроенн/i.test(item.label))
+  const pairValues = memoryPair?.value.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
+  const storageText = attrs.storage || spec(/встроенн|объем накоп|storage|пзу|rom/i)
+    || (pairValues.length > 1 ? pairValues[1] : undefined)
   const capacities = [...text.matchAll(/(\d+)\s*(gb|гб|tb|тб)/g)].map(m => units(m[0])!)
   // 1C frequently uses 12/512 without a unit after the storage value.
   // Do not apply this shortcut to iPhones: "iPhone 16 256" is model 16 +
-  // 256 GB storage, not 16 GB RAM + 256 GB storage. The same false RAM
-  // inference used to reject valid iPhone 12/128 and iPhone 16/256 matches.
+  // 256 GB storage, not 16 GB RAM + 256 GB storage.
   const compactMemory = /iphone/.test(text) ? null
     : text.match(/\b(?:4|6|8|12|16|18|24|32)\s+(128|256|512|1024)(?:\s*(?:gb|гб|tb|тб))?\b/)
   const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1024)\b/)?.[1]
     : /xiaomi|redmi|poco|galaxy|samsung|honor|huawei|pixel|realme|oneplus|tecno|infinix|nothing/.test(text) ? compactMemory?.[1] : undefined
   const storage = storageText ? units(storageText) || (/^\d+$/.test(storageText) ? storageText : undefined) : capacities.length ? capacities.at(-1) : bareStorage
-  const ramText = attrs.ram || spec(/оперативн|ram/i)
+  const ramText = attrs.ram || spec(/оперативн|ram|озу/i) || (pairValues.length > 1 ? pairValues[0] : undefined)
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : capacities.length > 1 ? capacities[0]
     : compactMemory ? compactMemory[0].match(/^(4|6|8|12|16|18|24|32)\b/)?.[1] : undefined
