@@ -330,6 +330,7 @@ model MonitorDelivery {
 model MonitorJob {
   id          String   @id @default(cuid())
   kind        String
+  sourceKey   String?
   status      String   @default("QUEUED")
   url         String?
   page        Int      @default(0)
@@ -348,7 +349,8 @@ model MonitorJob {
 
 model MonitorSettings {
   id              String   @id @default("05ru")
-  catalogUrl      String   @default("https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/")
+  catalogUrl      String
+  region          String?   @default("https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/")
   intervalMinutes Int      @default(0)
   nextRunAt       DateTime?
 }
