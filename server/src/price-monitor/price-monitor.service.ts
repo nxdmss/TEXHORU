@@ -214,7 +214,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   async check(dto: CheckCompetitorPriceDto) {
     const sourceKey = storeKeyFromUrl(dto.url)
     const parser = this.parserFor(sourceKey)
-    const url = parser.normalizeProductUrl(dto.url)
+    const url = sourceKey === '05ru' ? fiveRuUrl(dto.url, 'product') : parser.normalizeProductUrl(dto.url)
     if (this.parsing) throw new ConflictException('Парсер занят. Дождись текущей проверки.')
     if (dto.productId && !await this.prisma.product.findUnique({ where: { id: dto.productId } })) throw new NotFoundException('Товар TEXHORU не найден')
     const source = await this.source(sourceKey)
@@ -856,10 +856,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const jobs = []
     const sources = []
     for (const sourceKey of sourceKeys) {
-      const source = await this.source(sourceKey)
       const links = await this.prisma.competitorProduct.findMany({
         where: {
-          sourceId: source.id, matchStatus: 'CONFIRMED',
+          source: { key: sourceKey }, matchStatus: 'CONFIRMED',
           product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
         },
         select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
@@ -879,8 +878,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private async recheckBatch(jobId: string, pending: string[], sourceKey: StoreKey, previousError: string | null = null) {
     const batch = pending.slice(0, 4)
     const parser = this.parserFor(sourceKey)
-    const settings = await this.settings(sourceKey)
-    const results = await Promise.allSettled(batch.map(url => parser.parse(url, settings.region)))
+    const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
+    const results = await Promise.allSettled(batch.map(url => parser.parse(url, settings?.region)))
     const source = await this.source(sourceKey)
     const deferred: string[] = []
     const problems: string[] = []
