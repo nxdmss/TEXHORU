@@ -518,7 +518,7 @@ test('Retailer adapters start at their public search URL instead of blocking on 
     {
       parser: new MvideoParser(),
       searchUrl: 'https://www.mvideo.ru/search?query=iPhone%2017%20Air%20256',
-      productUrl: 'https://www.mvideo.ru/products/403508161',
+      productUrl: 'https://www.mvideo.ru/products/403508161/',
       title: 'Apple iPhone 17 Air 256GB Black eSIM',
     },
     {
