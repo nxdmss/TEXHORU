@@ -153,7 +153,7 @@ export function identity(item: Item): Identity {
     // Without these, Xiaomi 15, 15T, 15T Pro and 15 Ultra are all treated
     // as model-less and can be incorrectly considered interchangeable.
     || text.match(/\bxiaomi\s+\d{1,2}t?(?:\s+(?:pro(?:\s+max)?|ultra|lite|plus))?\b/)?.[0]
-    || text.match(/\b(?:xiaomi\s+)?redmi\s+(?:note\s+)?\d{1,2}[a-z]?(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
+    || text.match(/\bredmi\s+(?:note\s+)?\d{1,2}[a-z]?(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
     || text.match(/\bpoco\s+[a-z]\d{1,2}(?:\s+(?:pro|ultra|plus))?\b/)?.[0]
     // Smartwatch families and vendor model codes (e.g. XPAW002, C60).
     || text.match(/\bactive\s+2r\b/)?.[0]
