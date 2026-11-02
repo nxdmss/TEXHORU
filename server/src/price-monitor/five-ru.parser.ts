@@ -95,6 +95,32 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
       directLinksFound?: number; catalogLinksFound?: number; rankingMode?: string }
   }>()
   private smartphoneCatalogCache?: { expires: number; links: Array<{ url: string; title: string }> }
+  // Short-lived observations accelerate INITIAL matching only. The regular parse()
+  // path deliberately bypasses this cache for every six-hour price refresh.
+  private readonly matchingCards = new Map<string, { expires: number; result: FiveRuResult }>()
+  private readonly matchingInFlight = new Map<string, Promise<FiveRuResult>>()
+
+  private rememberMatchingCard(result: FiveRuResult) {
+    const url = fiveRuUrl(result.url, 'product')
+    this.matchingCards.delete(url)
+    if (this.matchingCards.size >= 600) this.matchingCards.delete(this.matchingCards.keys().next().value!)
+    this.matchingCards.set(url, { expires: Date.now() + 3 * 60_000, result })
+  }
+
+  async parseForMatching(raw: string): Promise<FiveRuResult> {
+    const url = fiveRuUrl(raw, 'product')
+    const cached = this.matchingCards.get(url)
+    if (cached && cached.expires > Date.now()) return cached.result
+    if (cached) this.matchingCards.delete(url)
+    const pending = this.matchingInFlight.get(url)
+    if (pending) return pending
+    const reading = this.parse(url).then(result => {
+      this.rememberMatchingCard(result)
+      return result
+    }).finally(() => { this.matchingInFlight.delete(url) })
+    this.matchingInFlight.set(url, reading)
+    return reading
+  }
 
   // Browser startup dominates short searches: reuse one process, but keep
   // isolated contexts so concurrent/admin requests cannot share page state.
@@ -326,11 +352,11 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
    * site's own search control. No anti-bot bypass, external navigation or
    * third-party price source is allowed.
    */
-  async searchProducts(query: string, limit = 18, trace?: FiveRuSearchTrace, _region?: string | null): Promise<FiveRuResult[]> {
+  async searchProducts(query: string, limit = 18, trace?: FiveRuSearchTrace, _region?: string | null, indexedCatalogReady = false): Promise<FiveRuResult[]> {
     const text = query.trim().slice(0, 160)
     if (!text || limit < 1 || limit > 18) throw new BadRequestException('Неправильный поисковый запрос')
     trace ??= { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
-    const cacheKey = normalize(text) + ':' + limit
+    const cacheKey = normalize(text) + ':' + limit + (indexedCatalogReady ? ':indexed' : ':full')
     if (trace) Object.assign(trace, { query: text, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [], cached: false })
     const cached = this.queryCache.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
@@ -408,7 +434,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
             // Search tiles are often incomplete or fuzzy. For smartphones,
             // merge the site's public category listing before ranking candidates.
             // This fallback runs even when direct search returned unrelated links.
-            if (identity({ name: text }).kind === 'smartphone') {
+            if (!indexedCatalogReady && identity({ name: text }).kind === 'smartphone') {
               try {
                 const catalogLinks = await this.smartphoneCatalogLinks(context)
                 catalogLinksFound = catalogLinks.length
@@ -468,6 +494,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
                 const page = await this.open(context, url)
                 try {
                   slots[slot] = extractFiveRu(await this.snapshot(page), url)
+                  this.rememberMatchingCard(slots[slot]!)
                   if (trace) trace.cardsParsed++
                 } finally { await page.close() }
               } catch (error) {

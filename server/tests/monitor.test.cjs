@@ -877,6 +877,60 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   assert.equal((await sync.pending()).items.length, 0)
 })
 
+test('Initial matching caches one verified 05.ru card per URL but price monitoring always reads fresh', async () => {
+  const parser = new FiveRuParser()
+  let pageReads = 0
+  const url = fixture.sourceUrl
+  parser.parse = async target => {
+    pageReads++
+    return { ...extractFiveRu(fixture.snapshot, url), url: target, price: 90000 + pageReads }
+  }
+  const [first, second] = await Promise.all([parser.parseForMatching(url), parser.parseForMatching(url)])
+  assert.equal(pageReads, 1)
+  assert.equal(first.price, second.price)
+  assert.equal((await parser.parseForMatching(url)).price, first.price)
+  assert.equal(pageReads, 1)
+  const monitored = await parser.parse(url)
+  assert.equal(monitored.price, first.price + 1)
+  assert.equal(pageReads, 2)
+})
+
+test('Smartphone discovery stops after two clean searches returning the same unique exact URL', async () => {
+  await prisma.monitorJob.updateMany({
+    where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date() },
+  })
+  const id = randomUUID(), categoryId = randomUUID()
+  const categoryPath = 'FAST MATCH ' + id
+  const original = {
+    oneCId: id, sku: 'FAST-' + id, slug: 'fast-' + id,
+    name: 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб оранжевый (E-Sim)',
+    brand: 'Apple', categoryOneCId: categoryId, price: 100000, stockQty: 2,
+  }
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'fast-' + categoryId }],
+    products: [original],
+  })
+  const url = fixture.sourceUrl.replace('24007/', 'fast-' + id + '/')
+  const result = { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }
+  let requests = 0
+  const parser = {
+    searchProducts: async () => { requests++; return [result] },
+    parse: async () => result,
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath, maxItems: 10 })
+  await monitor.tick()
+  const completed = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(completed.processed, 1)
+  assert.equal(completed.status, 'COMPLETED')
+  assert.equal(requests, 2)
+  const linked = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: url } })
+  assert.equal(linked.matchStatus, 'CONFIRMED')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).price, 100000)
+})
+
 test('Universal selection: parent group includes nested 1C category; 05.ru auto-match never changes site prices', async () => {
   const id = randomUUID()
   const catId = randomUUID()
@@ -992,7 +1046,7 @@ test('Auto-matching refreshes an existing 05.ru link even when storefront search
   assert.equal(newest.status, 'COMPLETED')
   assert.equal(newest.processed, 2)
   assert.equal(newest.errors, 1)
-  assert.equal(searchCallsAfterTimeout, 3) // Search all smartphone variants before deciding.
+  assert.equal(searchCallsAfterTimeout, 2) // Two clean matching searches converge on one exact URL.
   assert.match(newest.lastError, /повторная проверка не удалась/)
   assert.match(last.lastError, /Timeout 30000ms exceeded/)
   assert.equal(last.latestPrice, 94990)

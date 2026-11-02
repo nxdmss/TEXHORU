@@ -96,6 +96,9 @@ export function isExpectedReviewOutcome(message: string) {
 @Injectable()
 export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
+  private followUpTimer?: NodeJS.Timeout
+  private stopped = false
+  private indexedCatalogStatus?: { expires: number; ready: boolean }
   private working = false
   private parsing = false
   private readonly matching = new MatchingEngine()
@@ -108,12 +111,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    this.stopped = false
     void this.sources().catch(error => console.error('Источники мониторинга:', error instanceof Error ? error.message : 'Ошибка'))
     if (process.env.MONITOR_WORKER_DISABLED === 'true') return
     this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 1000)
     this.timer.unref()
   }
-  onModuleDestroy() { if (this.timer) clearInterval(this.timer) }
+  onModuleDestroy() {
+    this.stopped = true
+    if (this.timer) clearInterval(this.timer)
+    if (this.followUpTimer) clearTimeout(this.followUpTimer)
+  }
   private source(key: StoreKey = '05ru') {
     const definition = STORE_DEFINITIONS.find(item => item.key === key)!
     return this.prisma.competitorSource.upsert({
@@ -508,6 +516,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
    * Only verified product-page observations are saved as competitor prices.
    * The indexed title is a navigation hint, never a verified price.
    */
+  private async hasCompletedSmartphoneIndex(): Promise<boolean> {
+    const now = Date.now()
+    if (this.indexedCatalogStatus && this.indexedCatalogStatus.expires > now) return this.indexedCatalogStatus.ready
+    const index = await this.prisma.monitorJob.findFirst({
+      where: { kind: 'INDEX_05RU_SMARTPHONES', status: 'COMPLETED' },
+      orderBy: { finishedAt: 'desc' },
+      select: { processed: true, finishedAt: true, lastError: true },
+    })
+    const ready = Boolean(index && index.processed > 0 && !index.lastError && index.finishedAt
+      && now - index.finishedAt.getTime() < 7 * 86400_000)
+    this.indexedCatalogStatus = { expires: now + 60_000, ready }
+    return ready
+  }
+
   private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
     const requested = identity(product)
     if (!requested.model && !requested.productCode && !requested.mpn) return false
@@ -529,12 +551,22 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         && (!requested.model || option.check.theirs.model === requested.model
           || Boolean(requested.productCode && option.check.theirs.productCode === requested.productCode)))
       .sort((a, b) => b.check.score - a.check.score).slice(0, 8)
+    // One DB query for all candidate ownership checks, instead of up to eight.
+    const knownLinks = await this.prisma.competitorProduct.findMany({
+      where: { externalUrl: { in: ranked.map(row => row.link.externalUrl) } },
+      select: { externalUrl: true, productId: true },
+    })
+    const owners = new Map(knownLinks.map(row => [row.externalUrl, row.productId]))
     const verified: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
     for (const { link } of ranked) {
-      const existing = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: link.externalUrl } })
-      if (existing?.productId && existing.productId !== product.id) continue
+      const owner = owners.get(link.externalUrl)
+      if (owner && owner !== product.id) continue
       try {
-        const result = await this.fiveRu.parse(link.externalUrl)
+        // Initial matching can reuse a recently verified card across colours/
+        // capacities. Scheduled price monitoring ALWAYS calls fresh parse().
+        const result = typeof this.fiveRu.parseForMatching === 'function'
+          ? await this.fiveRu.parseForMatching(link.externalUrl)
+          : await this.fiveRu.parse(link.externalUrl)
         const check = compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes })
         if (this.matching.strongVariant(check)) verified.push({ result, check })
       } catch (error) {
@@ -952,8 +984,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
   private strings(value: unknown) { return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [] }
   private async tick() {
-    if (this.working || this.parsing) return
+    if (this.stopped || this.working || this.parsing) return
     this.working = true
+    let handledJob = false
     try {
       const now = new Date()
       await this.prisma.monitorJob.updateMany({ where: { status: 'RUNNING', leaseUntil: { lt: now } }, data: { status: 'QUEUED' } })
@@ -999,6 +1032,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (!job) return
       const claimed = await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'QUEUED' }, data: { status: 'RUNNING', leaseUntil: new Date(Date.now() + 180000) } })
       if (!claimed.count) return
+      handledJob = true
       let pending = this.strings(job.pendingUrls)
       try {
         if (job.kind === 'RECHECK') {
@@ -1063,6 +1097,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               : 'Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.')
           }
           const finished = !links.length
+          if (finished) this.indexedCatalogStatus = undefined
           await this.prisma.monitorJob.update({
             where: { id: job.id }, data: {
               page: pageNumber, processed: { increment: links.length },
@@ -1107,12 +1142,20 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
               const requestedKind = identity(product).kind
+              // A finished persistent index already supplied category candidates.
+              // Search only the store's live search pages on an index miss.
+              const indexedCatalogReady = requestedKind === 'smartphone'
+                && sourceKey === '05ru' && await this.hasCompletedSmartphoneIndex()
+              let cleanSearches = 0
+              const exactSeenAcrossQueries = new Map<string, number>()
               for (const query of oneCSearchQueries(product)) {
                 const trace: FiveRuSearchTrace = { query, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
                 let results: FiveRuResult[]
                 try {
-                  results = await parser.searchProducts(query, 18, trace, settings.region)
+                  results = sourceKey === '05ru'
+                    ? await this.fiveRu.searchProducts(query, 18, trace, settings.region, indexedCatalogReady)
+                    : await parser.searchProducts(query, 18, trace, settings.region)
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error)
                   if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
@@ -1122,6 +1165,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const checked = results.map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
+                // Count an URL once per independently completed query. Two clean
+                // overlapping results allow a fast exit; partial/error results do not.
+                if (results.length && !trace.rejectedCards.length) {
+                  cleanSearches++
+                  for (const row of checked) {
+                    if (this.matching.strongVariant(row.check) && row.check.canAutoConfirm) {
+                      exactSeenAcrossQueries.set(row.result.url, (exactSeenAcrossQueries.get(row.result.url) || 0) + 1)
+                    }
+                  }
+                }
                 for (const row of checked) {
                   if (this.matching.strongVariant(row.check)) {
                     const previous = rankedByUrl.get(row.result.url)
@@ -1142,9 +1195,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 // Accessories keep searching all query variants to improve recall.
                 if (rankedByUrl.size) {
                   const exact = [...rankedByUrl.values()].filter(row => row.check.canAutoConfirm)
-                  // Smartphone queries are deliberately all exhausted: a later
-                  // storage/model query may reveal a second exact card. Never
-                  // auto-link until the exact candidate is unique across queries.
+                  // Two different successful queries returning the SAME complete
+                  // exact URL without a competing candidate are enough to stop.
+                  // A missing/ambiguous/partial match still exhausts fallbacks.
+                  if (requestedKind === 'smartphone' && cleanSearches >= 2
+                    && exact.length === 1
+                    && (exactSeenAcrossQueries.get(exact[0].result.url) || 0) >= 2) break
                   if (requestedKind !== 'smartphone' && exact.length === 1) break
                 }
                 for (const row of checked.slice(0, 3)) {
@@ -1275,7 +1331,18 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         // A failed optional index is not a failed product search. MATCH_1C
         // uses the live 05.ru search whenever no usable index entry exists.
       }
-    } finally { this.working = false }
+    } finally {
+      this.working = false
+      // Keep processing an active queue without the one-second idle poll.
+      // Runs sequentially: working guard still prevents overlapping ticks.
+      if (handledJob && this.timer && !this.stopped && !this.followUpTimer) {
+        this.followUpTimer = setTimeout(() => {
+          this.followUpTimer = undefined
+          void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка'))
+        }, 100)
+        this.followUpTimer.unref()
+      }
+    }
   }
 
   // Legacy catalog import now collects competitor observations without creating shop inventory.
