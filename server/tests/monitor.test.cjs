@@ -449,7 +449,7 @@ test('POCO/Redmi identity aliases work and recall ranking opens close phone cand
   const a26 = 'https://05.ru/cat/396f7486/p/smartfon-samsung-galaxy-a26-8-256-gb-beliy-21147/'
   const a36 = 'https://05.ru/cat/396f7486/p/smartfon-samsung-galaxy-a36-8-256-gb-beliy-21148/'
   const misleadingTile = [
-    { url: a26, title: 'Смартфон Xiaomi Galaxy A26 8 Гб/256 Гб белый' },
+    { url: a26, title: 'Смартфон Xiaomi A26 8 Гб/256 Гб белый' },
     { url: a36, title: 'Смартфон Samsung Galaxy A36 8 Гб/256 Гб белый' },
     { url: 'https://05.ru/cat/x/p/chehol-samsung-galaxy-a26-123/', title: 'Чехол Samsung Galaxy A26' },
   ]
@@ -1342,7 +1342,7 @@ test('05.ru recall fallback opens smartphone pages when strict title ranking rej
     close: async () => {},
   })
   parser.smartphoneCatalogLinks = async () => [{
-    url: a26, title: 'Смартфон Xiaomi Galaxy A26 8 Гб/256 Гб белый',
+    url: a26, title: 'Смартфон Xiaomi A26 8 Гб/256 Гб белый',
   }]
   parser.open = async (_, url) => {
     opened.push(url)
