@@ -83,6 +83,13 @@ export type MonitorSource = {
   settings: { id: string; catalogUrl: string; region?: string | null; intervalMinutes: number; nextRunAt: string | null }
   counts: { confirmed: number; review: number; total: number }
 }
+export type AutoFindResult =
+  | (MonitorJob & { sourceKey: string; eligible: number; queued: number })
+  | { sourceKey: 'all'; eligible: number; queued: number; jobs: MonitorJob[]; sources: Array<{ sourceKey: string; eligible: number; queued: number; job: MonitorJob | null }> }
+export type CheckAllResult =
+  | (MonitorJob & { sourceKey: string; queued: number })
+  | { queued: number; jobs: MonitorJob[]; sources: Array<{ sourceKey: string; queued: number }> }
+
 export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
 
 export type OneCPriceSyncStatus = {
@@ -208,11 +215,11 @@ export const api = {
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
   monitorSources() { return request<MonitorSource[]>('/admin/price-monitor/sources') },
   monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false, sourceKey: string = '05ru') {
-    return request<MonitorJob & { eligible: number; queued: number }>('/admin/price-monitor/auto-find-1c',
+    return request<AutoFindResult>('/admin/price-monitor/auto-find-1c',
       { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones, onlyUnlinked, sourceKey }) })
   },
   monitorScan(url: string, maxPages: number) { return request<MonitorJob>('/admin/price-monitor/scan', { method: 'POST', body: JSON.stringify({ url, maxPages }) }) },
-  monitorCheckAll(sourceKey: string = '05ru') { return request<{ queued: number; jobs: MonitorJob[]; sources: Array<{ sourceKey: string; queued: number }> }>('/admin/price-monitor/check-all', { method: 'POST', body: JSON.stringify({ sourceKey }) }) },
+  monitorCheckAll(sourceKey: string = '05ru') { return request<CheckAllResult>('/admin/price-monitor/check-all', { method: 'POST', body: JSON.stringify({ sourceKey }) }) },
   monitorJobAction(id: string, action: 'retry' | 'cancel') { return request(`/admin/price-monitor/jobs/${id}/${action}`, { method: 'POST' }) },
   monitorQueue() { return request<{ queued: number }>('/admin/price-monitor/queue-1c', { method: 'POST' }) },
   monitorDeliveries() { return request<MonitorDelivery[]>('/admin/price-monitor/deliveries') },
