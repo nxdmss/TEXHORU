@@ -1170,9 +1170,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 const reason = rejected.length ? 'Отсеяны: ' + rejected.join('; ')
                   : parsingErrors.length ? 'Ошибки чтения: ' + parsingErrors.join('; ')
                   : noModelCandidates
-                    ? 'Поиск отработал, но карточек с этой моделью не найдено. Вероятно, предложения сейчас нет в каталоге 05.ru; можно повторить позже.'
+                    ? 'Поиск отработал, но карточек с этой моделью не найдено в «' + source.name + '». Возможно, предложения сейчас нет в каталоге; можно повторить позже.'
                     : noProductLinks
-                      ? '05.ru не отдал ссылки на товары. Поиск не подтвердил отсутствие товара: проверь доступность выдачи и повтори позже.'
+                      ? source.name + ' не отдал ссылки на товары. Поиск не подтвердил отсутствие товара: проверь доступность выдачи и повтори позже.'
                       : 'Не удалось получить пригодные карточки. Повтори поиск позже.'
                 throw new Error('' + source.name + ': нет подтверждённого совпадения для ' + product.name +
                   '. Поиск: ' + summary + '. ' + reason)
@@ -1210,7 +1210,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (already?.productId && already.productId !== product.id) {
                 throw new Error('Карточка в ' + source.name + ' уже связана с другим товаром: ' + product.name)
               }
-              const source = await this.source()
               // Auto-confirm only one unique candidate whose full identity
               // is complete. This includes exact laptop hardware/SKU matches;
               // missing optional fields are allowed, explicit conflicts are not.
