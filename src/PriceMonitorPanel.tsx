@@ -386,7 +386,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   return <div className="mp-shell">
     <header className="mp-top">
       <div><h2>Мониторинг цен</h2><p>Сравнение с {sourceName}</p></div>
-      <div className="mp-top-count"><b>{phones.length}</b><span>из 1С с ценой</span></div>
+      <div className="mp-top-count"><b>{phones.length}</b><span>из 1С в наличии и с ценой</span></div>
     </header>
 
     <nav className="mp-source-tabs" aria-label="Магазины">
