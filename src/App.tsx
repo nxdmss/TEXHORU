@@ -615,7 +615,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       <article><span>Активных из 1С</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE').length}</strong></article>
       <article><span>Из 1С с доступным остатком</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE' && p.stockQty > (p.reservedQty || 0)).length}</strong></article>
       <article><span>Тестовые карточки 05.ru</span><strong>{products.filter(p => p.sku.startsWith('05RU-')).length}</strong></article>
-      <article><span>Карточек на витрине</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || !/(?:смартфон|smartphone)/i.test(p.category?.name || '') || p.stockQty > (p.reservedQty || 0))).length}</strong></article>
+      <article><span>Карточек на витрине</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || (p.price > 0 && p.stockQty > (p.reservedQty || 0)))).length}</strong></article>
       <article><span>Черновики</span><strong>{products.filter(p => p.status === 'DRAFT').length}</strong></article>
     </div>}
     {tab === 'overview' && <div className="admin-metrics"><article><span>Записей в базе</span><strong>{products.length}</strong></article><article><span>Категорий</span><strong>{apiCategories.length}</strong></article><article><span>Заказов</span><strong>{orders.length}</strong></article><article><span>Новых уведомлений</span><strong>{unread}</strong></article><article><span>Ошибок обмена 1С</span><strong>{logs.filter((item) => item.status === 'FAILED').length}</strong></article><article><span>Мало товара</span><strong>{products.filter((item) => Math.max(0, item.stockQty - (item.reservedQty ?? 0)) <= 3).length}</strong></article></div>}
