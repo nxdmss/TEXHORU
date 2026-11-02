@@ -4,6 +4,7 @@ import { AuthGuard } from '../common/auth.guard'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
 import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
+import type { StoreKey } from './storefront-adapter'
 
 @Controller('admin/price-monitor')
 @UseGuards(AuthGuard, AdminGuard)
@@ -26,7 +27,7 @@ export class PriceMonitorController {
   @Post('auto-find-1c') autoFindOneC(@Body() dto: AutoFindOneCSectionDto) { return this.monitor.autoFindOneCSection(dto) }
   @Post('jobs/:id/cancel') cancel(@Param('id') id: string) { return this.monitor.cancelJob(id) }
   @Post('jobs/:id/retry') retry(@Param('id') id: string) { return this.monitor.retryJob(id) }
-  @Get('settings') settings(@Query('sourceKey') sourceKey?: string) { return this.monitor.settings(sourceKey) }
+  @Get('settings') settings(@Query('sourceKey') sourceKey?: StoreKey) { return this.monitor.settings(sourceKey) }
   @Post('settings') updateSettings(@Body() dto: MonitorSettingsDto) { return this.monitor.updateSettings(dto) }
   @Get('deliveries') deliveries() { return this.exchange.deliveries() }
   @Post('queue-1c') queue() { return this.exchange.queueConfirmed() }
