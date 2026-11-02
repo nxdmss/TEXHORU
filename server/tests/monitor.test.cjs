@@ -1732,6 +1732,17 @@ test('1C import skips duplicate iPhone variants with different GUIDs; updates sa
   assert(first.duplicateExamples.includes(base.name))
   assert.equal(await prisma.product.count({ where: { oneCId: 'CLONE-'+batch } }), 0)
   assert.equal(await prisma.product.count({ where: { oneCId: { in: rows.map(p => p.oneCId) } } }), 4)
+
+  // The 1C client may lose the HTTP response after the server commits a batch.
+  // Replaying the exact same packet must update the same GUIDs, not duplicate rows.
+  const replay = await importer.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryName, slug: 'tree-'+batch }],
+    products: rows,
+  })
+  assert.equal(replay.products, 4)
+  assert.equal(replay.skippedDuplicates, 1)
+  assert.equal(await prisma.product.count({ where: { oneCId: { in: rows.map(p => p.oneCId) } } }), 4)
+
   const primary = await prisma.product.findUniqueOrThrow({ where: { oneCId: 'ROOT-'+batch } })
   const next = await importer.importCatalog({
     categories: [],
