@@ -349,8 +349,8 @@ model MonitorJob {
 
 model MonitorSettings {
   id              String   @id @default("05ru")
-  catalogUrl      String
-  region          String?   @default("https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/")
+  catalogUrl      String   @default("https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/")
+  region          String?
   intervalMinutes Int      @default(0)
   nextRunAt       DateTime?
 }
