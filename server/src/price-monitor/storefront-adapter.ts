@@ -147,17 +147,19 @@ export function extractRetailerProduct(snapshot: ProductSnapshot, url: string, c
   // own offer; never silently take an arbitrary third-party seller's price.
   const officialOffer = offers.find(offer => config.officialSellerPattern.test(objectName(offer.seller)))
   const oneOfferSeller = offers.length === 1 ? objectName(offers[0].seller) : ''
+  const officialPageSeller = config.officialSellerPattern.test(snapshot.seller || '')
   if (config.key === 'mvideo' && oneOfferSeller && !config.officialSellerPattern.test(oneOfferSeller)) {
     throw new Error('Карточка М.Видео показывает стороннего продавца «' + oneOfferSeller + '», а не цену самого магазина')
   }
-  if (config.key === 'mvideo' && offers.length > 1 && !officialOffer
-    && snapshot.seller && !config.officialSellerPattern.test(snapshot.seller)) {
-    throw new Error('В карточке М.Видео выбран сторонний продавец «' + snapshot.seller + '»')
+  if (config.key === 'mvideo' && !officialOffer && !officialPageSeller) {
+    const seller = snapshot.seller || oneOfferSeller || 'не определён'
+    throw new Error('В карточке М.Видео не подтверждён официальный продавец. Указан: «' + seller + '». Цена не будет сохранена')
   }
-  const singleOffer = offers.length === 1 && (!oneOfferSeller || config.officialSellerPattern.test(oneOfferSeller))
+  const singleOffer = offers.length === 1
+    && (config.key !== 'mvideo' || config.officialSellerPattern.test(oneOfferSeller) || officialPageSeller)
     ? offers[0] : undefined
   const offer = officialOffer || singleOffer
-  const currency = String(offer?.priceCurrency || 'RUB').toUpperCase()
+  const currency = String(offer?.priceCurrency || snapshot.metaCurrency || 'RUB').toUpperCase()
   if (currency !== 'RUB') throw new Error('Цена магазина указана не в рублях: ' + currency)
   const candidates: Array<[unknown, string]> = [
     [offer?.price, officialOffer ? 'JSON-LD официального продавца' : 'JSON-LD Offer'],
