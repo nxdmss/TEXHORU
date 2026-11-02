@@ -60,7 +60,9 @@ function canonicalBrand(value: string): string {
   const brand = normalize(value)
   if (/\b(?:apple|iphone)\b/.test(brand)) return 'apple'
   if (/\b(?:samsung|galaxy)\b/.test(brand)) return 'samsung'
-  if (/\b(?:xiaomi|redmi)\b/.test(brand)) return 'xiaomi'
+  // POCO and Redmi are Xiaomi device families. 1C often exports the
+  // manufacturer as Xiaomi while 05.ru puts POCO/Redmi in the product name.
+  if (/\b(?:xiaomi|redmi|poco)\b/.test(brand)) return 'xiaomi'
   return brand
 }
 
@@ -151,7 +153,7 @@ export function identity(item: Item): Identity {
     // Without these, Xiaomi 15, 15T, 15T Pro and 15 Ultra are all treated
     // as model-less and can be incorrectly considered interchangeable.
     || text.match(/\bxiaomi\s+\d{1,2}t?(?:\s+(?:pro(?:\s+max)?|ultra|lite|plus))?\b/)?.[0]
-    || text.match(/\b(?:xiaomi\s+)?redmi\s+(?:note\s+)?\d{1,2}(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
+    || text.match(/\b(?:xiaomi\s+)?redmi\s+(?:note\s+)?\d{1,2}[a-z]?(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
     || text.match(/\bpoco\s+[a-z]\d{1,2}(?:\s+(?:pro|ultra|plus))?\b/)?.[0]
     // Smartwatch families and vendor model codes (e.g. XPAW002, C60).
     || text.match(/\bactive\s+2r\b/)?.[0]
@@ -175,7 +177,7 @@ export function identity(item: Item): Identity {
   const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
   const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
   const usableBrand = brandText && !['без бренда', 'другие', 'other'].includes(brandText)
-  const brand = accessoryMaker || (usableBrand ? canonicalBrand(brandText) : inferredBrand)
+  const brand = accessoryMaker || (usableBrand ? canonicalBrand(brandText) : inferredBrand ? canonicalBrand(inferredBrand) : undefined)
   const normalizedBrand = usableBrand ? canonicalBrand(brandText) : undefined
   const deviceBrand = /iphone/.test(text) ? 'apple'
     : /\b(?:samsung|galaxy)\b/.test(text) ? 'samsung'
