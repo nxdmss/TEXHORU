@@ -174,10 +174,14 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     i.matchStatus === 'SUGGESTED' || i.matchStatus === 'REVIEW_REQUIRED')).length
   const unlinkedInScope = scopedPhones.filter(p => !byProduct.get(p.id)?.some(i =>
     i.product?.id === p.id && ['CONFIRMED', 'SUGGESTED', 'REVIEW_REQUIRED'].includes(i.matchStatus))).length
-  // Prefer the job the worker is actually executing over a newer queued job.
+  // Mirror worker priority and FIFO order across per-store jobs.
+  const oldestQueued = (kind?: string) => jobs
+    .filter(job => job.status === 'QUEUED' && (!kind || job.kind === kind))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]
   const active = jobs.find(j => j.status === 'RUNNING')
-    ?? jobs.find(j => j.kind === 'INDEX_05RU' && j.status === 'QUEUED')
-    ?? jobs.find(j => j.status === 'QUEUED')
+    ?? oldestQueued('MATCH_1C')
+    ?? oldestQueued('INDEX_05RU')
+    ?? oldestQueued()
   const activeSourceName = sources.find(item => item.key === active?.sourceKey)?.name || (active?.kind === 'INDEX_05RU' ? '05.ru' : sourceName)
   const belongsToSelectedSource = (job: MonitorJob) => job.sourceKey === sourceKey || (sourceKey === '05ru' && !job.sourceKey)
   const last = jobs.find(j => j.kind === 'MATCH_1C' && belongsToSelectedSource(j))
