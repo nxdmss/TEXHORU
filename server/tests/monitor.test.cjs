@@ -1196,7 +1196,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(recovered.length, 3) // Partial results must not poison the query cache.
     links = []
     const emptyTrace = {}
-    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Прямой поиск 05.ru.*подходящих карточек/)
+    await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Поиск 05.ru.*строгий и расширенный подбор/)
     assert.equal(emptyTrace.linksFound, 0)
     assert.equal(emptyTrace.rankedLinks, 0)
     assert.equal(emptyTrace.searchMode, 'direct-search')
