@@ -941,16 +941,32 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     try {
       const now = new Date()
       await this.prisma.monitorJob.updateMany({ where: { status: 'RUNNING', leaseUntil: { lt: now } }, data: { status: 'QUEUED' } })
-      const settings = await this.settings()
-      if (settings.intervalMinutes && settings.nextRunAt && settings.nextRunAt <= now && !await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
-        const links = await this.prisma.competitorProduct.count({
-          where: {
-            source: { key: '05ru' }, matchStatus: 'CONFIRMED',
-            product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
-          },
+      const dueSettings = await this.prisma.monitorSettings.findMany({
+        where: { intervalMinutes: { gt: 0 }, nextRunAt: { lte: now } },
+      })
+      for (const setting of dueSettings) {
+        if (!STORE_DEFINITIONS.some(item => item.key === setting.id)) continue
+        const sourceKey = setting.id as StoreKey
+        const activeForSource = await this.prisma.monitorJob.count({
+          where: { sourceKey, status: { in: ['QUEUED', 'RUNNING'] } },
         })
-        if (links) await this.checkAll()
-        await this.prisma.monitorSettings.update({ where: { id: '05ru' }, data: { nextRunAt: new Date(Date.now() + settings.intervalMinutes * 60000) } })
+        if (!activeForSource) {
+          const source = await this.source(sourceKey)
+          const links = await this.prisma.competitorProduct.findMany({
+            where: {
+              sourceId: source.id, matchStatus: 'CONFIRMED',
+              product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
+            },
+            select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
+          })
+          if (links.length) await this.prisma.monitorJob.create({
+            data: { kind: 'RECHECK', sourceKey, perPage: links.length, pendingUrls: links.map(link => link.externalUrl) },
+          })
+        }
+        await this.prisma.monitorSettings.update({
+          where: { id: setting.id },
+          data: { nextRunAt: new Date(Date.now() + setting.intervalMinutes * 60000) },
+        })
       }
       // Process 1C matching before any optional/background full-catalog index.
       // A global seller index must never hold up direct live product search.
