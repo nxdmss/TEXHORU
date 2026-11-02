@@ -16,7 +16,7 @@ export function rankSearchLinksForInspection(input: SearchLink[], query: string,
   if (requested.kind !== 'smartphone' || !requested.model) return []
   const requestedModel = canonicalModel(requested.model) || ''
   const modelTokens = requestedModel.split(' ').filter(Boolean)
-  const stem = (value: string) => value.replace(/^(\\d{1,2})[a-z]$/, '$1')
+  const stem = (value: string) => value.replace(/^(\d{1,2})[a-z]$/, '$1')
   const requestedStems = modelTokens.map(stem)
   const brandFamily = (value?: string) => value && /^(?:xiaomi|redmi|poco)$/.test(value) ? 'xiaomi' : value
   const stopWords = new Set([
@@ -34,11 +34,11 @@ export function rankSearchLinksForInspection(input: SearchLink[], query: string,
     let rawSlug = ''
     try {
       rawSlug = decodeURIComponent(new URL(candidate.url).pathname.split('/p/').at(-1) || '')
-        .replace(/-\\d+\\/?$/, '').replace(/_/g, ' ')
+        .replace(/-\d+\/?$/, '').replace(/_/g, ' ')
     } catch { return null }
     const title = candidate.title || ''
     const combined = normalize(title + ' ' + rawSlug)
-    if (/(?:^|\\s)(?:чехол|чехлы|стекло|пленка|бампер|кабель|адаптер|зарядное|case|cover|protector)(?=\\s|$)/.test(combined)) return null
+    if (/(?:^|\s)(?:чехол|чехлы|стекло|пленка|бампер|кабель|адаптер|зарядное|case|cover|protector)(?=\s|$)/.test(combined)) return null
 
     const fromTitle = identity({ name: title })
     const fromSlug = identity({ name: rawSlug })
@@ -70,7 +70,7 @@ export function rankSearchLinksForInspection(input: SearchLink[], query: string,
     }
     // A real phone product slug is a useful positive signal even if the tile
     // title is incomplete or the page's brand field uses a sub-brand.
-    if (/\\b(?:smartfon|smartphone|iphone|galaxy|poco|redmi)\\b/.test(normalize(rawSlug))) score += 8
+    if (/\b(?:smartfon|smartphone|iphone|galaxy|poco|redmi)\b/.test(normalize(rawSlug))) score += 8
     return { url: candidate.url, score, index: candidate.index }
   }).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
     .sort((a, b) => b.score - a.score || a.index - b.index)
