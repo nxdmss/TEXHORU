@@ -179,8 +179,9 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     ?? jobs.find(j => j.kind === 'INDEX_05RU' && j.status === 'QUEUED')
     ?? jobs.find(j => j.status === 'QUEUED')
   const activeSourceName = sources.find(item => item.key === active?.sourceKey)?.name || (active?.kind === 'INDEX_05RU' ? '05.ru' : sourceName)
-  const last = jobs.find(j => j.kind === 'MATCH_1C' && j.sourceKey === sourceKey) ?? jobs.find(j => j.kind === 'MATCH_1C')
-  const lastRecheck = jobs.find(j => j.kind === 'RECHECK' && j.sourceKey === sourceKey) ?? jobs.find(j => j.kind === 'RECHECK')
+  const belongsToSelectedSource = (job: MonitorJob) => job.sourceKey === sourceKey || (sourceKey === '05ru' && !job.sourceKey)
+  const last = jobs.find(j => j.kind === 'MATCH_1C' && belongsToSelectedSource(j))
+  const lastRecheck = jobs.find(j => j.kind === 'RECHECK' && belongsToSelectedSource(j))
   const unlinked = items.filter(i => i.source.key === sourceKey && (!i.product?.oneCId || !phones.some(p => p.id === i.product?.id)))
   const level = pathSegments(path)
   // Searching filters tiles only; never widen a price-changing scope silently.
