@@ -1069,8 +1069,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   && (product.stockQty <= product.reservedQty || !/(?:смартфон|smartphone)/i.test(product.category.name)))) {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
-              if (!(await this.refreshKnownMatch(product))) {
-              if (await this.refreshIndexedMatch(product)) {
+              const sourceKey = (job.sourceKey || '05ru') as StoreKey
+              const parser = this.parserFor(sourceKey)
+              const source = await this.source(sourceKey)
+              const settings = await this.settings(sourceKey)
+              if (!(await this.refreshKnownMatch(product, sourceKey, parser, settings.region))) {
+              if (sourceKey === '05ru' && await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
               } else {
               const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems> }>()
@@ -1083,7 +1087,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 traces.push(trace)
                 let results: FiveRuResult[]
                 try {
-                  results = await this.fiveRu.searchProducts(query, 18, trace)
+                  results = await parser.searchProducts(query, 18, trace, settings.region)
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error)
                   if (/HTTP\s+(?:403|429)\b|проверку доступа/i.test(message)) throw error
@@ -1133,7 +1137,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 .filter(option => !rankedByUrl.has(option.result.url))
                 .sort((a, b) => b.score - a.score)
               if (!ranked.length && review.length) {
-                const source = await this.source()
                 let offered = 0
                 for (const option of review.slice(0, 3)) {
                   const claimed = await this.prisma.competitorProduct.findUnique({
@@ -1145,7 +1148,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   offered++
                 }
                 if (offered) {
-                  throw new Error('05.ru: найдены варианты для ручной проверки для ' + product.name +
+                  throw new Error('' + source.name + ': найдены варианты для ручной проверки для ' + product.name +
                     '. Автоматическая привязка запрещена: проверь модель и характеристики.')
                 }
               }
@@ -1171,13 +1174,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     : noProductLinks
                       ? '05.ru не отдал ссылки на товары. Поиск не подтвердил отсутствие товара: проверь доступность выдачи и повтори позже.'
                       : 'Не удалось получить пригодные карточки. Повтори поиск позже.'
-                throw new Error('05.ru: нет подтверждённого совпадения для ' + product.name +
+                throw new Error('' + source.name + ': нет подтверждённого совпадения для ' + product.name +
                   '. Поиск: ' + summary + '. ' + reason)
               }
               // Multiple exact smartphone cards are still ambiguous (for example,
               // duplicate listings or new/refurbished stock). Keep them for review.
               if (requestedKind === 'smartphone' && ranked.length > 1) {
-                const source = await this.source()
                 let offered = 0
                 for (const option of ranked.slice(0, 3)) {
                   const claimed = await this.prisma.competitorProduct.findUnique({
@@ -1187,13 +1189,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
                   offered++
                 }
-                if (offered) throw new Error('05.ru: найдено несколько точных вариантов для ' + product.name + '; выбери правильную карточку вручную')
+                if (offered) throw new Error('' + source.name + ': найдено несколько точных вариантов для ' + product.name + '; выбери правильную карточку вручную')
               }
               // More than one plausible variant must be manually reviewed, never silently chosen.
               if (ranked.length > 1 && ranked[0].check.score - ranked[1].check.score < 10) {
                 // Keep plausible 05.ru cards in the monitor for manual review,
                 // but do NOT choose a winner or apply a price automatically.
-                const source = await this.source()
                 let offered = 0
                 for (const option of ranked.slice(0, 3)) {
                   const claimed = await this.prisma.competitorProduct.findUnique({
@@ -1203,11 +1204,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
                   offered++
                 }
-                throw new Error('05.ru: несколько близких совпадений для ' + product.name + '; проверь вручную')
+                throw new Error('' + source.name + ': несколько близких совпадений для ' + product.name + '; проверь вручную')
               }
               const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
               if (already?.productId && already.productId !== product.id) {
-                throw new Error('Карточка 05.ru уже связана с другим товаром: ' + product.name)
+                throw new Error('Карточка в ' + source.name + ' уже связана с другим товаром: ' + product.name)
               }
               const source = await this.source()
               // Auto-confirm only one unique candidate whose full identity
