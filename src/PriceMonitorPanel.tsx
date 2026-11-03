@@ -257,6 +257,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     })
   }
 
+  async function retryOneProduct(productId: number) {
+    if (active) { setError('Сначала заверши текущую проверку'); return }
+    await run('retry-one', () => api.monitorRetryMatch(productId),
+      'Отдельный ручной повторный поиск поставлен в очередь. Остальные исключённые товары не затронуты.')
+  }
+
   async function refreshSavedPrices() {
     if (active) { setError('Сначала заверши текущую проверку'); return }
     await run('refresh', () => api.monitorCheckAll('05ru'),
@@ -345,8 +351,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     }, 'Совпадение подтверждено. Цена твоего товара не изменена.')
   }
 
-  function itemStatus(item?: PriceMonitorItem) {
-    if (!item) return { label: 'Без кандидата', className: 'missing' }
+  function itemStatus(item?: PriceMonitorItem, outcome?: MatchOutcome) {
+    if (!item && outcome?.status === 'NO_MATCH') return { label: 'Нет совпадений', className: 'missing' }
+    if (!item && outcome?.status === 'RETRYABLE') return { label: 'Ошибка поиска', className: 'pending' }
+    if (!item) return { label: 'Не проверен', className: 'missing' }
     if (item.matchStatus === 'CONFIRMED' && isFresh(item)) return { label: 'Совпало', className: 'ready' }
     if (item.matchStatus === 'CONFIRMED') return { label: item.lastError ? 'Ошибка проверки' : 'Привязано', className: 'pending' }
     if (item.matchStatus === 'SUGGESTED' || item.matchStatus === 'REVIEW_REQUIRED') return { label: 'Проверить', className: 'pending' }
@@ -355,7 +363,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   function renderPhone(p: ApiProduct) {
     const linked = byProduct.get(p.id)?.[0]
-    const state = itemStatus(linked)
+    const outcome = byOutcome.get(p.id)
+    const state = itemStatus(linked, outcome)
     const chosen = opened === linked?.id ? matches.find(m => String(m.product.id) === selected) : undefined
     return <article className="mp-tile" key={p.id}>
       <div className="mp-tile-head">
@@ -375,7 +384,14 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
             {opened === linked.id ? 'Скрыть детали' : linked.matchStatus === 'CONFIRMED' ? 'Детали' : 'Проверить'}
           </button>
-        : <span className="mp-no-match">Подходящая карточка {sourceName} пока не найдена</span>}
+        : <span className="mp-no-match">{outcome?.status === 'NO_MATCH'
+          ? 'Первый поиск завершён без совпадений. Автоматически больше не проверяется.'
+          : outcome?.status === 'RETRYABLE'
+            ? 'Поиск завершился ошибкой или был неполным. Доступна повторная проверка.'
+            : 'Подходящая карточка ' + sourceName + ' пока не найдена'}</span>}
+      {!linked && outcome?.status === 'NO_MATCH' && <button
+        className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
+        onClick={() => void retryOneProduct(p.id)}>Повторить поиск вручную</button>}
       {linked?.matchStatus !== 'CONFIRMED' && <>
         <button className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
           onClick={() => { setLinkingProduct(linkingProduct === p.id ? null : p.id); setLinkUrl('') }}>
@@ -441,10 +457,10 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     </header>
 
     <div className="mp-summary">
-      <span><b>{confirmed}</b> привязано</span>
-      <span><b>{needsReview}</b> требуют подтверждения</span>
-      <span><b>{unlinkedInScope}</b> без кандидата</span>
-      <span><b>{phones.filter(p => byProduct.get(p.id)?.some(isFresh)).length}</b> свежих цен</span>
+      <span><b>{confirmed}</b> подтверждены</span>
+      <span><b>{needsReview}</b> под вопросом</span>
+      <span><b>{noMatches}</b> нет совпадений</span>
+      <span><b>{unlinkedInScope}</b> не проверены / ошибки</span>
     </div>
 
     <div className="mp-toolbar">
@@ -454,7 +470,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Первичное сопоставление с 05.ru (' + phones.length + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Тестовый режим: только 05.ru. До 40 товаров: быстрый поиск без обхода всего каталога. Большие партии: общий индекс смартфонов. Спорные варианты проверяются вручную; цены не меняются автоматически.</p>
+    <p className="mp-helper">Первый поиск распределяет товары по результатам. «Нет совпадений» автоматически больше не ищутся. Ошибка сайта не считается отсутствием товара. Обновление цен проверяет только подтверждённые ссылки.</p>
     <label className="mp-schedule">
       <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
         onChange={e => void setAutomaticChecks(e.target.checked)}/>
@@ -491,6 +507,19 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     {notice && <p className="price-monitor__notice" role="status">{notice}</p>}
 
     <section className="mp-browser">
+      <nav className="mp-match-tabs" aria-label="Результаты сопоставления">
+        {([
+          ['ALL', 'Все', scopedPhones.length],
+          ['CONFIRMED', 'Подтверждены', confirmed],
+          ['REVIEW', 'Под вопросом', needsReview],
+          ['NO_MATCH', 'Нет совпадений', noMatches],
+          ['PENDING', 'Не проверены / ошибки', unlinkedInScope],
+        ] as const).map(([key, label, count]) =>
+          <button key={key} type="button" className={group === key ? 'active' : ''}
+            aria-pressed={group === key} onClick={() => setGroup(key)}>
+            <span>{label}</span><b>{count}</b>
+          </button>)}
+      </nav>
       <nav className="mp-breadcrumbs" aria-label="Категории 1С">
         <button onClick={() => { setPath(''); setSearch(''); setOpened(null) }}>Все товары</button>
         {level.map((segment, index) =>
