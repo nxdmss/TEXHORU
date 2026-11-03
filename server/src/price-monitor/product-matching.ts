@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 export type Identity = {
   brand?: string; compatibleBrand?: string; model?: string; productCode?: string
   storage?: string; ram?: string; color?: string; sim?: string
+  physicalSimCount?: string; esimCount?: string
   cpu?: string; gpu?: string; screenSize?: string; wattage?: string
   gtin?: string; mpn?: string; condition?: string; kind?: string
 }
@@ -242,10 +243,35 @@ export function identity(item: Item): Identity {
   const color = normalize(model || '') === 'iphone 17'
     && ['lavender', 'purple', 'pink'].includes(observedColor || '')
     ? 'lavender' : observedColor
-  const simText = normalize(attrs.sim || spec(/тип sim|сим|sim карт/i) || text)
-  const hasEsim = /e\s*sim|esim/.test(simText)
-  const physical = /nano\s*sim|physical|физическ|\bsim\s*(?:\+|и)?\s*e\s*sim/.test(simText)
-  const sim = hasEsim && physical ? 'physical+esim' : hasEsim ? 'esim' : /nano\s*sim|dual sim|2 sim/.test(simText) ? 'physical' : undefined
+  // A product title mentioning eSIM does not prove that the phone lacks a
+  // physical slot. Prefer the actual 05.ru characteristics over its heading.
+  const simField = (label: RegExp) => specs.find(entry => label.test(normalize(entry.label)))?.value?.trim()
+  const physicalCountRaw = simField(/^(?:количество|число|кол во)\s+физическ[а-я]*\s+sim(?:\s+карт\w*)?$|^physical\s+sim(?:\s+cards?)?$/)
+  const esimCountRaw = simField(/^(?:количество|число|кол во)\s+e\s*sim$|^number\s+of\s+e\s*sim$/)
+  const simTypeRaw = simField(/^(?:тип|формат|вид)\s+sim(?:\s+карт\w*)?$|^sim\s+(?:type|format)$/)
+  const simCount = (value?: string): string | undefined => {
+    if (!value) return undefined
+    const v = normalize(value)
+    if (/^(?:нет|не\s+поддерживается|отсутствует|no|none|zero|0)$/.test(v)) return '0'
+    if (/^(?:одна|один|one|1)$/.test(v)) return '1'
+    if (/^(?:две|два|two|2)$/.test(v)) return '2'
+    const number = v.match(/^(?:количество\s+)?([0-9]+)\b/)?.[1]
+    return number && Number(number) <= 4 ? number : undefined
+  }
+  const physicalSimCount = simCount(physicalCountRaw) ?? attrs.physicalSimCount
+  const esimCount = simCount(esimCountRaw) ?? attrs.esimCount
+  const simText = normalize(attrs.sim || simTypeRaw || text)
+  const titleEsim = /\be\s*sim\b|\besim\b/.test(simText) || /\be\s*sim\b|\besim\b/.test(text)
+  // Remove eSIM before detecting standalone physical SIM.
+  const withoutEsim = simText.replace(/\be\s*sim\b|\besim\b/g, ' ')
+  const titlePhysical = /nano\s*sim|physical|физическ|dual\s*sim|(?:^|\s)(?:sim|сим)(?=\s|$)/.test(withoutEsim)
+  const hasEsim = esimCount === '0' ? false : esimCount !== undefined
+    ? Number(esimCount) > 0 : titleEsim
+  const hasPhysical = physicalSimCount === '0' ? false : physicalSimCount !== undefined
+    ? Number(physicalSimCount) > 0 : titlePhysical
+  const sim = hasEsim && hasPhysical ? 'physical+esim'
+    : hasEsim ? 'esim' : hasPhysical ? 'physical'
+      : attrs.sim && ['esim', 'physical', 'physical+esim'].includes(attrs.sim) ? attrs.sim : undefined
   const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf', 'acer', 'asus', 'lenovo', 'msi', 'dell', 'hp'].find(b => text.split(' ').includes(b))
   const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
   const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
@@ -284,7 +310,10 @@ export function identity(item: Item): Identity {
   const mpn = item.mpn || attrs.mpn || spec(/заводск.*артикул|mpn/i)
   return {
     brand, compatibleBrand, model: model ? normalize(model) : undefined,
-    productCode: partNumber, storage, ram, color, sim, cpu, gpu, screenSize, wattage,
+    productCode: partNumber, storage, ram, color, sim,
+    ...(physicalSimCount !== undefined ? { physicalSimCount } : {}),
+    ...(esimCount !== undefined ? { esimCount } : {}),
+    cpu, gpu, screenSize, wattage,
     gtin, mpn: mpn ? normalize(mpn) : undefined, condition, kind,
   }
 }
@@ -324,6 +353,7 @@ export function compareItems(ours: Item, theirs: Item) {
   const labels: Record<string, string> = {
     brand: 'бренд', compatibleBrand: 'совместимость', model: 'модель', productCode: 'код производителя',
     storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM',
+    physicalSimCount: 'число физических SIM-карт', esimCount: 'число eSIM',
     cpu: 'процессор', gpu: 'видеокарта', screenSize: 'диагональ', wattage: 'мощность',
     gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара',
   }
@@ -332,7 +362,13 @@ export function compareItems(ours: Item, theirs: Item) {
     const differs = (left?: string, right?: string) => key === 'model'
       ? canonicalModel(left) !== canonicalModel(right)
       : left !== right
-    if ((nameA[key] && a[key] && differs(nameA[key], a[key])) || (nameB[key] && b[key] && differs(nameB[key], b[key]))) {
+    // eSIM in a title can also mean nano-SIM + eSIM. A source's SIM
+    // counts are stronger evidence than that short marketing label.
+    const titleVsSpecs = (fromName?: string, fromSpecs?: string) =>
+      fromName && fromSpecs && differs(fromName, fromSpecs)
+      && !(key === 'sim' && fromSpecs === 'physical+esim'
+        && ['esim', 'physical'].includes(fromName))
+    if (titleVsSpecs(nameA[key], a[key]) || titleVsSpecs(nameB[key], b[key])) {
       conflicts.push(`${labels[key]}: название противоречит характеристикам`)
     }
   }
@@ -376,7 +412,7 @@ export function compareItems(ours: Item, theirs: Item) {
     && a.color && b.color && a.color === b.color
     // An omitted SIM type is not a contradiction. Explicit physical/eSIM
     // differences are already captured in conflicts above.
-    && (!a.sim || !b.sim || a.sim === b.sim)
+    && (!a.sim || (b.sim && a.sim === b.sim))
   )
   const laptopVariantComplete = Boolean(
     laptop && a.kind === 'laptop' && b.kind === 'laptop'
@@ -422,6 +458,13 @@ export function manualConfirmationBlockers(ours: Item, theirs: Item): string[] {
   }
   if (a.compatibleBrand && b.compatibleBrand && a.compatibleBrand !== b.compatibleBrand) {
     blockers.add('совместимость')
+  }
+  if (kind === 'smartphone' && a.sim && b.sim && a.sim !== b.sim) {
+    blockers.add('SIM: конфигурация отличается')
+  }
+  if (kind === 'smartphone' && a.physicalSimCount && b.physicalSimCount
+    && a.physicalSimCount !== b.physicalSimCount) {
+    blockers.add('количество физических SIM-карт отличается')
   }
   if (kind === 'laptop') {
     // Manual confirmation must not create a 512 GB price source for a 1 TB

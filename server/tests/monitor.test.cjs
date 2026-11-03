@@ -216,6 +216,52 @@ test('Legacy 05.ru index with missing iPhone Air model still links a verified ex
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).price, 90000)
 })
 
+test('05.ru structured SIM counts override ambiguous E-Sim titles', () => {
+  const baseName = 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб синий (E-Sim, без RuStore)'
+  const make = (physical, esim, type = 'eSIM') => {
+    const snapshot = { ...fixture.snapshot, h1: baseName,
+      specs: [
+        { label: 'Количество физических SIM-карт', value: physical },
+        { label: 'Количество eSIM', value: esim },
+        { label: 'Тип SIM-карты', value: type },
+      ],
+    }
+    return extractFiveRu(snapshot, url)
+  }
+  const esimOnly = make('нет', '1')
+  assert.equal(esimOnly.attributes.sim, 'esim')
+  assert.equal(esimOnly.attributes.physicalSimCount, '0')
+  assert.equal(esimOnly.attributes.esimCount, '1')
+  const hybrid = make('1', '1', 'nano-SIM, eSIM')
+  assert.equal(hybrid.attributes.sim, 'physical+esim')
+  assert.equal(hybrid.attributes.physicalSimCount, '1')
+  assert.equal(hybrid.attributes.esimCount, '1')
+  const hybridNamedEsim = make('1', '1', 'eSIM')
+  assert.equal(hybridNamedEsim.attributes.sim, 'physical+esim')
+  // E-Sim in an abbreviated marketing title does not contradict the detailed
+  // evidence that this handset also has a nano SIM slot.
+  const oursHybrid = { name: 'Смартфон Apple iPhone 17 Pro 256 Гб синий nano-SIM + eSIM' }
+  const hybridCheck = compareItems(oursHybrid, hybrid)
+  assert(!hybridCheck.conflicts.includes('SIM: название противоречит характеристикам'),
+    JSON.stringify(hybridCheck))
+  assert.equal(hybridCheck.canAutoConfirm, true)
+  const oursEsim = { name: 'Смартфон Apple iPhone 17 Pro 256 Гб синий eSIM' }
+  const forbidden = compareItems(oursEsim, hybrid)
+  assert(forbidden.conflicts.includes('SIM'), JSON.stringify(forbidden))
+  assert.equal(forbidden.canAutoConfirm, false)
+  assert(manualConfirmationBlockers(oursEsim, hybrid).includes('SIM: конфигурация отличается'))
+  const allowed = compareItems(oursEsim, esimOnly)
+  assert.deepEqual(allowed.conflicts, [])
+  assert.equal(allowed.canAutoConfirm, true)
+  assert.equal(identity({ name: 'Смартфон Apple iPhone 17 Pro 256 синий SIM' }).sim, 'physical')
+  assert.equal(identity({ name: 'Смартфон Apple iPhone 17 Pro 256 синий eSIM' }).sim, 'esim')
+  assert.equal(identity({ name: 'Смартфон Apple iPhone 17 Pro 256 синий SIM + eSIM' }).sim, 'physical+esim')
+  assert.equal(identity({ name: 'iPhone 17 Pro eSIM', specs: [
+    { label: 'Количество физических SIM-карт', value: '2' },
+    { label: 'Количество eSIM', value: '0' },
+  ] }).sim, 'physical')
+})
+
 test('A missing SIM label does not block an otherwise exact phone variant; explicit SIM conflicts still block', () => {
   const ours = { name: 'Смартфон Apple iPhone 16 256 Гб черный', brand: 'Apple' }
   const listed = { name: 'Смартфон Apple iPhone 16 8 Гб/256 Гб черный (E-Sim, без RuStore)', brand: 'Apple' }
@@ -1355,7 +1401,7 @@ test('Explicit eSIM in 1C selects exact 05.ru iPhone 17 Pro blue from index over
   assert.equal(product.price, 99900, '1C/site price must not change')
 })
 
-test('A 1C smartphone without SIM type chooses the best-ranked 05.ru SIM variant automatically', async () => {
+test('A 1C smartphone with unspecified SIM never auto-picks between different 05.ru SIM variants', async () => {
   const id = randomUUID(), categoryId = randomUUID()
   const categoryPath = 'SIM DECISION ' + id
   const ours = {
@@ -1397,9 +1443,9 @@ test('A 1C smartphone without SIM type chooses the best-ranked 05.ru SIM variant
   const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   const selected = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: plainUrl } })
   assert.equal(selected.productId, product.id)
-  assert.equal(selected.matchStatus, 'CONFIRMED')
+  assert.equal(selected.matchStatus, 'SUGGESTED')
   assert.equal(selected.latestPrice, 74990)
-  assert.equal(await prisma.competitorProduct.count({ where: { externalUrl: esimUrl } }), 0)
+  assert.equal(await prisma.competitorProduct.count({ where: { externalUrl: esimUrl } }), 1)
 })
 
 test('Universal selection: parent group includes nested 1C category; 05.ru auto-match never changes site prices', async () => {

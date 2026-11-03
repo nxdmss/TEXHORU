@@ -257,6 +257,44 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
       }
     })
   }
+  // Smartphone variants can have identical titles but different physical SIM
+  // slots. 05.ru publishes the canonical counts in /characteristics/, not
+  // necessarily in the compact product-card snapshot. Fetch them only for
+  // iPhones with incomplete counts; price itself stays sourced from /p/.../.
+  private async withPhoneCharacteristics(page: Page, url: string): Promise<ProductSnapshot> {
+    const original = await this.snapshot(page)
+    if (!/\biphone\b/i.test(original.h1)) return original
+    const labels = new Set(original.specs.map(spec => normalize(spec.label)))
+    if ([...labels].some(label => /^(?:количество|число)\s+физическ[а-я]*\s+sim/.test(label))
+      && [...labels].some(label => /^(?:количество|число)\s+e\s*sim/.test(label))) {
+      return original
+    }
+    const details = await page.context().newPage()
+    try {
+      const response = await details.goto(url + 'characteristics/', {
+        waitUntil: 'domcontentloaded', timeout: 8000,
+      })
+      if (!response || response.status() >= 400 || new URL(details.url()).hostname !== '05.ru') return original
+      await details.locator('tr, dl.product-characteristics__row').first()
+        .waitFor({ state: 'attached', timeout: 1400 }).catch(() => undefined)
+      const supplement = await this.snapshot(details)
+      // Never replace canonical price, seller or availability with data from
+      // the characteristics page. Merge only uniquely labelled specs.
+      for (const field of supplement.specs) {
+        const label = normalize(field.label)
+        if (label && field.value && !labels.has(label)) {
+          original.specs.push(field)
+          labels.add(label)
+        }
+      }
+      return original
+    } catch {
+      // An optional details page can fail independently of the product card.
+      // Never invent missing SIM counts or modify the price on failure.
+      return original
+    } finally { await details.close() }
+  }
+
   /**
    * The public smartphone catalog is an alternative *discovery* channel when
    * the storefront search box does not return product links. It is not a source
@@ -493,7 +531,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
               try {
                 const page = await this.open(context, url)
                 try {
-                  slots[slot] = extractFiveRu(await this.snapshot(page), url)
+                  slots[slot] = extractFiveRu(await this.withPhoneCharacteristics(page, url), url)
                   this.rememberMatchingCard(slots[slot]!)
                   if (trace) trace.cardsParsed++
                 } finally { await page.close() }
@@ -550,7 +588,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
         const context = await this.context(browser, true)
         try {
           const page = await this.open(context, url)
-          try { return extractFiveRu(await this.snapshot(page), url) }
+          try { return extractFiveRu(await this.withPhoneCharacteristics(page, url), url) }
           finally { await page.close() }
         } finally { await context.close() }
       })

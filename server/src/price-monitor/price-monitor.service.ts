@@ -144,33 +144,21 @@ function rankVerifiedMatches<T extends RankedMatch>(matches: T[]): T[] {
 function hasDecisiveWinner<T extends RankedMatch>(ranked: T[]): boolean {
   if (ranked.length < 2) return ranked.length === 1
   const ours = ranked[0].check.ours
-  // If 1C explicitly says eSIM (or physical SIM), one verified candidate
-  // stating that same type beats offers which omit SIM. An explicitly different
-  // SIM never enters this list because compareItems rejects the conflict.
+  const simProfiles = new Set(ranked.map(row => row.check.theirs.sim || 'unspecified'))
+  // If 1C does not identify the SIM variant and 05.ru offers physical, eSIM
+  // and/or combined variants, even a higher title score does NOT justify
+  // picking a commercial variant on the user's behalf.
+  if (ours.kind === 'smartphone' && !ours.sim && simProfiles.size > 1) return false
+  // A single unambiguous source card specifying the same SIM variant as 1C
+  // beats otherwise comparable cards that omitted the specification.
   if (ours.kind === 'smartphone' && ours.sim) {
     const explicit = ranked.filter(row => row.check.theirs.sim === ours.sim)
     if (explicit.length === 1
+      && ranked[0].check.theirs.sim === ours.sim
       && ranked.every(row => !row.check.theirs.sim || row.check.theirs.sim === ours.sim)
       && ranked.every(row => row.check.canAutoConfirm && !row.check.conflicts.length)) return true
   }
-  if (ranked[0].check.score - ranked[1].check.score >= 10) return true
-  if (ours.kind !== 'smartphone' || ours.sim) return false
-  const simProfiles = new Set(ranked.map(row => row.check.theirs.sim || 'unspecified'))
-  if (simProfiles.size < 2) return false
-  // Make the choice only if the verified offers differ in SIM information.
-  // Missing RAM/condition, another colour, storage or an alternative SKU
-  // prevents an automatic decision.
-  const identities = new Set(ranked.map(row => {
-    const item = row.check.theirs
-    return JSON.stringify({
-      brand: item.brand, model: canonicalModel(item.model), productCode: item.productCode,
-      storage: item.storage, ram: item.ram, color: item.color,
-      cpu: item.cpu, gpu: item.gpu, screenSize: item.screenSize, wattage: item.wattage,
-      gtin: item.gtin, mpn: item.mpn, condition: item.condition, kind: item.kind,
-      compatibleBrand: item.compatibleBrand,
-    })
-  }))
-  return identities.size === 1
+  return ranked[0].check.score - ranked[1].check.score >= 10
 }
 
 @Injectable()
@@ -1082,10 +1070,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             && (!verified.ours.storage || !verified.theirs.storage
               || verified.ours.storage !== verified.theirs.storage
               || verified.conflicts.some(reason => reason.includes('память: название противоречит')))
-          if (diskMismatch) {
+          const simMismatch = verified && verified.ours.kind === 'smartphone'
+            && verified.ours.sim && verified.theirs.sim
+            && verified.ours.sim !== verified.theirs.sim
+          if (diskMismatch || simMismatch) {
             await this.prisma.monitorDelivery.updateMany({
               where: { linkId: linked.id, status: 'PENDING' },
-              data: { status: 'CANCELLED', lastError: 'Несовпадение объёма SSD' },
+              data: { status: 'CANCELLED', lastError: simMismatch ? 'Несовпадение SIM' : 'Несовпадение объёма SSD' },
             })
             await this.prisma.competitorProduct.update({
               where: { id: linked.id },
@@ -1093,7 +1084,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 confirmedFingerprint: null, confirmedProductFingerprint: null },
             })
             await this.save(item.value, source.id)
-            problems.push(url + ': объем SSD отличается от 1С, подтверждение снято')
+            problems.push(url + (simMismatch ? ': конфигурация SIM отличается от 1С, подтверждение снято' : ': объем SSD отличается от 1С, подтверждение снято'))
           } else {
             await this.save(item.value, source.id)
           }
