@@ -48,6 +48,85 @@ test('Identifies Apple variants across Russian/English; flags memory, colour, SI
   assert.equal(identity({ name: 'Айфон 17 ПМ 256 оранж eSIM' }).model, 'iphone 17 pro max')
 })
 
+test('iPhone 17 Lavender matches Russian purple and pink aliases only for the base model', () => {
+  const ours = { name: 'Смартфон Apple iPhone 17 256 ГБ лавандовый', brand: 'Apple' }
+  const purple = { name: 'Смартфон Apple iPhone 17 8 Гб/256 Гб фиолетовый (без RuStore)', brand: 'Apple' }
+  const pink = { name: 'Смартфон Apple iPhone 17 8 Гб/256 Гб розовый (E-Sim, без RuStore)', brand: 'Apple' }
+  const lavender = { name: 'Apple iPhone 17 Lavender 256GB', brand: 'Apple' }
+  for (const candidate of [purple, pink, lavender]) {
+    const compared = compareItems(ours, candidate)
+    assert.equal(compared.ours.color, 'lavender')
+    assert.equal(compared.theirs.color, 'lavender')
+    assert.equal(compared.canAutoConfirm, true, JSON.stringify(compared))
+    assert.deepEqual(compared.conflicts, [])
+  }
+  assert.deepEqual(oneCSearchQueries(ours), [
+    'apple iphone 17 256 розовый', 'apple iphone 17 256 фиолетовый',
+    'iphone 17 256', 'iphone 17',
+  ])
+  assert.equal(identity({ name: 'Apple iPhone 17 Pro 256 ГБ розовый' }).color, 'pink')
+  assert.equal(identity({ name: 'Apple iPhone 17 Pro 256 ГБ фиолетовый' }).color, 'purple')
+  assert.equal(identity({ name: 'Apple iPhone 16 256 ГБ розовый' }).color, 'pink')
+  assert.equal(identity({ name: 'Apple iPhone 17e 256 ГБ розовый' }).color, 'pink')
+  assert.equal(compareItems(ours, { name: 'iPhone 17 256 Гб синий', brand: 'Apple' }).canAutoConfirm, false)
+  assert.equal(compareItems(ours, { name: 'iPhone 17 Pro 256 Гб фиолетовый', brand: 'Apple' }).canAutoConfirm, false)
+  assert.equal(compareItems(ours, { name: 'iPhone 17 512 Гб фиолетовый', brand: 'Apple' }).canAutoConfirm, false)
+  assert.equal(compareItems(ours, { name: 'iPhone 17 256 Гб фиолетовый Б/У', brand: 'Apple' }).canAutoConfirm, false)
+  const cardWithAttrs = { name: 'iPhone 17 Lavender 256GB', brand: 'Apple', attributes: { color: 'pink' } }
+  assert.equal(compareItems(ours, cardWithAttrs).canAutoConfirm, true)
+})
+
+test('Old 05.ru index resolves iPhone 17 Lavender across pink/purple SIM listings', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const categoryPath = 'LAVENDER INDEX ' + id
+  const productName = 'Смартфон Apple iPhone 17 256 ГБ лавандовый'
+  const variants = [
+    { url: 'https://05.ru/cat/396f7486/p/iphone17-lavender-purple-' + id + '/', title: 'Смартфон Apple iPhone 17 8 Гб/256 Гб фиолетовый', price: 70990 },
+    { url: 'https://05.ru/cat/396f7486/p/iphone17-lavender-pink-esim-' + id + '/', title: 'Смартфон Apple iPhone 17 8 Гб/256 Гб розовый (E-Sim)', price: 73990 },
+  ]
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'lavender-index-' + categoryId }],
+    products: [{ oneCId: id, sku: 'LAVENDER-' + id, slug: 'lavender-' + id,
+      name: productName, brand: 'Apple', categoryOneCId: categoryId, price: 84900, stockQty: 1 }],
+  })
+  // Simulate the pre-fix persisted index: Russian colour synonyms were not
+  // canonicalized. The new comparison normalizes TITLES, not old index rows.
+  for (const variant of variants) {
+    await prisma.competitorCatalogEntry.create({
+      data: { externalUrl: variant.url, title: variant.title,
+        model: 'iphone 17', storage: '256',
+        color: variant.title.includes('фиолетовый') ? 'purple' : 'pink', lastSeenAt: new Date() },
+    })
+  }
+  const opened = []
+  const results = new Map(variants.map(variant => [variant.url, {
+    url: variant.url, name: variant.title, brand: 'Apple',
+    attributes: identity({ name: variant.title, brand: 'Apple' }),
+    categoryName: 'Смартфоны', price: variant.price, inStock: true, seller: '05.ru',
+  }]))
+  const parser = {
+    parse: async url => { opened.push(url); return results.get(url) },
+    searchProducts: async () => { throw new Error('Index should find the verified variant before live search') },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath, maxItems: 1 })
+  await monitor.tick()
+  const completed = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(completed.status, 'COMPLETED')
+  assert.equal(completed.errors, 0, completed.lastError || '')
+  assert.equal(completed.processed, 1)
+  assert(opened.includes(variants[0].url))
+  assert(opened.includes(variants[1].url))
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  const linked = await prisma.competitorProduct.findMany({
+    where: { source: { key: '05ru' }, productId: product.id, matchStatus: 'CONFIRMED' },
+  })
+  assert.equal(linked.length, 1)
+  assert(variants.some(variant => variant.url === linked[0].externalUrl))
+  assert.equal(product.price, 84900)
+})
+
 test('iPhone 17 Air in 1C safely matches the officially named iPhone Air on 05.ru', () => {
   const oursWhite = { name: 'Смартфон Apple iPhone 17 Air 256 Гб белый', brand: 'Apple' }
   const oursBlack = { name: 'Смартфон Apple iPhone 17 Air 256 Гб черный', brand: 'Apple' }

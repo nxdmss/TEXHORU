@@ -69,10 +69,13 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   const searchColor: Record<string, string> = {
     black: 'черный', white: 'белый', blue: 'синий', gray: 'серый',
     silver: 'серебристый', gold: 'золотой', green: 'зеленый',
-    pink: 'розовый', purple: 'фиолетовый', orange: 'оранжевый',
+    pink: 'розовый', purple: 'фиолетовый', lavender: 'розовый', orange: 'оранжевый',
   }
   const byColor = parsed.color
     ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
+    : undefined
+  const alternateLavender = model === 'iphone 17' && parsed.color === 'lavender'
+    ? [parsed.brand, modelWithoutBrand, parsed.storage, 'фиолетовый'].filter(Boolean).join(' ')
     : undefined
   // 05.ru writes "iPhone 16e" as one token, while 1C often normalizes
   // it to "iPhone 16 e". Search both spellings; otherwise the live search
@@ -84,7 +87,7 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     ? [parsed.brand, compactModelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
     : undefined
   return [...new Set([
-    byColor, compactByColor,
+    byColor, compactByColor, alternateLavender,
     model + (parsed.storage ? ' ' + parsed.storage : ''),
     compactModel + (parsed.storage ? ' ' + parsed.storage : ''),
     model, compactModel,
@@ -103,6 +106,33 @@ export function isExpectedReviewOutcome(message: string) {
     || text.includes('не найдено точное соответствие')
     || text.includes('найдено несколько сохранённых карточек')
     || text.includes('товар исключён из выбранного раздела')
+}
+
+type RankedMatch = { check: ReturnType<typeof compareItems> }
+
+// Consistent decision rule for BOTH the saved 05.ru category index and live
+// search. A full-variant match must already be verified before calling this.
+function hasDecisiveWinner<T extends RankedMatch>(ranked: T[]): boolean {
+  if (ranked.length < 2) return ranked.length === 1
+  if (ranked[0].check.score - ranked[1].check.score >= 10) return true
+  const ours = ranked[0].check.ours
+  if (ours.kind !== 'smartphone' || ours.sim) return false
+  const simProfiles = new Set(ranked.map(row => row.check.theirs.sim || 'unspecified'))
+  if (simProfiles.size < 2) return false
+  // Make the choice only if the verified offers differ in SIM information.
+  // Missing RAM/condition, another colour, storage or an alternative SKU
+  // prevents an automatic decision.
+  const identities = new Set(ranked.map(row => {
+    const item = row.check.theirs
+    return JSON.stringify({
+      brand: item.brand, model: canonicalModel(item.model), productCode: item.productCode,
+      storage: item.storage, ram: item.ram, color: item.color,
+      cpu: item.cpu, gpu: item.gpu, screenSize: item.screenSize, wattage: item.wattage,
+      gtin: item.gtin, mpn: item.mpn, condition: item.condition, kind: item.kind,
+      compatibleBrand: item.compatibleBrand,
+    })
+  }))
+  return identities.size === 1
 }
 
 @Injectable()
@@ -604,17 +634,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (!verified.length) return false
 
     const exact = verified.filter(item => item.check.canAutoConfirm)
+      .sort((a, b) => b.check.score - a.check.score)
     const source = await this.source()
-    if (exact.length === 1) {
-      // The index is only a discovery hint; the product page was re-read and
-      // the complete hardware configuration was checked above. Persist the
-      // unique exact mapping as confirmed, not as another review suggestion.
+    // Same decision policy as live search. An indexed model/colour/SIM match
+    // should not remain stuck in review just because there are two offers.
+    if (exact.length && hasDecisiveWinner(exact)) {
       await this.save(exact[0].result, source.id, product.id, false, true)
       return true
     }
     if (exact.length > 1) {
-      // Multiple exact IDs are still multiple offers; never auto-pick one.
-      for (const option of verified.slice(0, 3)) {
+      for (const option of exact.slice(0, 3)) {
         await this.save(option.result, source.id, undefined, true)
       }
       return true
@@ -1295,30 +1324,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 throw new Error('' + source.name + ': нет подтверждённого совпадения для ' + product.name +
                   '. Поиск: ' + summary + '. ' + reason)
               }
-              // Be decisive when 1C omits SIM type: if otherwise complete,
-              // conflict-free phone candidates differ only by SIM profile, choose
-              // the highest-ranked 05.ru offer instead of rejecting every candidate.
-              // Explicit SIM data in 1C still filters incompatible variants out.
-              const simProfiles = new Set(ranked.map(row => row.check.theirs.sim || 'unspecified'))
-              const nonSimProfiles = new Set(ranked.map(row => {
-                const item = row.check.theirs
-                return JSON.stringify({
-                  brand: item.brand, model: canonicalModel(item.model), productCode: item.productCode,
-                  storage: item.storage, ram: item.ram, color: item.color,
-                  cpu: item.cpu, gpu: item.gpu, screenSize: item.screenSize, wattage: item.wattage,
-                  gtin: item.gtin, mpn: item.mpn, condition: item.condition, kind: item.kind,
-                  compatibleBrand: item.compatibleBrand,
-                })
-              }))
-              const simVariantDecision = requestedKind === 'smartphone'
-                && ranked.length > 1
-                && !ranked[0].check.ours.sim
-                && simProfiles.size > 1
-                && nonSimProfiles.size === 1
-              const scoreGap = ranked.length > 1
-                ? ranked[0].check.score - ranked[1].check.score
-                : Number.POSITIVE_INFINITY
-              const hasClearWinner = ranked.length === 1 || scoreGap >= 10 || simVariantDecision
+              const hasClearWinner = hasDecisiveWinner(ranked)
 
               // If the alternatives are genuinely close and cannot be separated
               // by the known 1C identity or the SIM fallback above, keep review.

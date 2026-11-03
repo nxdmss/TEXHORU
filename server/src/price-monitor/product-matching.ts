@@ -20,7 +20,8 @@ export function normalize(value: string) {
 const colors: Array<[RegExp, string]> = [
   [/cosmic orange|orange|оранж\w*/i, 'orange'], [/deep blue|blue|син\w*|голуб\w*/i, 'blue'],
   [/black|черн\w*/i, 'black'], [/white|бел\w*/i, 'white'], [/silver|сереб\w*/i, 'silver'],
-  [/gold|золот\w*/i, 'gold'], [/green|зелен\w*/i, 'green'], [/purple|фиолет\w*/i, 'purple'],
+  [/gold|золот\w*/i, 'gold'], [/green|зелен\w*/i, 'green'], [/lavend(?:er|ar)|лаванд\w*|лавенд\w*/i, 'lavender'],
+  [/purple|фиолет\w*/i, 'purple'],
   [/pink|розов\w*/i, 'pink'], [/transparent|прозрачн\w*/i, 'transparent'], [/gray|grey|серый|серая/i, 'gray'],
 ]
 
@@ -176,7 +177,15 @@ export function identity(item: Item): Identity {
   // false variant mismatches. Only explicit body/phone colour is authoritative.
   const colorName = text.replace(/\bgreen lion\b/g, '').replace(/\bgreen(?=\s+(?:9h|3d)\b)/g, '')
   const colorText = attrs.color || spec(/^(?:цвет|цвет корпуса|основной цвет|цвет устройства|цвет телефона|color|body color)$/i) || colorName
-  const color = colors.find(([re]) => re.test(colorText))?.[1] || (attrs.color ? normalize(attrs.color) : undefined)
+  const observedColor = colors.find(([re]) => re.test(colorText))?.[1]
+    || (attrs.color ? normalize(attrs.color) : undefined)
+  // The standard iPhone 17 has a Lavender finish but no separate Pink or
+  // Purple finish. Russian storefronts call Lavender "розовый" or
+  // "фиолетовый". Limit this equivalence to the base iPhone 17, so Pro,
+  // other generations, and accessories never silently swap colours.
+  const color = normalize(model || '') === 'iphone 17'
+    && ['lavender', 'purple', 'pink'].includes(observedColor || '')
+    ? 'lavender' : observedColor
   const simText = normalize(attrs.sim || spec(/тип sim|сим|sim карт/i) || text)
   const hasEsim = /e\s*sim|esim/.test(simText)
   const physical = /nano\s*sim|physical|физическ|\bsim\s*(?:\+|и)?\s*e\s*sim/.test(simText)
