@@ -77,7 +77,7 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   // The first query should reflect 1C's explicit SIM requirement instead of
   // repeatedly requesting only a broad model+capacity search.
   const bySim = parsed.sim === 'esim' || parsed.sim === 'physical+esim'
-    ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color], 'e sim'].filter(Boolean).join(' ')
+    ? [parsed.brand, modelWithoutBrand, parsed.storage, parsed.color ? searchColor[parsed.color] : undefined, 'e sim'].filter(Boolean).join(' ')
     : undefined
   const alternateLavender = model === 'iphone 17' && parsed.color === 'lavender'
     ? [parsed.brand, modelWithoutBrand, parsed.storage, 'фиолетовый'].filter(Boolean).join(' ')
