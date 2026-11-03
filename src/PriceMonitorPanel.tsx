@@ -239,8 +239,12 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     await run('match', async () => {
       const number = Math.min(5000, phones.length)
       if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
-      const job = await api.monitorAutoFindOneC(displayPath, number, true, false, true, '05ru')
-      setNotice('05.ru: индекс смартфонов и сопоставление с 1С. Запущено связей: ' + job.queued + '.')
+      const needsCatalogIndex = number > 40
+      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru')
+      setNotice((needsCatalogIndex
+        ? '05.ru: общий индекс смартфонов и сопоставление с 1С. '
+        : '05.ru: быстрый поиск без полного обхода каталога. ')
+        + 'Запущено проверок: ' + job.queued + '.')
     })
   }
 
@@ -441,7 +445,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Запуск…' : 'Первичное сопоставление с 05.ru (' + phones.length + ')'}</button>
       <input aria-label="Поиск товара" placeholder="Поиск по товару…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Тестовый режим: только 05.ru. Сначала индекс смартфонов, затем сопоставление с 1С. Спорные варианты проверяются вручную; цены не меняются автоматически.</p>
+    <p className="mp-helper">Тестовый режим: только 05.ru. До 40 товаров: быстрый поиск без обхода всего каталога. Большие партии: общий индекс смартфонов. Спорные варианты проверяются вручную; цены не меняются автоматически.</p>
     <label className="mp-schedule">
       <input type="checkbox" checked={intervalMinutes > 0} disabled={!settingsReady || Boolean(busy) || Boolean(active)}
         onChange={e => void setAutomaticChecks(e.target.checked)}/>

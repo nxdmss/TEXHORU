@@ -10,6 +10,9 @@ import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
+// Small 1C batches should not read 50 catalog pages before matching.
+const FAST_MATCH_MAX_ITEMS = 40
+
 // Temporary 05.ru-only testing. Retain historical DNS and M.Video data.
 const ENABLED_STORE_KEYS: StoreKey[] = ['05ru']
 function requireEnabledStore(key: StoreKey) {
@@ -949,7 +952,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const eligible = results.reduce((sum, result) => sum + result.eligible, 0)
     if (!queued) throw new BadRequestException('Нет непривязанных товаров для выбранных источников. Проверь импорт 1С и существующие связи.')
     const fiveRuBatch = results.find(result => result.sourceKey === '05ru')
-    if (dto.indexCatalog === true && fiveRuBatch?.hasSmartphones) {
+    // Index creation is worthwhile only for large 1C imports.
+    if (dto.indexCatalog === true && fiveRuBatch?.hasSmartphones
+      && fiveRuBatch.queued > FAST_MATCH_MAX_ITEMS) {
       await this.ensureIndexJob()
     }
     if (sourceKeys.length === 1) {
@@ -1121,8 +1126,22 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           data: { nextRunAt: new Date(Date.now() + setting.intervalMinutes * 60000) },
         })
       }
-      // Build the persistent 05.ru smartphone index before running 1C matching.
-      // The matcher then searches local candidates; live search remains a fallback.
+      // Older releases queued a 50-page scan even for 1-13 products. Cancel
+      // ONLY a zero-progress index when a small match batch is queued.
+      const smallBatch = await this.prisma.monitorJob.findFirst({
+        where: { kind: 'MATCH_1C', sourceKey: '05ru', status: 'QUEUED',
+          perPage: { lte: FAST_MATCH_MAX_ITEMS } },
+        select: { id: true },
+      })
+      if (smallBatch) {
+        await this.prisma.monitorJob.updateMany({
+          where: { kind: 'INDEX_05RU_SMARTPHONES', sourceKey: '05ru',
+            status: { in: ['QUEUED', 'RUNNING'] }, page: 0 },
+          data: { status: 'CANCELLED', leaseUntil: null, finishedAt: now,
+            lastError: 'Полный обход пропущен: малая партия 1С обрабатывается быстрым поиском.' },
+        })
+      }
+      // The persistent index remains useful for large 1C imports.
       const indexJob = await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED', kind: { in: ['INDEX_05RU_SMARTPHONES', 'INDEX_05RU'] } },
         orderBy: { createdAt: 'asc' },
@@ -1246,10 +1265,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
               const requestedKind = identity(product).kind
-              // A finished persistent index already supplied category candidates.
-              // Search only the store's live search pages on an index miss.
+              // A small batch must not trigger a hidden 50-page crawl within
+              // EACH query. Use saved index hints and direct search immediately.
               const indexedCatalogReady = requestedKind === 'smartphone'
-                && sourceKey === '05ru' && await this.hasCompletedSmartphoneIndex()
+                && sourceKey === '05ru'
+                && ((job.perPage || 0) <= FAST_MATCH_MAX_ITEMS
+                  || await this.hasCompletedSmartphoneIndex())
               let cleanSearches = 0
               const exactSeenAcrossQueries = new Map<string, number>()
               for (const query of oneCSearchQueries(product)) {

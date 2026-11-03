@@ -2184,6 +2184,55 @@ test('05.ru smartphone index reads the public smartphone category with observed 
   } finally { await parser.onModuleDestroy() }
 })
 
+test('Small 1C batch skips full 50-page crawl and cancels legacy empty index', async () => {
+  await prisma.monitorJob.updateMany({
+    where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date(), leaseUntil: null },
+  })
+  const id = randomUUID(), categoryId = randomUUID()
+  const categoryPath = 'FAST SMALL BATCH ' + id
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'fast-small-' + categoryId }],
+    products: [{ oneCId: id, sku: 'FAST-SMALL-' + id, slug: 'fast-small-' + id,
+      name: 'Смартфон Apple iPhone 99 Pro 256 Гб синий', brand: 'Apple',
+      categoryOneCId: categoryId, price: 99900, stockQty: 1 }],
+  })
+  const searches = [], indexReads = []
+  const parser = {
+    indexSmartphoneCatalogPage: async page => {
+      indexReads.push(page)
+      throw new Error('Small batch must not read catalog pages')
+    },
+    searchProducts: async (...args) => {
+      searches.push(args)
+      return []
+    },
+  }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const task = await monitor.autoFindOneCSection({ categoryPath, maxItems: 13, indexCatalog: true })
+  assert.equal(task.queued, 1)
+  assert.equal(await prisma.monitorJob.count({
+    where: { status: 'QUEUED', kind: 'INDEX_05RU_SMARTPHONES' },
+  }), 0, 'No full index is created for small batches')
+  // Simulate a previous TEXHORU build having left a 0/50 job pending.
+  const oldIndex = await prisma.monitorJob.create({
+    data: { kind: 'INDEX_05RU_SMARTPHONES', sourceKey: '05ru',
+      url: 'https://05.ru/cat/mc/396f7486/smartfony/',
+      page: 0, maxPages: 50, perPage: 24, processed: 0 },
+  })
+  await monitor.tick()
+  const skipped = await prisma.monitorJob.findUniqueOrThrow({ where: { id: oldIndex.id } })
+  assert.equal(skipped.status, 'CANCELLED')
+  assert.deepEqual(indexReads, [])
+  assert(searches.length > 0, 'Direct search should start on first tick')
+  assert(searches.every(args => args[4] === true), 'No hidden 50-page crawl per query')
+  const done = await prisma.monitorJob.findUniqueOrThrow({ where: { id: task.id } })
+  assert.equal(done.status, 'COMPLETED')
+  assert.equal(done.processed, 1)
+  assert.equal(done.errors, 0)
+})
+
 test('Bulk 1C matching builds a persistent 05.ru smartphone index before local matching', async () => {
   await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
     data: { status: 'CANCELLED', finishedAt: new Date() } })
