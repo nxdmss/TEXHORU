@@ -125,6 +125,7 @@ model Product {
   updatedAt    DateTime      @updatedAt
   orderItems   OrderItem[]
   competitorLinks CompetitorProduct[]
+  matchOutcomes ProductMatchOutcome[]
 
   @@index([categoryId, status])
   @@index([brand])
@@ -286,6 +287,19 @@ model CompetitorProduct {
 
 // Discovered public catalog titles and URLs. No unverified price is stored here.
 // Durable across application restarts; never mixed with verified price observations.
+// Per-1C-product outcome. NO_MATCH suppresses future automatic discovery.
+model ProductMatchOutcome {
+  productId Int
+  sourceKey String
+  status String @default("PENDING")
+  reason String?
+  checkedAt DateTime @default(now())
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, sourceKey])
+  @@index([sourceKey, status])
+}
+
 model CompetitorCatalogEntry {
   id          String   @id @default(cuid())
   externalUrl String   @unique
