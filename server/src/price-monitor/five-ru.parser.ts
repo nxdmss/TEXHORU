@@ -52,7 +52,10 @@ function objectName(value: unknown) { return typeof value === 'string' ? value :
 export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuResult {
   const all = ldObjects(snapshot.scripts)
   const products = all.filter(o => byType(o, 'Product'))
-  const product = products.find(o => normalize(String(o.name || '')) === normalize(snapshot.h1)) || (!snapshot.h1 && products.length === 1 ? products[0] : undefined)
+  const product = products.find(o => normalize(String(o.name || '')) === normalize(snapshot.h1))
+    // 05.ru occasionally uses different H1 and official Product JSON-LD titles.
+    // A single Product object is unambiguous; multiple objects require an H1 match.
+    || (products.length === 1 ? products[0] : undefined)
   const name = snapshot.h1 || String(product?.name || '')
   if (!name) throw new Error('Не найдено название основной карточки')
   const offers = Array.isArray(product?.offers) ? product.offers as JsonObject[] : product?.offers && typeof product.offers === 'object' ? [product.offers as JsonObject] : []
@@ -497,15 +500,17 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
               trace.searchMode = catalogUsed ? 'direct+smartphone-catalog' : 'direct-search'
               trace.catalogLinksFound = catalogLinksFound
             }
-            urls = rankSearchLinks(unique, text, limit)
-            if (trace) trace.rankingMode = 'strict'
-            // Strict ranking is the automatic-link safety gate, not a reason
-            // to stop discovery. If it returns nothing, inspect the closest
-            // phone-family candidates and validate their real H1/specs later.
-            if (!urls.length && identity({ name: text }).kind === 'smartphone') {
-              urls = rankSearchLinksForInspection(unique, text, limit)
-              if (urls.length && trace) {
-                trace.rankingMode = 'recall-inspection'
+            // Blend broad same-model discovery EVEN IF strict ranking found a
+            // few tiles. Strict discovery can find a wrong variant and silently
+            // hide the correct one otherwise. Full H1/specs still decide links.
+            const strict = rankSearchLinks(unique, text, limit)
+            const expanded = identity({ name: text }).kind === 'smartphone'
+              ? rankSearchLinksForInspection(unique, text, limit) : []
+            urls = [...new Set([...strict, ...expanded])].slice(0, limit)
+            if (trace) {
+              trace.rankingMode = !strict.length && expanded.length ? 'recall-inspection'
+                : expanded.length ? 'strict+recall' : 'strict'
+              if (expanded.some(link => !strict.includes(link))) {
                 trace.searchMode = (trace.searchMode || 'direct-search') + '+recall'
               }
             }
@@ -543,7 +548,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
               }
             }
           }
-          const workers = await Promise.allSettled(Array.from({ length: Math.min(3, urls.length) }, () => collect()))
+          const workers = await Promise.allSettled(Array.from({ length: Math.min(2, urls.length) }, () => collect()))
           const failed = workers.find(worker => worker.status === 'rejected')
           if (failed?.status === 'rejected') throw failed.reason
           const results = slots.filter((result): result is FiveRuResult => Boolean(result))

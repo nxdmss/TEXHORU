@@ -1900,7 +1900,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(trace.searchPages, 1) // The mocked second page repeats page one and is ignored.
     assert.equal(opened[0], orange256) // not the first 1TB card in the feed
     assert.equal(cardOpens, 3)
-    assert.equal(maxActive, 3)
+    assert.equal(maxActive, 2)
     assert.equal(launches, 1)
     assert.equal(pageCloses, 1)
     assert.equal(new URL(navigations[0]).searchParams.get('q'), 'iPhone 17 Pro 256')
