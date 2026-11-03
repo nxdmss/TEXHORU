@@ -7,6 +7,11 @@ import { canonicalModel, compareItems } from './product-matching'
  */
 export class MatchingEngine {
   strongVariant(check: ReturnType<typeof compareItems>): boolean {
+    // Exact SKU/GTIN alone is not enough to certify laptop capacity.
+    // A notebook with a missing or different SSD must never auto-link.
+    const laptop = check.ours.kind === 'laptop' || check.theirs.kind === 'laptop'
+    if (laptop && (!check.ours.storage || !check.theirs.storage
+      || check.ours.storage !== check.theirs.storage)) return false
     if (check.exactId && !check.conflicts.length) return true
     const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
     const accessory = accessories.includes(check.ours.kind || '')

@@ -42,13 +42,23 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     // the untouched 1C title as a recall fallback.
     const code = parsed.productCode || parsed.mpn || parsed.model
     const byCode = [parsed.brand, code].filter(Boolean).join(' ')
-    const byHardware = [
+    const hardwareQuery = (capacity?: string) => [
       parsed.brand, parsed.cpu,
-      parsed.ram ? parsed.ram + 'gb' : undefined,
-      parsed.storage ? parsed.storage + 'gb' : undefined,
+      parsed.ram ? parsed.ram + 'gb' : undefined, capacity,
       parsed.screenSize ? parsed.screenSize + '"' : undefined,
     ].filter(Boolean).join(' ')
-    return [...new Set([byCode, byHardware, cleanName].filter(Boolean))].slice(0, 3)
+    const byHardware = hardwareQuery(parsed.storage ? parsed.storage + 'gb' : undefined)
+    const tbSizes: Record<string, string> = {
+      '1024': '1tb', '2048': '2tb', '4096': '4tb', '8192': '8tb',
+    }
+    const decimalSizes: Record<string, string> = {
+      '1024': '1000gb', '2048': '2000gb', '4096': '4000gb', '8192': '8000gb',
+    }
+    // Discover 1TB notebooks also listed as 1000 GB or 1024GB, but verify
+    // canonical SSD capacity on the actual card before any confirmation.
+    const byTerabytes = parsed.storage ? hardwareQuery(tbSizes[parsed.storage]) : ''
+    const byDecimal = parsed.storage ? hardwareQuery(decimalSizes[parsed.storage]) : ''
+    return [...new Set([byCode, byHardware, byTerabytes, byDecimal, cleanName].filter(Boolean))].slice(0, 5)
   }
   if (parsed.kind === 'smartwatch') {
     const focused = [parsed.brand, parsed.model].filter(Boolean).join(' ')
@@ -470,8 +480,22 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }
     const updated = compareItems(product, { name: fresh.name, brand: fresh.brand, attributes: fresh.attributes })
     if (!this.matching.strongVariant(updated)) {
+      // A previously confirmed 1 TB laptop must not retain a 512 GB link
+      // after a recheck. Demote BEFORE saving, so a price-change message
+      // cannot be queued using the obsolete confirmation.
+      await this.prisma.monitorDelivery.updateMany({
+        where: { linkId: saved[0].id, status: 'PENDING' },
+        data: { status: 'CANCELLED', lastError: 'Характеристики товара не совпадают с 1С' },
+      })
+      await this.prisma.competitorProduct.update({
+        where: { id: saved[0].id },
+        data: { matchStatus: 'REVIEW_REQUIRED', confirmedAt: null,
+          confirmedFingerprint: null, confirmedProductFingerprint: null },
+      })
       await this.save(fresh, source.id)
-      throw new Error(source.name + ': сохранённая карточка изменилась, совпадение требует проверки: ' + fresh.name)
+      throw new Error(source.name + ': сохранённая карточка изменилась, совпадение требует проверки: ' + fresh.name
+        + (updated.ours.kind === 'laptop' ? '. Проверь объём SSD: ' + (updated.ours.storage || '?')
+          + ' ГБ в 1С, ' + (updated.theirs.storage || '?') + ' ГБ у магазина.' : ''))
     }
     await this.save(fresh, source.id, product.id)
     return true
@@ -1042,10 +1066,35 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         if (item.status === 'rejected') throw item.reason
         // A user may have removed a link while the pages were loading.
         const linked = await this.prisma.competitorProduct.findUnique({
-          where: { externalUrl: url }, select: { productId: true, matchStatus: true },
+          where: { externalUrl: url },
+          select: { id: true, productId: true, matchStatus: true, product: true },
         })
         if (linked?.productId && linked.matchStatus === 'CONFIRMED') {
-          await this.save(item.value, source.id)
+          const verified = linked.product && compareItems(linked.product, {
+            name: item.value.name, brand: item.value.brand, attributes: item.value.attributes,
+            category: item.value.categoryName,
+          })
+          // Stop a legacy incorrect laptop link, even when the old card name
+          // and its old fingerprint have not changed since confirmation.
+          const diskMismatch = verified && verified.ours.kind === 'laptop'
+            && (!verified.ours.storage || !verified.theirs.storage
+              || verified.ours.storage !== verified.theirs.storage
+              || verified.conflicts.some(reason => reason.includes('память: название противоречит')))
+          if (diskMismatch) {
+            await this.prisma.monitorDelivery.updateMany({
+              where: { linkId: linked.id, status: 'PENDING' },
+              data: { status: 'CANCELLED', lastError: 'Несовпадение объёма SSD' },
+            })
+            await this.prisma.competitorProduct.update({
+              where: { id: linked.id },
+              data: { matchStatus: 'REVIEW_REQUIRED', confirmedAt: null,
+                confirmedFingerprint: null, confirmedProductFingerprint: null },
+            })
+            await this.save(item.value, source.id)
+            problems.push(url + ': объем SSD отличается от 1С, подтверждение снято')
+          } else {
+            await this.save(item.value, source.id)
+          }
         }
         processed++
       } catch (error) {

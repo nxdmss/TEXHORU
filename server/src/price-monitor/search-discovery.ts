@@ -171,6 +171,10 @@ export function rankSearchLinks(input: SearchLink[], query: string, limit = 18):
     if (requested.kind === 'smartphone' && /(?:^|\s)(?:чехол|стекло|пленка|бампер|кабель|адаптер|зарядное|защитное|case|cover|protector)(?=\s|$)/.test(combined)) return null
     if (requested.kind === 'smartphone' && requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
     if (requested.kind === 'laptop' && requested.brand && parsed.brand && requested.brand !== parsed.brand) return null
+    // Drop confidently wrong SSD variants BEFORE opening their product pages.
+    // One terabyte/1000GB/1024GB normalize to the same capacity.
+    if (requested.kind === 'laptop' && requestedStorage && parsed.storage
+      && requestedStorage !== parsed.storage) return null
     if (requested.compatibleBrand && parsed.compatibleBrand && !compatibleMatch) return null
 
     // A different laptop SKU in the same family is worth opening for review.

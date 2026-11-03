@@ -111,6 +111,41 @@ function graphicsIdentity(value: string) {
     || undefined
 }
 
+/**
+ * Manufacturer capacities use both decimal 1000 GB and binary 1024 GB to
+ * label the same 1 TB retail variant. Normalize only known marketing units.
+ * Do NOT equate 500 GB with 512 GB or otherwise round arbitrary disk sizes.
+ */
+const CAPACITY_RE = /(\d+(?:[.,]\d+)?)\s*(терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|[tт]|гигабайт[а-я]*|gigabytes?|gb|gib|гб)(?![\p{L}\p{N}])/giu
+const TERABYTE_RE = /^(?:терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|[tт])$/iu
+const BARE_CAPACITIES = new Set(['64','128','256','512','1000','1024','2000','2048','4000','4096','8000','8192'])
+
+export function canonicalStorageCapacity(value: string): string | undefined {
+  // Preserve decimal separators: normalize() removes punctuation.
+  const normalized = value.toLowerCase().replace(/ё/g, 'е').trim()
+  const values = [...normalized.matchAll(CAPACITY_RE)].map(match => {
+    const amount = Number(match[1].replace(',', '.'))
+    if (!Number.isFinite(amount) || amount <= 0) return null
+    const inGb = Math.round(amount * (TERABYTE_RE.test(match[2]) ? 1024 : 1))
+    return inGb >= 1000 && inGb % 1000 === 0 && inGb <= 16000
+      ? String(inGb / 1000 * 1024) : String(inGb)
+  }).filter((result): result is string => result !== null)
+  if (values.length) return new Set(values).size === 1 ? values[0] : undefined
+  return BARE_CAPACITIES.has(normalized) ? (normalized === '1000' ? '1024'
+    : normalized === '2000' ? '2048' : normalized === '4000' ? '4096'
+      : normalized === '8000' ? '8192' : normalized) : undefined
+}
+
+function labeledLaptopStorage(text: string): string | undefined {
+  // Both "SSD 1TB" and "1 Терабайт SSD" are common in 1C and 05.ru.
+  // A bare number is accepted only if it is a recognized disk capacity.
+  const forward = text.match(/(?:^|\s)(?:ssd|hdd|nvme|emmc|накопител[а-я]*|диск[а-я]*)\s+(\d+(?:[.,]\d+)?\s*(?:терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|[tт]|гигабайт[а-я]*|gigabytes?|gb|gib|гб)?)(?=\s|$)/iu)?.[1]
+  const reverse = text.match(/(?:^|\s)(\d+(?:[.,]\d+)?\s*(?:терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|[tт]|гигабайт[а-я]*|gigabytes?|gb|gib|гб))\s+(?:ssd|hdd|nvme|emmc|накопител[а-я]*|диск[а-я]*)(?=\s|$)/iu)?.[1]
+  const values = [forward, reverse].filter((v): v is string => !!v)
+    .map(canonicalStorageCapacity).filter((v): v is string => !!v)
+  return new Set(values).size === 1 ? values[0] : undefined
+}
+
 export function identity(item: Item): Identity {
   const rawName = item.name || ''
   const text = normalize((rawName + ' ' + (item.shortSpec || '')).replace(/\b([sa]\d{1,3})\+/gi, '$1 plus')).replace(/айфон/g, 'iphone').replace(/(?:^|\s)пм(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про макс(?=\s|$)/g, ' pro max').replace(/(?:^|\s)про(?=\s|$)/g, ' pro')
@@ -119,31 +154,45 @@ export function identity(item: Item): Identity {
   const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label.trim()))?.value
   const brandText = normalize(attrs.brand || item.brand || '')
   const kind = attrs.kind || productKind(item)
-  const units = (value: string) => {
-    const m = value.match(/(\d+(?:[.,]\d+)?)\s*(tb|тб|gb|гб)/i)
-    return m ? String(Math.round(Number(m[1].replace(',', '.')) * (/tb|тб/i.test(m[2]) ? 1024 : 1))) : undefined
-  }
+  const units = (value: string) => canonicalStorageCapacity(value)
   const memoryPair = specs.find(item => /память.*(?:озу|пзу)|(?:озу.*пзу)|ram.*rom|оперативн.*встроенн/i.test(item.label))
-  const pairValues = memoryPair?.value.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
-  const storageSpec = attrs.storage || spec(/встроенн|объем накоп|storage|пзу|rom/i)
-  const storageParts = storageSpec?.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
-  const storageText = storageParts.length > 1 ? storageParts.at(-1)
-    : storageSpec || (pairValues.length > 1 ? pairValues[1] : undefined)
-  const capacities = [...text.matchAll(/(\d+)\s*(gb|гб|tb|тб)/g)].map(m => units(m[0])!)
-  // 1C frequently uses 12/512 without a unit after the storage value.
-  // Do not apply this shortcut to iPhones: "iPhone 16 256" is model 16 +
-  // 256 GB storage, not 16 GB RAM + 256 GB storage.
+  const pairText = memoryPair?.value || ''
+  const pairValues = [...pairText.matchAll(CAPACITY_RE)].map(m => m[0])
+  if (!pairValues.length) pairValues.push(...(pairText.match(/\d+(?:[.,]\d+)?/g) || []))
+  const storageSpec = attrs.storage || spec(/встроенн|объем накоп|storage|пзу|rom|ssd|hdd|nvme|диск/i)
+  const storageFromSpec = storageSpec ? units(storageSpec) : undefined
+  const storageFromPair = pairValues.length > 1 ? units(pairValues.at(-1)!) : undefined
+  const capacities = [...text.matchAll(CAPACITY_RE)]
+    .map(m => units(m[0])).filter((v): v is string => !!v)
+  // In "1 TB SSD / 16 GB RAM" the LAST size is RAM; selecting it as SSD
+  // caused wrong 1TB -> 512GB links, particularly on marketplace cards.
+  const diskStorage = kind === 'laptop' ? labeledLaptopStorage(text) : undefined
   const compactMemory = /iphone/.test(text) ? null
-    : text.match(/\b(?:4|6|8|12|16|18|24|32)\s+(128|256|512|1024)(?:\s*(?:gb|гб|tb|тб))?\b/)
-  const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1024)\b/)?.[1]
+    : text.match(/\b(?:4|6|8|12|16|18|24|32|36|48|64)\s+(128|256|512|1000|1024|2000|2048|4000|4096)(?:\s*(?:gb|гб|tb|тб))?\b/)
+  const bareStorage = /iphone/.test(text) ? text.match(/\b(128|256|512|1000|1024)\b/)?.[1]
     : /xiaomi|redmi|poco|galaxy|samsung|honor|huawei|pixel|realme|oneplus|tecno|infinix|nothing/.test(text) ? compactMemory?.[1] : undefined
-  const storage = storageText ? units(storageText) || (/^\d+$/.test(storageText) ? storageText : undefined) : capacities.length ? capacities.at(-1) : bareStorage
+  const laptopCapacities = [...new Set(capacities.filter(size => Number(size) >= 64))]
+  const storage = kind === 'laptop'
+    ? storageFromSpec || diskStorage || storageFromPair
+      || (laptopCapacities.length === 1 ? laptopCapacities[0] : undefined)
+      || (laptopCapacities.length === 0 && compactMemory ? units(compactMemory[1]) : undefined)
+    : storageFromSpec || storageFromPair || (capacities.length ? capacities.at(-1) : units(bareStorage || '') || bareStorage)
   const ramSpec = attrs.ram || spec(/оперативн|ram|озу/i)
-  const ramParts = ramSpec?.match(/\d+(?:[.,]\d+)?\s*(?:gb|гб|tb|тб)?/gi) || []
+  const ramParts = ramSpec ? [...ramSpec.matchAll(CAPACITY_RE)].map(m => m[0]) : []
   const ramText = ramParts.length > 1 ? ramParts[0] : ramSpec || (pairValues.length > 1 ? pairValues[0] : undefined)
+  const namedRam = kind === 'laptop' ? (
+    text.match(/(?:^|\s)(?:ram|озу|оперативн[а-я]*)\s+(\d+(?:[.,]\d+)?\s*(?:gb|гб|gigabytes?|гигабайт[а-я]*)?)(?=\s|$)/iu)?.[1]
+    || text.match(/(?:^|\s)(\d+(?:[.,]\d+)?\s*(?:gb|гб|gigabytes?|гигабайт[а-я]*))\s+(?:ram|озу|оперативн[а-я]*)(?=\s|$)/iu)?.[1]
+  ) : undefined
+  const compactRam = compactMemory?.[0].match(/^(4|6|8|12|16|18|24|32|36|48|64)\b/)?.[1]
+  const slashRam = kind === 'laptop'
+    ? rawName.match(/(?:^|[^\d])(4|6|8|12|16|18|24|32|36|48|64)\s*\/\s*(?:\d+(?:[.,]\d+)?\s*(?:тб|tb|терабайт[а-я]*|gb|гб|гигабайт[а-я]*)|128|256|512|1000|1024|2000|2048|4000|4096)/iu)?.[1]
+    : undefined
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
-    : capacities.length > 1 ? capacities[0]
-    : compactMemory ? compactMemory[0].match(/^(4|6|8|12|16|18|24|32)\b/)?.[1] : undefined
+    : namedRam ? units(namedRam) || (/^\d+$/.test(namedRam) ? namedRam : undefined)
+    : capacities.length > 1
+      ? kind === 'laptop' ? capacities.find(n => Number(n) <= 64) : capacities[0]
+    : compactRam || slashRam
   const partNumberSource = [rawName, attrs.productCode, item.mpn,
     spec(/part number|p\/n|код производителя|артикул производителя|модель производителя/i)]
     .filter(Boolean).join(' ')
@@ -335,7 +384,10 @@ export function compareItems(ours: Item, theirs: Item) {
   )
   return {
     score, reasons, conflicts, missing, exactId,
-    canAutoConfirm: Boolean(!conflicts.length && (exactId || phoneVariantComplete || laptopVariantComplete)),
+    // Even an identical GTIN/part-number cannot override different (or
+    // unknown) laptop SSD capacities. Confirmed links drive price decisions.
+    canAutoConfirm: Boolean(!conflicts.length && (!laptop || (a.storage && b.storage && a.storage === b.storage))
+      && (exactId || phoneVariantComplete || laptopVariantComplete)),
     ours: a, theirs: b,
   }
 }
@@ -363,6 +415,17 @@ export function manualConfirmationBlockers(ours: Item, theirs: Item): string[] {
   }
   if (a.compatibleBrand && b.compatibleBrand && a.compatibleBrand !== b.compatibleBrand) {
     blockers.add('совместимость')
+  }
+  if (kind === 'laptop') {
+    // Manual confirmation must not create a 512 GB price source for a 1 TB
+    // notebook. If the seller omits its disk capacity, ask for verification.
+    if (!a.storage || !b.storage) blockers.add('объем SSD не определен')
+    else if (a.storage !== b.storage) blockers.add('объем SSD отличается')
+    if (nameA.storage && a.storage && nameA.storage !== a.storage)
+      blockers.add('объем SSD в названии 1С противоречит характеристикам')
+    if (nameB.storage && b.storage && nameB.storage !== b.storage)
+      blockers.add('объем SSD на 05.ru противоречит характеристикам')
+    if (a.ram && b.ram && a.ram !== b.ram) blockers.add('ОЗУ отличается')
   }
   if (['smartphone', 'laptop'].includes(kind || '')) {
     if (nameA.brand && a.brand && nameA.brand !== a.brand) blockers.add('бренд в названии 1С противоречит характеристикам')

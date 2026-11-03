@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process')
 const { randomUUID } = require('node:crypto')
 const { PrismaClient } = require('@prisma/client')
 const { chromium } = require('playwright')
-const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate, manualConfirmationBlockers, canonicalModel } = require('../dist/price-monitor/product-matching')
+const { compareItems, identity, fingerprint, validGtin, recommendation, reviewCandidate, manualConfirmationBlockers, canonicalModel, canonicalStorageCapacity } = require('../dist/price-monitor/product-matching')
 const { extractFiveRu, fiveRuUrl, priceNumber, FiveRuParser } = require('../dist/price-monitor/five-ru.parser')
 const { PriceMonitorService, oneCSearchQueries, isExpectedReviewOutcome } = require('../dist/price-monitor/price-monitor.service')
 const { MatchingEngine } = require('../dist/price-monitor/matching-engine')
@@ -446,6 +446,154 @@ test('HONOR MagicBook X14 Plus is recognized as a laptop model and exact hardwar
   const same = compareItems(ours, listed)
   assert.deepEqual(same.conflicts, [], JSON.stringify(same))
   assert.equal(same.canAutoConfirm, true)
+})
+
+test('Laptop SSD capacities recognize all terabyte aliases without equating 512GB', () => {
+  for (const token of [
+    '1TB', '1 Tb', '1T', '1 ТБ', '1 Тб', '1 Т', '1 Терабайт', '1 терабайта',
+    '1 терабайтов', '1000GB', '1000 ГБ', '1000 гигабайт', '1024GB',
+    '1024 Гб', 'SSD 1TB', 'SSD/1000GB',
+  ]) {
+    assert.equal(canonicalStorageCapacity(token), '1024', token)
+  }
+  assert.equal(canonicalStorageCapacity('2 терабайта'), '2048')
+  assert.equal(canonicalStorageCapacity('2000 ГБ'), '2048')
+  assert.equal(canonicalStorageCapacity('0,5 TB'), '512')
+  assert.equal(canonicalStorageCapacity('512GB'), '512')
+  assert.equal(canonicalStorageCapacity('500GB'), '500')
+  assert.notEqual(canonicalStorageCapacity('500GB'), canonicalStorageCapacity('512GB'))
+
+  const ours = {
+    name: 'Ноутбук Apple MacBook Air 13 M4 16GB SSD 1 ТБ Silver',
+    brand: 'Apple',
+  }
+  const yours = identity(ours)
+  assert.equal(yours.kind, 'laptop')
+  assert.equal(yours.ram, '16')
+  assert.equal(yours.storage, '1024')
+  for (const title of [
+    'Ноутбук Apple MacBook Air 13 M4 16GB 1TB SSD Silver',
+    'Ноутбук Apple MacBook Air 13 M4 16GB SSD 1000ГБ Silver',
+    'Ноутбук Apple MacBook Air 13 M4 16GB/1024GB SSD Silver',
+    'Ноутбук Apple MacBook Air 13 M4 16GB SSD 1 терабайт Silver',
+    'Ноутбук Apple MacBook Air 13 M4 16GB 1T SSD Silver',
+    'Ноутбук Apple MacBook Air 13 M4 SSD 1024 16GB RAM Silver',
+  ]) {
+    const matched = compareItems(ours, { name: title, brand: 'Apple' })
+    assert.equal(matched.theirs.storage, '1024', title)
+    assert.equal(matched.theirs.ram, '16', title)
+    assert.deepEqual(matched.conflicts, [], title + ' ' + JSON.stringify(matched))
+    assert.equal(matched.canAutoConfirm, true, title)
+  }
+  // Capacity role labels beat input order. 16GB RAM at the end is not an SSD.
+  const reversed = identity({ name: 'Ноутбук MacBook Air 13 M4 1TB SSD 16GB RAM Silver' })
+  assert.equal(reversed.storage, '1024')
+  assert.equal(reversed.ram, '16')
+  const specs = identity({
+    name: 'Ноутбук MacBook Air 13 M4 16GB Silver',
+    specs: [{ label: 'Объем SSD', value: '1000 ГБ' }, { label: 'Оперативная память', value: '16 ГБ' }],
+  })
+  assert.equal(specs.storage, '1024')
+
+  const wrong = compareItems(ours, {
+    name: 'Ноутбук Apple MacBook Air 13 M4 16GB SSD 512GB Silver', brand: 'Apple',
+  })
+  assert(wrong.conflicts.includes('память'), JSON.stringify(wrong))
+  assert.equal(wrong.canAutoConfirm, false)
+  assert.equal(new MatchingEngine().strongVariant(wrong), false)
+  assert(manualConfirmationBlockers(ours, { name: 'MacBook Air 13 M4 16GB SSD 512GB' })
+    .includes('объем SSD отличается'))
+  const missing = compareItems(ours, {
+    name: 'Ноутбук Apple MacBook Air 13 M4 16GB Silver', brand: 'Apple',
+  })
+  assert.equal(missing.theirs.storage, undefined)
+  assert.equal(missing.canAutoConfirm, false)
+  assert(manualConfirmationBlockers(ours, { name: 'Ноутбук Apple MacBook Air 13 M4 16GB Silver' })
+    .includes('объем SSD не определен'))
+})
+
+test('Exact laptop article or barcode never overrides a different/unknown SSD', () => {
+  const ours = {
+    name: 'Ноутбук Acer Aspire AL15-31P-C1CS N4500/8GB/1TB SSD',
+    brand: 'Acer', gtin: '4006381333931',
+  }
+  const wrong = {
+    name: 'Ноутбук Acer Aspire AL15-31P-C1CS N4500/8GB/512GB SSD',
+    brand: 'Acer', gtin: '4006381333931',
+  }
+  const exactIdWrongStorage = compareItems(ours, wrong)
+  assert.equal(exactIdWrongStorage.exactId, true)
+  assert.equal(exactIdWrongStorage.canAutoConfirm, false)
+  assert.equal(new MatchingEngine().strongVariant(exactIdWrongStorage), false)
+  assert(manualConfirmationBlockers(ours, wrong).includes('объем SSD отличается'))
+  const unknown = compareItems(ours, {
+    name: 'Ноутбук Acer Aspire AL15-31P-C1CS N4500/8GB',
+    brand: 'Acer', gtin: '4006381333931',
+  })
+  assert.equal(unknown.exactId, true)
+  assert.equal(unknown.canAutoConfirm, false)
+  assert.equal(new MatchingEngine().strongVariant(unknown), false)
+  assert.deepEqual(
+    rankSearchLinks([
+      { url: 'https://05.ru/cat/laptops/p/macbook-air-m4-16-gb-512-gb-1/', title: 'Ноутбук Apple MacBook Air 13 M4 16GB 512GB SSD Silver' },
+      { url: 'https://05.ru/cat/laptops/p/macbook-air-m4-16-gb-1-tb-2/', title: 'Ноутбук Apple MacBook Air 13 M4 16GB 1TB SSD Silver' },
+    ], 'Ноутбук Apple MacBook Air 13 M4 16GB 1ТБ SSD Silver'),
+    ['https://05.ru/cat/laptops/p/macbook-air-m4-16-gb-1-tb-2/'],
+  )
+  const queries = oneCSearchQueries({
+    name: 'Ноутбук Apple MacBook Air 13 M4 16GB SSD 1TB Silver', brand: 'Apple',
+  })
+  assert(queries.some(q => q.includes('1024gb')), JSON.stringify(queries))
+  assert(queries.some(q => q.includes('1tb')), JSON.stringify(queries))
+  assert(queries.some(q => q.includes('1000gb')), JSON.stringify(queries))
+})
+
+test('Six-hour recheck demotes an old confirmed 1TB-to-512GB notebook link', async () => {
+  await prisma.monitorJob.updateMany({
+    where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', finishedAt: new Date(), leaseUntil: null },
+  })
+  const uuid = randomUUID(), cat = randomUUID()
+  const oneCName = 'Ноутбук Apple MacBook Air 13 M4 16GB SSD 1ТБ Silver'
+  const candidateName = 'Ноутбук Apple MacBook Air 13 M4 16GB SSD 512GB Silver'
+  const competitorUrl = 'https://05.ru/cat/laptops/p/macbook-air-13-m4-16-512-' + uuid + '/'
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: cat, name: 'NOTEBOOK SSD GUARD ' + uuid, slug: 'ssd-guard-' + cat }],
+    products: [{ oneCId: uuid, categoryOneCId: cat, name: oneCName,
+      sku: 'SSD-GUARD-' + uuid, slug: 'ssd-guard-' + uuid, brand: 'Apple',
+      price: 150000, stockQty: 2 }],
+  })
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: uuid } })
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' },
+    update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  const theirAttributes = identity({ name: candidateName, brand: 'Apple' })
+  const existing = await prisma.competitorProduct.create({
+    data: { sourceId: source.id, productId: product.id, externalUrl: competitorUrl,
+      externalName: candidateName, attributes: theirAttributes, latestPrice: 99000,
+      inStock: true, matchStatus: 'CONFIRMED', lastSuccessAt: new Date(),
+      confirmedFingerprint: fingerprint({ name: candidateName, attributes: theirAttributes }),
+      confirmedProductFingerprint: fingerprint(product) },
+  })
+  const parser = { parse: async url => ({
+    url, name: candidateName, brand: 'Apple', attributes: theirAttributes,
+    categoryName: 'Ноутбуки', seller: '05.ru', price: 98900, inStock: true,
+    priceSource: 'JSON-LD Offer',
+  }) }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const job = await prisma.monitorJob.create({
+    data: { kind: 'RECHECK', sourceKey: '05ru', perPage: 1, status: 'RUNNING',
+      pendingUrls: [competitorUrl] },
+  })
+  await monitor.recheckBatch(job.id, [competitorUrl], '05ru')
+  const now = await prisma.competitorProduct.findUniqueOrThrow({ where: { id: existing.id } })
+  assert.equal(now.matchStatus, 'REVIEW_REQUIRED')
+  assert.equal(now.latestPrice, 98900)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: product.id } })).price, 150000)
+  assert.equal((await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })).status, 'COMPLETED')
+  assert.equal(await prisma.monitorDelivery.count({ where: { linkId: existing.id, status: 'PENDING' } }), 0)
 })
 
 test('Laptop matching uses manufacturer part numbers and hardware configuration', () => {
