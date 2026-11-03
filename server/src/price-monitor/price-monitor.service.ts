@@ -1362,6 +1362,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               if (!(await this.refreshKnownMatch(product, sourceKey, parser, settings.region))) {
               if (sourceKey === '05ru' && await this.refreshIndexedMatch(product)) {
                 // Indexed candidates are always re-opened for an actual price check.
+                const indexedLink = await this.prisma.competitorProduct.findFirst({
+                  where: { productId: product.id, source: { key: sourceKey },
+                    matchStatus: { in: ['CONFIRMED', 'SUGGESTED', 'REVIEW_REQUIRED'] } },
+                  select: { matchStatus: true },
+                })
+                if (indexedLink) await this.recordMatchOutcome(product.id, sourceKey,
+                  indexedLink.matchStatus === 'CONFIRMED' ? 'CONFIRMED' : 'REVIEW')
               } else {
               const rankedByUrl = new Map<string, { result: FiveRuResult; check: ReturnType<typeof compareItems> }>()
               const reviewByUrl = new Map<string, { result: FiveRuResult; score: number }>()
@@ -1457,11 +1464,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   offered++
                 }
                 if (offered) {
+                  await this.recordMatchOutcome(product.id, sourceKey, 'REVIEW',
+                    'Найдены похожие карточки, необходимо подтверждение')
                   throw new Error('' + source.name + ': найдены варианты для ручной проверки для ' + product.name +
                     '. Автоматическая привязка запрещена: проверь модель и характеристики.')
                 }
               }
               if (!ranked.length) {
+                // Only complete discovery without unread candidates is a negative.
+                // Network faults and empty pages always remain retryable.
+                const existingReview = await this.prisma.competitorProduct.findFirst({
+                  where: { productId: product.id, source: { key: sourceKey },
+                    matchStatus: { in: ['CONFIRMED', 'SUGGESTED', 'REVIEW_REQUIRED'] } },
+                  select: { matchStatus: true },
+                })
+                const safeNegative = !existingReview && canDeclareNoMatch(traces as SearchEvidence[])
+                await this.recordMatchOutcome(product.id, sourceKey,
+                  existingReview ? 'REVIEW' : safeNegative ? 'NO_MATCH' : 'RETRYABLE',
+                  existingReview ? 'Есть кандидаты для ручной проверки.'
+                    : safeNegative ? 'Поиск выполнен, подходящих карточек не обнаружено. Повтор только вручную.'
+                    : 'Проверка неполная или ошибка сайта. Автоматический повтор разрешён.')
                 const summary = traces.map(trace =>
                   '"' + trace.query + '": ' + trace.linksFound + ' ссылок, ' + (trace.rankedLinks ?? 0) + ' кандидатов, ' + trace.cardsParsed + ' карточек прочитано' +
                     (trace.cached ? ' (кеш)' : '') +
@@ -1500,6 +1522,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
                   offered++
                 }
+                await this.recordMatchOutcome(product.id, sourceKey, 'REVIEW',
+                  'Найдено несколько близких карточек, необходимо подтверждение')
                 throw new Error('' + source.name + ': несколько близких совпадений для ' + product.name + '; проверь вручную')
               }
               const already = await this.prisma.competitorProduct.findUnique({ where: { externalUrl: ranked[0].result.url } })
@@ -1510,7 +1534,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               // is complete. This includes exact laptop hardware/SKU matches;
               // missing optional fields are allowed, explicit conflicts are not.
               const autoConfirmExact = hasClearWinner && ranked[0].check.canAutoConfirm
-              await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact)
+              const saved = await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact)
+              await this.recordMatchOutcome(product.id, sourceKey,
+                saved.matchStatus === 'CONFIRMED' ? 'CONFIRMED' : 'REVIEW')
               }
               }
             } else {
