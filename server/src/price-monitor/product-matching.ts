@@ -116,7 +116,7 @@ function graphicsIdentity(value: string) {
  * label the same 1 TB retail variant. Normalize only known marketing units.
  * Do NOT equate 500 GB with 512 GB or otherwise round arbitrary disk sizes.
  */
-const CAPACITY_RE = /(\d+(?:[.,]\d+)?)\s*(терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|[tт]|гигабайт[а-я]*|gigabytes?|gb|gib|гб)(?![\p{L}\p{N}])/giu
+const CAPACITY_RE = /(\d+(?:[.,]\d+)?)\s*(терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|гигабайт[а-я]*|gigabytes?|gb|gib|гб)(?![\p{L}\p{N}])/giu
 const TERABYTE_RE = /^(?:терабайт[а-я]*|тбайт[а-я]*|terabytes?|tb|tib|тб|[tт])$/iu
 const BARE_CAPACITIES = new Set(['64','128','256','512','1000','1024','2000','2048','4000','4096','8000','8192'])
 
@@ -131,6 +131,11 @@ export function canonicalStorageCapacity(value: string): string | undefined {
       ? String(inGb / 1000 * 1024) : String(inGb)
   }).filter((result): result is string => result !== null)
   if (values.length) return new Set(values).size === 1 ? values[0] : undefined
+  // '1T' is accepted as an isolated storage value (or SSD-labeled value),
+  // never in a model token like Xiaomi 15T, which is NOT 15 terabytes.
+  if (/^\d+(?:[.,]\d+)?\s*[tт]$/iu.test(normalized)) {
+    return String(Math.round(Number(normalized.slice(0, -1).trim().replace(',', '.')) * 1024))
+  }
   return BARE_CAPACITIES.has(normalized) ? (normalized === '1000' ? '1024'
     : normalized === '2000' ? '2048' : normalized === '4000' ? '4096'
       : normalized === '8000' ? '8192' : normalized) : undefined
@@ -181,8 +186,8 @@ export function identity(item: Item): Identity {
   const ramParts = ramSpec ? [...ramSpec.matchAll(CAPACITY_RE)].map(m => m[0]) : []
   const ramText = ramParts.length > 1 ? ramParts[0] : ramSpec || (pairValues.length > 1 ? pairValues[0] : undefined)
   const namedRam = kind === 'laptop' ? (
-    text.match(/(?:^|\s)(?:ram|озу|оперативн[а-я]*)\s+(\d+(?:[.,]\d+)?\s*(?:gb|гб|gigabytes?|гигабайт[а-я]*)?)(?=\s|$)/iu)?.[1]
-    || text.match(/(?:^|\s)(\d+(?:[.,]\d+)?\s*(?:gb|гб|gigabytes?|гигабайт[а-я]*))\s+(?:ram|озу|оперативн[а-я]*)(?=\s|$)/iu)?.[1]
+    text.match(/(?:^|\s)(\d+(?:[.,]\d+)?\s*(?:gb|гб|gigabytes?|гигабайт[а-я]*))\s+(?:ram|озу|оперативн[а-я]*)(?=\s|$)/iu)?.[1]
+    || text.match(/(?:^|\s)(?:ram|озу|оперативн[а-я]*)\s+(\d+(?:[.,]\d+)?\s*(?:gb|гб|gigabytes?|гигабайт[а-я]*)?)(?=\s|$)/iu)?.[1]
   ) : undefined
   const compactRam = compactMemory?.[0].match(/^(4|6|8|12|16|18|24|32|36|48|64)\b/)?.[1]
   const slashRam = kind === 'laptop'
