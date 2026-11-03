@@ -15,6 +15,7 @@ const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchan
 const { IntegrationsService } = require('../dist/integrations/integrations.service')
 const { OneCPriceSyncService } = require('../dist/integrations/price-sync.service')
 const { rankSearchLinks, rankSearchLinksForInspection } = require('../dist/price-monitor/search-discovery')
+const { canDeclareNoMatch } = require('../dist/price-monitor/match-outcome')
 const { DnsParser, MvideoParser, storeKeyFromUrl, extractRetailerProduct } = require('../dist/price-monitor/storefront-adapter')
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/05ru-iphone17pro.json'), 'utf8'))
 const name = fixture.snapshot.h1
@@ -2782,4 +2783,41 @@ test('Competitor catalog import never creates draft store inventory', async () =
   assert.equal(result.imported,1)
   assert.equal(await prisma.product.count(), before)
   assert(await prisma.competitorProduct.findUnique({where:{externalUrl:url}}))
+})
+
+test('No-match classification requires completed, error-free discovery', () => {
+  const complete = { linksFound: 30, searchPages: 1, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
+  assert.equal(canDeclareNoMatch([complete]), true)
+  assert.equal(canDeclareNoMatch([{ ...complete, searchPages: 0 }]), false)
+  assert.equal(canDeclareNoMatch([{ ...complete, rankedLinks: 2, cardsParsed: 1 }]), false)
+  assert.equal(canDeclareNoMatch([{ ...complete, rejectedCards: ['HTTP 429'] }]), false)
+})
+
+test('Negative matches are excluded from bulk and can be manually searched again', async () => {
+  const id = randomUUID()
+  const categoryPath = 'NO MATCH ' + id
+  await new IntegrationsService(prisma, {}, {}).importCatalog({
+    categories: [{ oneCId: 'nocat-' + id, name: categoryPath, slug: 'nocat-' + id }],
+    products: [{ oneCId: 'noitem-' + id, sku: 'NO-' + id, slug: 'no-' + id,
+      name: 'Смартфон Motorola Edge 90 128 ГБ синий', brand: 'Motorola',
+      categoryOneCId: 'nocat-' + id, price: 55000, stockQty: 1 }],
+  })
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: 'noitem-' + id } })
+  const parser = { searchProducts: async (_query, _limit, trace) => {
+    Object.assign(trace, { linksFound: 8, searchPages: 1, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] })
+    return []
+  } }
+  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const first = await monitor.autoFindOneCSection({ categoryPath, maxItems: 10, onlyUnlinked: true })
+  await monitor.tick()
+  assert.equal((await prisma.monitorJob.findUniqueOrThrow({ where: { id: first.id } })).status, 'COMPLETED')
+  const key = { productId_sourceKey: { productId: product.id, sourceKey: '05ru' } }
+  assert.equal((await prisma.productMatchOutcome.findUniqueOrThrow({ where: key })).status, 'NO_MATCH')
+  await assert.rejects(() => monitor.autoFindOneCSection({
+    categoryPath, maxItems: 10, onlyUnlinked: true,
+  }), /Нет непривязанных товаров/)
+  const retried = await monitor.retryMatch(product.id)
+  assert.deepEqual(retried.pendingUrls, ['product:' + product.id])
+  assert.equal((await prisma.productMatchOutcome.findUniqueOrThrow({ where: key })).status, 'PENDING')
+  await monitor.cancelJob(retried.id)
 })
