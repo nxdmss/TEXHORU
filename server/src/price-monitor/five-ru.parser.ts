@@ -263,7 +263,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
   // iPhones with incomplete counts; price itself stays sourced from /p/.../.
   private async withPhoneCharacteristics(page: Page, url: string): Promise<ProductSnapshot> {
     const original = await this.snapshot(page)
-    if (!/\biphone\b/i.test(original.h1)) return original
+    if (!/\biphone\b/i.test(original.h1) || typeof page.context !== 'function') return original
     const labels = new Set(original.specs.map(spec => normalize(spec.label)))
     if ([...labels].some(label => /^(?:количество|число)\s+физическ[а-я]*\s+sim/.test(label))
       && [...labels].some(label => /^(?:количество|число)\s+e\s*sim/.test(label))) {

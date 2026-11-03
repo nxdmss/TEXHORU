@@ -246,7 +246,7 @@ export function identity(item: Item): Identity {
   // A product title mentioning eSIM does not prove that the phone lacks a
   // physical slot. Prefer the actual 05.ru characteristics over its heading.
   const simField = (label: RegExp) => specs.find(entry => label.test(normalize(entry.label)))?.value?.trim()
-  const physicalCountRaw = simField(/^(?:количество|число|кол во)\s+физическ[а-я]*\s+sim(?:\s+карт\w*)?$|^physical\s+sim(?:\s+cards?)?$/)
+  const physicalCountRaw = simField(/^(?:количество|число|кол во)\s+физическ[а-я]*\s+sim(?:\s+карт[а-я]*)?$|^physical\s+sim(?:\s+cards?)?$/)
   const esimCountRaw = simField(/^(?:количество|число|кол во)\s+e\s*sim$|^number\s+of\s+e\s*sim$/)
   const simTypeRaw = simField(/^(?:тип|формат|вид)\s+sim(?:\s+карт\w*)?$|^sim\s+(?:type|format)$/)
   const simCount = (value?: string): string | undefined => {

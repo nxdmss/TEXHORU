@@ -120,8 +120,10 @@ test('Old 05.ru index resolves iPhone 17 Lavender across pink/purple SIM listing
   assert(opened.includes(variants[1].url))
   const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
   const linked = await prisma.competitorProduct.findMany({
-    where: { source: { key: '05ru' }, productId: product.id, matchStatus: 'CONFIRMED' },
+    where: { source: { key: '05ru' }, productId: product.id, matchStatus: 'SUGGESTED' },
   })
+  // A source with both unspecified and eSIM variants does not justify
+  // selecting one for an unqualified 1C item.
   assert.equal(linked.length, 1)
   assert(variants.some(variant => variant.url === linked[0].externalUrl))
   assert.equal(product.price, 84900)
@@ -1350,7 +1352,7 @@ test('Explicit eSIM in 1C selects exact 05.ru iPhone 17 Pro blue from index over
   const exactName = 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб синий (E-Sim, без RuStore)'
   const unknownName = 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб синий (без RuStore)'
   assert.equal(compareItems({ name: oneCName }, { name: exactName }).canAutoConfirm, true)
-  assert.equal(compareItems({ name: oneCName }, { name: unknownName }).canAutoConfirm, true)
+  assert.equal(compareItems({ name: oneCName }, { name: unknownName }).canAutoConfirm, false)
   assert.match(oneCSearchQueries({ name: oneCName })[0], /e sim$/)
 
   const integration = new IntegrationsService(prisma, {})
@@ -2746,12 +2748,12 @@ test('Compact iPhone accessory names keep compatibility separate from manufactur
 })
 
 
-test('Complete smartphone variants auto-confirm; missing SIM metadata is tolerated but explicit conflicts are blocked', () => {
+test('Complete smartphone variants auto-confirm only with compatible explicit SIM details', () => {
   const complete = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
   assert.equal(compareItems(complete, complete).canAutoConfirm, true)
   assert.equal(compareItems(complete, {
     name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange', brand: 'Apple',
-  }).canAutoConfirm, true) // Missing SIM data is not an explicit variant conflict.
+  }).canAutoConfirm, false) // 1C explicitly requires eSIM; source did not prove it.
   for (const name of [
     'Apple iPhone 17 Pro 12GB/512GB Cosmic Orange eSIM',
     'Apple iPhone 17 Pro 12GB/256GB Blue eSIM',
