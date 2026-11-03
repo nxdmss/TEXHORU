@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiProduct, type MatchCandidate, type MonitorJob, type MonitorSource, type PriceMonitorItem } from './api'
+import { api, type ApiProduct, type MatchCandidate, type MonitorJob, type MonitorSource, type PriceMonitorItem, type MatchOutcome } from './api'
 import './price-monitor-simple.css'
 
 const rub = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽'
@@ -77,6 +77,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
   const [stock, setStock] = useState<ApiProduct[]>(products)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
+  const [outcomes, setOutcomes] = useState<MatchOutcome[]>([])
+  const [group, setGroup] = useState<'ALL' | 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'PENDING'>('ALL')
   const [sources, setSources] = useState<MonitorSource[]>([])
   const sourceKey = '05ru' as const
   const [region, setRegion] = useState('')
@@ -142,13 +144,13 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     })
     return () => { mounted = false }
   }, [sourceKey, sources.length])
-  useEffect(() => { setVisibleLimit(80) }, [path, search])
+  useEffect(() => { setVisibleLimit(80) }, [path, search, group])
   const refresh = useCallback(async (includeProducts = false) => {
-    const [list, tasks, inventory] = await Promise.all([
-      api.adminPriceMonitor(), api.monitorJobs(),
+    const [list, tasks, decisions, inventory] = await Promise.all([
+      api.adminPriceMonitor(), api.monitorJobs(), api.monitorMatchOutcomes(),
       includeProducts ? api.adminProducts() : Promise.resolve(null),
     ])
-    setItems(list); setJobs(tasks)
+    setItems(list); setJobs(tasks); setOutcomes(decisions)
     if (inventory) setStock(inventory)
   }, [])
   useEffect(() => {
@@ -185,7 +187,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     inPath(product.category?.name || '', path)
   ), [phones, path])
   const folders = useMemo(() => childrenAt(phones, path), [phones, path])
-  const visiblePhones = useMemo(() => {
+  const searchablePhones = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ru')
     return phones.filter(product => (
       q ? inPath(product.category?.name || '', path) && (product.name + ' ' + product.sku + ' ' + product.category?.name).toLocaleLowerCase('ru').includes(q)
@@ -208,11 +210,18 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
     })
     return grouped
   }, [items, sourceKey])
-  const confirmed = phones.filter(p => byProduct.get(p.id)?.some(i => i.matchStatus === 'CONFIRMED')).length
-  const needsReview = phones.filter(p => byProduct.get(p.id)?.some(i =>
-    i.matchStatus === 'SUGGESTED' || i.matchStatus === 'REVIEW_REQUIRED')).length
-  const unlinkedInScope = scopedPhones.filter(p => !byProduct.get(p.id)?.some(i =>
-    i.product?.id === p.id && ['CONFIRMED', 'SUGGESTED', 'REVIEW_REQUIRED'].includes(i.matchStatus))).length
+  const byOutcome = useMemo(() => new Map(outcomes.map(row => [row.productId, row] as const)), [outcomes])
+  const matchGroup = (productId: number) => {
+    const links = byProduct.get(productId) || []
+    if (links.some(item => item.matchStatus === 'CONFIRMED')) return 'CONFIRMED' as const
+    if (links.some(item => ['SUGGESTED', 'REVIEW_REQUIRED'].includes(item.matchStatus))) return 'REVIEW' as const
+    return byOutcome.get(productId)?.status === 'NO_MATCH' ? 'NO_MATCH' as const : 'PENDING' as const
+  }
+  const visiblePhones = searchablePhones.filter(product => group === 'ALL' || matchGroup(product.id) === group)
+  const confirmed = scopedPhones.filter(p => matchGroup(p.id) === 'CONFIRMED').length
+  const needsReview = scopedPhones.filter(p => matchGroup(p.id) === 'REVIEW').length
+  const noMatches = scopedPhones.filter(p => matchGroup(p.id) === 'NO_MATCH').length
+  const unlinkedInScope = scopedPhones.filter(p => matchGroup(p.id) === 'PENDING').length
   // Mirror worker priority and FIFO order across per-store jobs.
   const oldestQueued = (kind?: string) => jobs
     .filter(job => job.status === 'QUEUED' && (!kind || job.kind === kind))

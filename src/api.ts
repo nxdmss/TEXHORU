@@ -68,6 +68,14 @@ export type PriceMonitorItem = {
   product?: { id: number; oneCId?: string | null; sku: string; name: string; price: number; priceSyncEnabled?: boolean; category?: ApiCategory } | null
 }
 
+export type MatchOutcome = {
+  productId: number
+  sourceKey: string
+  status: 'PENDING' | 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'RETRYABLE'
+  reason?: string | null
+  checkedAt: string
+}
+
 export type MonitorJob = {
   id: string; kind: string; sourceKey?: string | null; status: string; page: number; maxPages: number; perPage?: number; processed: number; errors: number
   lastError?: string | null; url?: string | null; createdAt: string; pendingUrls: string[]
@@ -213,6 +221,10 @@ export const api = {
   monitorUnmatch(id: string) { return request(`/admin/price-monitor/${id}/unmatch`, { method: 'POST' }) },
   monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
+  monitorMatchOutcomes() { return request<MatchOutcome[]>('/admin/price-monitor/match-outcomes') },
+  monitorRetryMatch(productId: number) {
+    return request<MonitorJob>('/admin/price-monitor/match/' + productId + '/retry', { method: 'POST' })
+  },
   monitorSources() { return request<MonitorSource[]>('/admin/price-monitor/sources') },
   monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false, sourceKey: string = '05ru') {
     return request<AutoFindResult>('/admin/price-monitor/auto-find-1c',
