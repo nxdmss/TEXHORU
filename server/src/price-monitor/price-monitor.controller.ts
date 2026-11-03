@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
@@ -15,6 +15,10 @@ export class PriceMonitorController {
   list() { return this.monitor.list() }
 
   @Get('sources') sources() { return this.monitor.sources() }
+  @Get('match-outcomes') matchOutcomes() { return this.monitor.matchOutcomes('05ru') }
+  @Post('match/:productId/retry') retryMatch(@Param('productId', ParseIntPipe) productId: number) {
+    return this.monitor.retryMatch(productId)
+  }
 
   @Post('import-manual-prices') importManualPrices(@Body() dto: ImportManualCompetitorPricesDto) { return this.monitor.importManualPrices(dto) }
 
