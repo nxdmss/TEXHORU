@@ -29,6 +29,47 @@ const isFresh = (item: PriceMonitorItem) => Boolean(
   && Date.now() - new Date(item.lastSuccessAt).getTime() <= 24 * 3600_000
 )
 
+// Display only official 05.ru product pages, not arbitrary imported URLs.
+function officialProductUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'https:' || !['05.ru', 'www.05.ru'].includes(url.hostname.toLowerCase())
+      || url.username || url.password || (url.port && url.port !== '443')
+      || !/^\/cat\/[^/]+\/p\/[^/]+\/?$/.test(url.pathname)) return null
+    return url.toString()
+  } catch { return null }
+}
+
+function SourceEvidence({ item }: { item: PriceMonitorItem }) {
+  const link = officialProductUrl(item.externalUrl)
+  if (!link) return null
+  const fromParser = item.latestPrice != null && item.latestPrice > 0
+    && Boolean(item.lastSuccessAt) && item.priceSource !== 'USER_FILE'
+  const sourceMethod: Record<string, string> = {
+    'JSON-LD Offer': 'данные карточки',
+    'product:price:amount': 'метаданные цены',
+    'DOM основной карточки': 'цена на странице',
+  }
+  return <span className="mp-price-proof">
+    <a className="mp-source-link" href={link} target="_blank" rel="noopener noreferrer"
+      title={'Открыть сохранённую карточку товара на 05.ru: ' + link}
+      aria-label={'Проверить цену в источнике 05.ru: ' + item.externalName}>
+      Проверить на 05.ru <span aria-hidden="true">↗</span>
+    </a>
+    {fromParser && <small className="mp-proof-meta">
+      Считано: {prettyDate(item.lastSuccessAt)}
+      {item.priceSource ? ' · ' + (sourceMethod[item.priceSource] || item.priceSource) : ''}
+      {!isFresh(item) ? ' · данные устарели' : ''}
+    </small>}
+    {item.priceSource === 'USER_FILE' && <small className="mp-proof-warning">
+      Цена из файла, не подтверждена сайтом
+    </small>}
+    {!fromParser && item.priceSource !== 'USER_FILE' && <small className="mp-proof-warning">
+      Цена страницы ещё не подтверждена
+    </small>}
+  </span>
+}
+
 export function PriceMonitorPanel({ products, onCatalogImported }: {
   products: ApiProduct[]
   onCatalogImported: () => Promise<void>
@@ -311,7 +352,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <strong className="mp-product-name">{p.name}</strong>
       <div className="mp-prices">
         <div><small>Наш сайт</small><b>{rub(p.price)}</b></div>
-        <div><small>{sourceName}</small><b>{linked?.latestPrice && isFresh(linked) ? rub(linked.latestPrice) : '—'}</b></div>
+        <div className="mp-shop-price">
+          <small>{sourceName}</small>
+          <b>{linked?.latestPrice && isFresh(linked) ? rub(linked.latestPrice) : '—'}</b>
+          {linked && <SourceEvidence item={linked} />}
+        </div>
       </div>
       {linked
         ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
@@ -334,7 +379,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       </>}
       {linked && opened === linked.id && <div className="mp-expanded">
         {linked.matchStatus === 'SUGGESTED' && <p>Предложение для проверки, не подтверждено. Цена 1С не изменится.</p>}
-        <p><a href={linked.externalUrl} target="_blank" rel="noreferrer">Карточка {linked.source.name} ↗</a> · {prettyDate(linked.lastSuccessAt)}{linked.region ? ' · ' + linked.region : ''}</p>
+        <p>Карточка {linked.source.name} · последнее чтение: {prettyDate(linked.lastSuccessAt)}{linked.region ? ' · ' + linked.region : ''}. Ссылка для проверки находится рядом с ценой.</p>
         {linked.lastError && <p className="form-error">{linked.lastError}</p>}
         {matchLoading ? <p>Проверяем варианты…</p> : <>
           {linked.matchStatus !== 'CONFIRMED' && <>
@@ -467,6 +512,7 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       {showUnlinked && <div className="mp-extra-grid">{unlinked.slice(0, unlinkedLimit).map(item => <div key={item.id} className="mp-extra-card">
         <b>{cleanName(item.externalName || 'Без названия')}</b>
         <p>{item.latestPrice ? rub(item.latestPrice) : 'Цена неизвестна'} · {item.matchStatus === 'CONFIRMED' ? 'связано' : 'не сопоставлено'}</p>
+        <SourceEvidence item={item} />
         <button onClick={() => void expand(item)}>{opened === item.id ? 'Скрыть' : 'Сопоставить'}</button>
         {opened === item.id && <div className="mp-expanded">
           {matchLoading ? 'Загрузка…' : <>
