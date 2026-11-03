@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException, Injectable, OnModuleDestroy } from '@nestjs/common'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
-import { identity, normalize, type Identity } from './product-matching'
+import { canonicalModel, identity, normalize, type Identity } from './product-matching'
 import { existsSync } from 'node:fs'
 import { rankSearchLinks, rankSearchLinksForInspection } from './search-discovery'
 import type { StorefrontAdapter, StoreProductResult, StoreSearchTrace } from './storefront-adapter'
@@ -52,10 +52,20 @@ function objectName(value: unknown) { return typeof value === 'string' ? value :
 export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuResult {
   const all = ldObjects(snapshot.scripts)
   const products = all.filter(o => byType(o, 'Product'))
+  const visible = identity({ name: snapshot.h1 })
+  const onlyProduct = products.length === 1 ? products[0] : undefined
+  const structured = identity({ name: String(onlyProduct?.name || '') })
+  // One JSON-LD Product is NOT necessarily the primary card: site templates
+  // can inject a recommended or unrelated product. Require the same model and
+  // non-conflicting variant fields before using a title-mismatched offer.
+  const sameVariant = Boolean(visible.model && structured.model
+    && canonicalModel(visible.model) === canonicalModel(structured.model)
+    && (!visible.brand || !structured.brand || visible.brand === structured.brand)
+    && (!visible.storage || !structured.storage || visible.storage === structured.storage)
+    && (!visible.color || !structured.color || visible.color === structured.color)
+    && (!visible.sim || !structured.sim || visible.sim === structured.sim))
   const product = products.find(o => normalize(String(o.name || '')) === normalize(snapshot.h1))
-    // 05.ru occasionally uses different H1 and official Product JSON-LD titles.
-    // A single Product object is unambiguous; multiple objects require an H1 match.
-    || (products.length === 1 ? products[0] : undefined)
+    || (onlyProduct && (!snapshot.h1 || sameVariant) ? onlyProduct : undefined)
   const name = snapshot.h1 || String(product?.name || '')
   if (!name) throw new Error('Не найдено название основной карточки')
   const offers = Array.isArray(product?.offers) ? product.offers as JsonObject[] : product?.offers && typeof product.offers === 'object' ? [product.offers as JsonObject] : []
@@ -506,11 +516,20 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
             const strict = rankSearchLinks(unique, text, limit)
             const expanded = identity({ name: text }).kind === 'smartphone'
               ? rankSearchLinksForInspection(unique, text, limit) : []
-            urls = [...new Set([...strict, ...expanded])].slice(0, limit)
+            // Reserve up to a third of the reading budget for new recall hits.
+            // Without this, 18 strict results can crowd out every expanded hit.
+            const newRecall = expanded.filter(link => !strict.includes(link))
+            const reserve = Math.min(6, Math.floor(limit / 3), newRecall.length)
+            urls = [...new Set([
+              ...strict.slice(0, Math.max(0, limit - reserve)),
+              ...newRecall.slice(0, reserve),
+              ...strict.slice(Math.max(0, limit - reserve)),
+              ...newRecall.slice(reserve),
+            ])].slice(0, limit)
             if (trace) {
               trace.rankingMode = !strict.length && expanded.length ? 'recall-inspection'
-                : expanded.length ? 'strict+recall' : 'strict'
-              if (expanded.some(link => !strict.includes(link))) {
+                : reserve ? 'strict+recall' : 'strict'
+              if (newRecall.some(link => urls.includes(link))) {
                 trace.searchMode = (trace.searchMode || 'direct-search') + '+recall'
               }
             }
