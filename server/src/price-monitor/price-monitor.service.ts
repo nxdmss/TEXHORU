@@ -56,8 +56,10 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     }
     // Discover 1TB notebooks also listed as 1000 GB or 1024GB, but verify
     // canonical SSD capacity on the actual card before any confirmation.
-    const byTerabytes = parsed.storage ? hardwareQuery(tbSizes[parsed.storage]) : ''
-    const byDecimal = parsed.storage ? hardwareQuery(decimalSizes[parsed.storage]) : ''
+    const byTerabytes = parsed.storage && tbSizes[parsed.storage]
+      ? hardwareQuery(tbSizes[parsed.storage]) : ''
+    const byDecimal = parsed.storage && decimalSizes[parsed.storage]
+      ? hardwareQuery(decimalSizes[parsed.storage]) : ''
     return [...new Set([byCode, byHardware, byTerabytes, byDecimal, cleanName].filter(Boolean))].slice(0, 5)
   }
   if (parsed.kind === 'smartwatch') {

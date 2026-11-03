@@ -195,9 +195,11 @@ export function identity(item: Item): Identity {
     : undefined
   const ram = ramText ? units(ramText) || (/^\d+$/.test(ramText) ? ramText : undefined)
     : namedRam ? units(namedRam) || (/^\d+$/.test(namedRam) ? namedRam : undefined)
-    : capacities.length > 1
-      ? kind === 'laptop' ? capacities.find(n => Number(n) <= 64) : capacities[0]
-    : compactRam || slashRam
+    // A laptop can have "16GB 1T SSD": the SSD is recognized by its label
+    // while 16GB is the ONLY explicit GB capacity left. It is RAM, not SSD.
+    : kind === 'laptop'
+      ? capacities.find(n => Number(n) <= 64 && n !== diskStorage) || compactRam || slashRam
+    : capacities.length > 1 ? capacities[0] : compactRam || slashRam
   const partNumberSource = [rawName, attrs.productCode, item.mpn,
     spec(/part number|p\/n|код производителя|артикул производителя|модель производителя/i)]
     .filter(Boolean).join(' ')
