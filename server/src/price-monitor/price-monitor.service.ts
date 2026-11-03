@@ -74,6 +74,11 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
   const byColor = parsed.color
     ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
     : undefined
+  // The first query should reflect 1C's explicit SIM requirement instead of
+  // repeatedly requesting only a broad model+capacity search.
+  const bySim = parsed.sim === 'esim' || parsed.sim === 'physical+esim'
+    ? [parsed.brand, modelWithoutBrand, parsed.storage, searchColor[parsed.color], 'e sim'].filter(Boolean).join(' ')
+    : undefined
   const alternateLavender = model === 'iphone 17' && parsed.color === 'lavender'
     ? [parsed.brand, modelWithoutBrand, parsed.storage, 'фиолетовый'].filter(Boolean).join(' ')
     : undefined
@@ -87,7 +92,7 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     ? [parsed.brand, compactModelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
     : undefined
   return [...new Set([
-    byColor, compactByColor, alternateLavender,
+    bySim, byColor, compactByColor, alternateLavender,
     model + (parsed.storage ? ' ' + parsed.storage : ''),
     compactModel + (parsed.storage ? ' ' + parsed.storage : ''),
     model, compactModel,
@@ -110,12 +115,30 @@ export function isExpectedReviewOutcome(message: string) {
 
 type RankedMatch = { check: ReturnType<typeof compareItems> }
 
+// An explicitly identified SIM variant is stronger evidence than an otherwise
+// matching 05.ru card that omits SIM information entirely.
+function rankVerifiedMatches<T extends RankedMatch>(matches: T[]): T[] {
+  const explicitSim = (row: T) => row.check.ours.sim
+    && row.check.theirs.sim === row.check.ours.sim ? 1 : 0
+  return [...matches].sort((a, b) => explicitSim(b) - explicitSim(a)
+    || b.check.score - a.check.score)
+}
+
 // Consistent decision rule for BOTH the saved 05.ru category index and live
 // search. A full-variant match must already be verified before calling this.
 function hasDecisiveWinner<T extends RankedMatch>(ranked: T[]): boolean {
   if (ranked.length < 2) return ranked.length === 1
-  if (ranked[0].check.score - ranked[1].check.score >= 10) return true
   const ours = ranked[0].check.ours
+  // If 1C explicitly says eSIM (or physical SIM), one verified candidate
+  // stating that same type beats offers which omit SIM. An explicitly different
+  // SIM never enters this list because compareItems rejects the conflict.
+  if (ours.kind === 'smartphone' && ours.sim) {
+    const explicit = ranked.filter(row => row.check.theirs.sim === ours.sim)
+    if (explicit.length === 1
+      && ranked.every(row => !row.check.theirs.sim || row.check.theirs.sim === ours.sim)
+      && ranked.every(row => row.check.canAutoConfirm && !row.check.conflicts.length)) return true
+  }
+  if (ranked[0].check.score - ranked[1].check.score >= 10) return true
   if (ours.kind !== 'smartphone' || ours.sim) return false
   const simProfiles = new Set(ranked.map(row => row.check.theirs.sim || 'unspecified'))
   if (simProfiles.size < 2) return false
@@ -633,8 +656,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }
     if (!verified.length) return false
 
-    const exact = verified.filter(item => item.check.canAutoConfirm)
-      .sort((a, b) => b.check.score - a.check.score)
+    const exact = rankVerifiedMatches(verified.filter(item => item.check.canAutoConfirm))
     const source = await this.source()
     // Same decision policy as live search. An indexed model/colour/SIM match
     // should not remain stuck in review just because there are two offers.
@@ -643,8 +665,17 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return true
     }
     if (exact.length > 1) {
+      // Never drop all discovered links on the floor: the best verified card
+      // must remain visible on the 1C item even when manual review is needed.
+      // Additional alternatives stay unlinked to prevent double ownership.
+      let offered = 0
       for (const option of exact.slice(0, 3)) {
-        await this.save(option.result, source.id, undefined, true)
+        const claimed = await this.prisma.competitorProduct.findUnique({
+          where: { externalUrl: option.result.url },
+        })
+        if (claimed?.productId && claimed.productId !== product.id) continue
+        await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
+        offered++
       }
       return true
     }
@@ -658,9 +689,16 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       return true
     }
 
-    // Several close candidates are kept unlinked for explicit human review.
+    // Several close candidates stay review-only, but at least the first
+    // verified offer is associated with the 1C item for a visible choice.
+    let offered = 0
     for (const option of verified.slice(0, 3)) {
-      await this.save(option.result, source.id, undefined, true)
+      const claimed = await this.prisma.competitorProduct.findUnique({
+        where: { externalUrl: option.result.url },
+      })
+      if (claimed?.productId && claimed.productId !== product.id) continue
+      await this.save(option.result, source.id, offered === 0 ? product.id : undefined, true)
+      offered++
     }
     return true
   }
@@ -1279,7 +1317,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   if (rejected.length < 5) rejected.push(row.result.name + ': ' + reason)
                 }
               }
-              const ranked = [...rankedByUrl.values()].sort((a, b) => b.check.score - a.check.score)
+              const ranked = rankVerifiedMatches([...rankedByUrl.values()])
               const review = [...reviewByUrl.values()]
                 .filter(option => !rankedByUrl.has(option.result.url))
                 .sort((a, b) => b.score - a.score)

@@ -1147,6 +1147,66 @@ test('Smartphone discovery stops after two clean searches returning the same uni
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).price, 100000)
 })
 
+test('Explicit eSIM in 1C selects exact 05.ru iPhone 17 Pro blue from index over a missing-SIM listing', async () => {
+  const id = randomUUID(), categoryId = randomUUID()
+  const categoryPath = 'BLUE ESIM INDEX ' + id
+  const oneCName = 'Смартфон Apple iPhone 17 Pro 256 Гб eSIM синий'
+  const exactUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-siniy-e-sim-bez-rustore-24126/'
+  const unknownUrl = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-17-pro-12-gb-256-gb-siniy-' + id + '/'
+  const exactName = 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб синий (E-Sim, без RuStore)'
+  const unknownName = 'Смартфон Apple iPhone 17 Pro 12 Гб/256 Гб синий (без RuStore)'
+  assert.equal(compareItems({ name: oneCName }, { name: exactName }).canAutoConfirm, true)
+  assert.equal(compareItems({ name: oneCName }, { name: unknownName }).canAutoConfirm, true)
+  assert.match(oneCSearchQueries({ name: oneCName })[0], /e sim$/)
+
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({
+    categories: [{ oneCId: categoryId, name: categoryPath, slug: 'blue-esim-' + categoryId }],
+    products: [{ oneCId: id, sku: 'BLUE-ESIM-' + id, slug: 'blue-esim-' + id,
+      name: oneCName, brand: 'Apple', categoryOneCId: categoryId,
+      price: 99900, stockQty: 1 }],
+  })
+  const links = [
+    { url: exactUrl, title: exactName, price: 96990 },
+    { url: unknownUrl, title: unknownName, price: 97990 },
+  ]
+  for (const link of links) {
+    await prisma.competitorCatalogEntry.upsert({
+      where: { externalUrl: link.url },
+      update: { title: link.title, model: 'iphone 17 pro', storage: '256', color: 'blue' },
+      create: { externalUrl: link.url, title: link.title, model: 'iphone 17 pro',
+        storage: '256', color: 'blue', lastSeenAt: new Date() },
+    })
+  }
+  const parsed = new Map(links.map(link => [link.url, {
+    url: link.url, name: link.title, brand: 'Apple',
+    attributes: identity({ name: link.title, brand: 'Apple' }),
+    price: link.price, inStock: true, categoryName: 'Смартфоны', seller: '05.ru',
+  }]))
+  let searches = 0
+  const monitor = new PriceMonitorService(prisma, {
+    parse: async url => {
+      const match = parsed.get(url)
+      if (!match) throw Error('Foreign fixture, skip this URL')
+      return match
+    },
+    searchProducts: async () => { searches++; return [] },
+  }, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath, maxItems: 1 })
+  await monitor.tick()
+
+  const status = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(status.status, 'COMPLETED')
+  assert.equal(status.errors, 0, status.lastError || '')
+  assert.equal(searches, 0, 'A verified exact index match should skip public search')
+  const product = await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })
+  const exact = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: exactUrl } })
+  assert.equal(exact.productId, product.id)
+  assert.equal(exact.matchStatus, 'CONFIRMED')
+  assert.equal(exact.latestPrice, 96990)
+  assert.equal(product.price, 99900, '1C/site price must not change')
+})
+
 test('A 1C smartphone without SIM type chooses the best-ranked 05.ru SIM variant automatically', async () => {
   const id = randomUUID(), categoryId = randomUUID()
   const categoryPath = 'SIM DECISION ' + id
