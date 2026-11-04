@@ -227,12 +227,13 @@ const slugifyProduct = (value: string) => value
   .replace(/^-+|-+$/g, '')
 
 function ProductEditor({
-  value, categories: categoryOptions, editing, saving, oneCProduct, onChange, onClose, onSave,
+  value, categories: categoryOptions, editing, saving, saveError, oneCProduct, onChange, onClose, onSave,
 }: {
   value: AdminProductDraft
   categories: ApiCategory[]
   editing: boolean
   saving: boolean
+  saveError?: string
   oneCProduct?: ApiProduct
   onChange: (value: AdminProductDraft) => void
   onClose: () => void
@@ -328,6 +329,7 @@ function ProductEditor({
             </div>
           </div>
 
+          {saveError && <p className="form-error" role="alert">{saveError}</p>}
           <div className="admin-editor__actions"><button type="button" onClick={onClose}>Отмена</button><button className="admin-editor__save" disabled={saving}>{saving ? 'Сохраняем…' : editing ? 'Сохранить изменения' : 'Добавить товар'}</button></div>
         </form>
 
@@ -382,6 +384,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [editingProductId, setEditingProductId] = useState<number | null>(null)
   const [productDraft, setProductDraft] = useState<AdminProductDraft>(() => blankProductDraft())
   const [savingProduct, setSavingProduct] = useState(false)
+  const [productEditorError, setProductEditorError] = useState('')
   const [priceSyncNotice, setPriceSyncNotice] = useState('')
 
   const load = async () => {
@@ -406,11 +409,13 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const openCreateProduct = (categoryId?: string) => {
     const preferredCategory = categoryId ?? (adminCategory !== 'ALL' && apiCategories.some((item) => item.id === adminCategory && item.isActive !== false) ? adminCategory : apiCategories.find((item) => item.isActive !== false)?.id ?? '')
     setEditingProductId(null)
+    setProductEditorError('')
     setProductDraft(blankProductDraft(preferredCategory))
     setEditorOpen(true)
   }
 
   const openEditProduct = (item: AdminProduct) => {
+    setProductEditorError('')
     setEditingProductId(item.id)
     setProductDraft({
       name: item.name ?? '', sku: item.sku ?? '', slug: item.slug ?? '', brand: item.brand ?? '', categoryId: item.category?.id ?? '',
@@ -422,7 +427,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const saveProduct = async (event: FormEvent) => {
-    event.preventDefault(); setSavingProduct(true); setError(''); setPriceSyncNotice('')
+    event.preventDefault(); setSavingProduct(true); setError(''); setProductEditorError(''); setPriceSyncNotice('')
     const before = editingProductId !== null ? products.find(item => item.id === editingProductId) : undefined
     const queuePrice = Boolean(before?.oneCId && before.priceSyncEnabled
       && Number(productDraft.price) !== before.price)
@@ -440,7 +445,10 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       else await api.adminCreateProduct(payload)
       setEditorOpen(false); await load()
       if (queuePrice) setPriceSyncNotice('Цена сохранена на сайте и отправлена в очередь 1С. Статус передачи: вкладка «1С».')
-    } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось сохранить товар') } finally { setSavingProduct(false) }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Не удалось сохранить товар'
+      setError(message); setProductEditorError(message)
+    } finally { setSavingProduct(false) }
   }
 
   const notifyPromoChanged = () => window.dispatchEvent(new Event('texhoru:promos-changed'))
@@ -754,7 +762,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       {logs.slice(0,30).map((item) => <article key={item.id} className={item.status === 'FAILED' ? 'is-error' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.direction}</span><strong>{item.entity} · {item.status}</strong><p>{item.message || 'Без сообщения'}</p></article>)}
     </div>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
-    {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
+    {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
   </section>
 }
 
