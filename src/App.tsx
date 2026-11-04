@@ -227,12 +227,13 @@ const slugifyProduct = (value: string) => value
   .replace(/^-+|-+$/g, '')
 
 function ProductEditor({
-  value, categories: categoryOptions, editing, saving, onChange, onClose, onSave,
+  value, categories: categoryOptions, editing, saving, oneCProduct, onChange, onClose, onSave,
 }: {
   value: AdminProductDraft
   categories: ApiCategory[]
   editing: boolean
   saving: boolean
+  oneCProduct?: ApiProduct
   onChange: (value: AdminProductDraft) => void
   onClose: () => void
   onSave: (event: FormEvent) => void
@@ -285,10 +286,13 @@ function ProductEditor({
           <div className="admin-editor__section">
             <div className="admin-editor__section-head"><strong>Цена и наличие</strong><span>Данные, которые потом сможет обновлять 1С</span></div>
             <div className="admin-field-grid admin-field-grid--three">
-              <label className="admin-field"><span>Цена, ₽</span><input required type="number" min="0" value={value.price} onChange={(e) => update('price', e.target.value)} placeholder="139990" /></label>
+              <label className="admin-field"><span>Цена, ₽</span><input required type="number" min="0" disabled={Boolean(oneCProduct?.oneCId && !oneCProduct.priceSyncEnabled)} value={value.price} onChange={(e) => update('price', e.target.value)} placeholder="139990" /></label>
               <label className="admin-field"><span>Старая цена, ₽</span><input type="number" min="0" value={value.oldPrice} onChange={(e) => update('oldPrice', e.target.value)} placeholder="149990" /></label>
               <label className="admin-field"><span>Остаток, шт.</span><input required type="number" min="0" value={value.stockQty} onChange={(e) => update('stockQty', e.target.value)} /></label>
             </div>
+            {oneCProduct?.oneCId && <p className="admin-field-note">{oneCProduct.priceSyncEnabled
+              ? 'Связь с 1С активна. После изменения цена сохранится на сайте и попадёт в очередь 1С. Готово только после подтверждения 1С.'
+              : 'Цена загружена из 1С и защищена от расхождения. Чтобы менять её на сайте, сначала включи товар в группу обмена на стороне 1С.'}</p>}
             <div className="admin-field-grid">
               <label className="admin-field"><span>Статус наличия</span><select value={value.stockState} onChange={(e) => update('stockState', e.target.value as AdminProductDraft['stockState'])}><option value="IN_STOCK">В наличии</option><option value="LOW">Мало</option><option value="PREORDER">Под заказ</option><option value="OUT_OF_STOCK">Нет в наличии</option></select></label>
               <label className="admin-field"><span>Бейдж</span><input value={value.badge} onChange={(e) => update('badge', e.target.value)} placeholder="Новинка / Хит / Скидка" /></label>
@@ -378,6 +382,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [editingProductId, setEditingProductId] = useState<number | null>(null)
   const [productDraft, setProductDraft] = useState<AdminProductDraft>(() => blankProductDraft())
   const [savingProduct, setSavingProduct] = useState(false)
+  const [priceSyncNotice, setPriceSyncNotice] = useState('')
 
   const load = async () => {
     setLoading(true); setError('')
@@ -417,7 +422,10 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const saveProduct = async (event: FormEvent) => {
-    event.preventDefault(); setSavingProduct(true); setError('')
+    event.preventDefault(); setSavingProduct(true); setError(''); setPriceSyncNotice('')
+    const before = editingProductId !== null ? products.find(item => item.id === editingProductId) : undefined
+    const queuePrice = Boolean(before?.oneCId && before.priceSyncEnabled
+      && Number(productDraft.price) !== before.price)
     const stockQty = Number(productDraft.stockQty || 0)
     const payload = {
       name: productDraft.name.trim(), sku: productDraft.sku.trim(), slug: productDraft.slug.trim(), brand: productDraft.brand.trim(), categoryId: productDraft.categoryId,
@@ -431,6 +439,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       if (editingProductId !== null) await api.adminUpdateProduct(editingProductId, payload)
       else await api.adminCreateProduct(payload)
       setEditorOpen(false); await load()
+      if (queuePrice) setPriceSyncNotice('Цена сохранена на сайте и отправлена в очередь 1С. Статус передачи: вкладка «1С».')
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось сохранить товар') } finally { setSavingProduct(false) }
   }
 
@@ -609,7 +618,9 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   return <section className="admin-shell">
     <div className="admin-top"><div><p className="eyebrow">TEXHORU CONTROL</p><h1>Управление магазином</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'API: ошибка' : 'API: подключён'}</span><button onClick={() => load()}>Обновить</button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти</button></div></div>
     <div className="admin-tabs">{(Object.keys(tabNames) as AdminTab[]).map((item) => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{tabNames[item]}</button>)}</div>
-    {error && <div className="admin-error">{error}</div>}{loading && <div className="admin-loading">Загрузка…</div>}
+    {error && <div className="admin-error">{error}</div>}
+    {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
+    {loading && <div className="admin-loading">Загрузка…</div>}
     {tab === 'overview' && <div className="admin-metrics">
       <article><span>Из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong></article>
       <article><span>Активных из 1С</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE').length}</strong></article>
@@ -736,14 +747,14 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
     {tab === 'sync' && <div className="admin-feed">
-      <article><span>Тестовая 1С · двусторонний обмен</span><strong>Пилот: {priceSync.scope.length} из 10 iPhone 13</strong><p>В тестовой базе синхронизируются только подтверждённые товары. Цены конкурента попадают в 1С только после нажатия «Применить».</p><button onClick={() => void load()} disabled={loading}>Обновить статус</button></article>
+      <article><span>Тестовая 1С · двусторонний обмен</span><strong>Выбранные товары: {priceSync.scope.length} из 30</strong><p>Цена, изменённая в админке у подключённого товара, ставится в очередь 1С. Обработка 1С должна получить её и провести документ. Пока нет подтверждения, это ещё не изменение в 1С. Цены конкурентов применяются отдельно.</p><button onClick={() => void load()} disabled={loading}>Обновить статус</button></article>
       {priceSync.scope.map(p => <article key={p.id}><span>1С · {p.oneCId}</span><strong>{p.name}</strong><p>Розница на сайте: {money.format(p.price)} ₽ · Остаток: {p.stockQty}</p></article>)}
       {priceSync.changes.map(change => <article key={change.id} className={['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}><span>{new Date(change.createdAt).toLocaleString('ru-RU')} · {change.status === 'PENDING' ? 'Ожидает 1С' : change.status === 'DELIVERED' ? 'Применено в 1С' : change.status}</span><strong>{change.name}: {money.format(change.oldPrice)} → {money.format(change.newPrice)} ₽</strong><p>{change.error || 'Передача розничной цены'}</p></article>)}
       {logs.length === 0 && <p>Обмен с 1С ещё не запускался.</p>}
       {logs.slice(0,30).map((item) => <article key={item.id} className={item.status === 'FAILED' ? 'is-error' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.direction}</span><strong>{item.entity} · {item.status}</strong><p>{item.message || 'Без сообщения'}</p></article>)}
     </div>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
-    {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
+    {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
   </section>
 }
 
