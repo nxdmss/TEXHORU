@@ -2821,3 +2821,64 @@ test('Negative matches are excluded from bulk and can be manually searched again
   assert.equal((await prisma.productMatchOutcome.findUniqueOrThrow({ where: key })).status, 'PENDING')
   await monitor.cancelJob(retried.id)
 })
+
+test('Site admin edits queue an exact 1C retail price change and protect against stale 1C catalog', async () => {
+  const seed = randomUUID()
+  const cat = { oneCId: 'price-admin-cat-' + seed, name: 'Ручные цены 1С ' + seed, slug: 'price-admin-cat-' + seed }
+  const name = 'Ноутбук Huawei MateBook D14 512GB'
+  const product = { oneCId: 'price-admin-' + seed, sku: 'PRICE-ADMIN-' + seed,
+    slug: 'price-admin-' + seed, name, brand: 'Huawei', categoryOneCId: cat.oneCId,
+    price: 53500, stockQty: 2, costPrice: 41000 }
+  const integration = new IntegrationsService(prisma, {})
+  await integration.importCatalog({ categories: [cat], products: [product] })
+  let row = await prisma.product.findUniqueOrThrow({ where: { oneCId: product.oneCId } })
+  const site = new ProductsService(prisma, { log: async () => {} })
+  const sync = new OneCPriceSyncService(prisma)
+  // Unapproved 1C items must not diverge silently when the editor is used.
+  await assert.rejects(() => site.update(row.id, { price: 54000 }), /Сначала включи товар/)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).price, 53500)
+  await sync.configureScope({ oneCIds: [product.oneCId] })
+
+  // Saving the same price or unrelated product metadata creates no 1C task.
+  await site.update(row.id, { price: 53500, shortSpec: 'Демо' })
+  assert.equal((await sync.pending()).items.length, 0)
+
+  const updated = await site.update(row.id, { price: 54000 })
+  assert.equal(updated.price, 54000)
+  const pending = await sync.pending()
+  assert.equal(pending.items.length, 1)
+  assert.equal(pending.items[0].oneCId, product.oneCId)
+  assert.equal(pending.items[0].expectedPrice, 53500)
+  assert.equal(pending.items[0].targetPrice, 54000)
+  assert.equal((await prisma.oneCPriceChange.findUniqueOrThrow({
+    where: { id: pending.items[0].id },
+  })).sourceLinkId, null, 'a manual price change requires no 05.ru link')
+
+  // No second update while 1C has not acknowledged the first.
+  await assert.rejects(() => site.update(row.id, { price: 56000 }), /Предыдущая цена ещё не передана/)
+  await integration.importCatalog({ categories: [cat], products: [product] })
+  row = await prisma.product.findUniqueOrThrow({ where: { id: row.id } })
+  assert.equal(row.price, 54000, 'old 1C catalog must not overwrite site edits in transit')
+
+  await sync.receipts({ items: [{ id: pending.items[0].id, error: 'Временно нет доступа к 1С' }] })
+  assert.equal((await sync.pending()).items.length, 1)
+  await sync.receipts({ items: [{ id: pending.items[0].id, appliedPrice: 54000 }] })
+  assert.equal((await sync.pending()).items.length, 0)
+  assert.equal((await prisma.oneCPriceChange.findUniqueOrThrow({
+    where: { id: pending.items[0].id },
+  })).status, 'DELIVERED')
+  await integration.importCatalog({ categories: [cat], products: [{ ...product, price: 54000 }] })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).price, 54000)
+})
+
+test('A site-created product still accepts a direct price edit without creating an 1C task', async () => {
+  const seed = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Site only ' + seed, slug: 'site-only-' + seed } })
+  const site = new ProductsService(prisma, { log: async () => {} })
+  const product = await site.create({ sku: 'SITE-' + seed, slug: 'site-' + seed,
+    name: 'Зарядное устройство тест', brand: 'Test', categoryId: category.id,
+    price: 1000 })
+  const result = await site.update(product.id, { price: 1200 })
+  assert.equal(result.price, 1200)
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: product.id } }), 0)
+})
