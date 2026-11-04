@@ -1,9 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { ProductStatus, StockState } from '@prisma/client'
 import { AuditService } from '../audit/audit.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateCategoryDto, UpdateCategoryDto, UpdateProductDto, UpsertProductDto } from './products.dto'
 import { phoneVariantKey, uniquePhoneProducts } from './phone-uniqueness'
+import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
 @Injectable()
 export class ProductsService {
@@ -75,10 +76,42 @@ export class ProductsService {
   }
 
   async update(id: number, dto: UpdateProductDto, userId?: string) {
-    await this.getAdmin(id)
-    const item = await this.prisma.product.update({ where: { id }, data: { ...dto, stockState: dto.stockState as StockState | undefined, specs: dto.specs } })
-    await this.audit.log(userId, 'UPDATE_PRODUCT', 'Product', String(item.id), { sku: item.sku, fields: Object.keys(dto) })
-    return item
+    // Editing the retail price on the site MUST use the same durable 1C queue
+    // as an approved monitor recommendation. Never silently update only the
+    // website for a 1C-owned item without an enabled 1C exchange scope.
+    return this.prisma.$transaction(async tx => {
+      const existing = await tx.product.findUnique({ where: { id } })
+      if (!existing) throw new NotFoundException('Товар не найден')
+      if (existing.oneCId && dto.oneCId !== undefined && dto.oneCId !== existing.oneCId) {
+        throw new BadRequestException('GUID товара из 1С нельзя менять из админки')
+      }
+      const priceChanged = dto.price !== undefined && dto.price !== existing.price
+      let changeId: string | null = null
+      if (priceChanged && existing.oneCId) {
+        if (!existing.priceSyncEnabled) {
+          throw new BadRequestException('Цена принадлежит 1С. Сначала включи товар в подтверждённую группу обмена 1С → TEXHORU → 1С.')
+        }
+        if (dto.price! < 1 || dto.price! > 5_000_000) {
+          throw new BadRequestException('Для обмена с 1С цена должна быть от 1 до 5 000 000 ₽')
+        }
+        const queued = await OneCPriceSyncService.queue(tx, existing, dto.price!, null)
+        changeId = queued?.id || null
+        if (!changeId) throw new ConflictException('Не удалось поставить изменение цены в очередь 1С')
+      }
+      const changed = await tx.product.updateMany({
+        where: { id, price: existing.price },
+        data: { ...dto, stockState: dto.stockState as StockState | undefined, specs: dto.specs },
+      })
+      if (changed.count !== 1) throw new ConflictException('Цена изменилась параллельно. Обнови страницу')
+      const item = await tx.product.findUniqueOrThrow({ where: { id } })
+      await tx.auditLog.create({ data: {
+        userId, action: priceChanged && changeId ? 'UPDATE_PRODUCT_PRICE_1C_QUEUED' : 'UPDATE_PRODUCT',
+        entity: 'Product', entityId: String(item.id),
+        details: { sku: item.sku, fields: Object.keys(dto), previousPrice: existing.price,
+          newPrice: item.price, oneCMessageId: changeId, oneCQueued: Boolean(changeId) },
+      } })
+      return item
+    })
   }
 
   async archive(id: number, userId?: string) {

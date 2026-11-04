@@ -1,9 +1,9 @@
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 
-/** One deliberately selected batch of up to ten demo SKUs, identified by 1C GUID. */
+/** One explicitly approved group of up to thirty demo SKUs, identified by immutable 1C GUID. */
 export class PriceSyncScopeDto {
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10) @ArrayUnique()
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @ArrayUnique()
   @IsString({ each: true }) @MaxLength(100, { each: true })
   oneCIds!: string[]
 }

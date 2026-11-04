@@ -16,8 +16,10 @@ export class OneCPriceSyncService {
     return this.prisma.$transaction(async tx => {
       const active = await tx.product.findMany({ where: { oneCId: { in: dto.oneCIds }, status: 'ACTIVE' } })
       if (active.length !== dto.oneCIds.length) throw new BadRequestException('Некоторые товары ещё не загружены из 1С или скрыты')
-      if (active.some(p => !/(?:iphone|айфон)\s*13(?:\D|$)/i.test(p.name))) {
-        throw new BadRequestException('Для пилота допускаются только выбранные iPhone 13')
+      // Explicitly approved product GUIDs only. The pilot can cover different
+      // categories, but never changes products that 1C did not opt into.
+      if (active.some(p => !p.oneCId || p.price < 1 || p.price > 5_000_000)) {
+        throw new BadRequestException('Каждый выбранный товар должен иметь GUID 1С и допустимую розничную цену')
       }
       const pending = await tx.oneCPriceChange.count({ where: { status: 'PENDING' } })
       if (pending) throw new ConflictException('Есть незавершённая передача цены в 1С. Сначала выполни обмен')
@@ -125,8 +127,8 @@ export class OneCPriceSyncService {
     })) }
   }
 
-  // Keep this as the only queue-writing helper, called inside the monitor's price update transaction.
-  static async queue(tx: Prisma.TransactionClient, product: { id: number; oneCId: string | null; priceSyncEnabled: boolean; price: number }, targetPrice: number, sourceLinkId: string) {
+  // Shared transaction-safe helper for BOTH admin editor and monitor recommendations.
+  static async queue(tx: Prisma.TransactionClient, product: { id: number; oneCId: string | null; priceSyncEnabled: boolean; price: number }, targetPrice: number, sourceLinkId: string | null = null) {
     if (!product.priceSyncEnabled) return null
     if (!product.oneCId) throw new BadRequestException('У товара отсутствует идентификатор 1С')
     if (await tx.oneCPriceChange.count({ where: { productId: product.id, status: 'PENDING' } })) {
