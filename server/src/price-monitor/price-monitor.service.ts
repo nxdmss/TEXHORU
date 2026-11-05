@@ -836,26 +836,35 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       take: 10000,
     })
     const stockProducts = await db.product.findMany({
-      where: { oneCId: { not: null }, status: ProductStatus.ACTIVE, stockQty: { gt: 0 } },
+      where: { oneCId: { not: null }, priceSyncEnabled: true, status: ProductStatus.ACTIVE, stockQty: { gt: 0 } },
       select: { stockQty: true, reservedQty: true, category: { select: { name: true } } },
     })
     const totalScope = stockProducts.filter(product =>
       product.stockQty > product.reservedQty
-      && /(?:смартфон|smartphone)/i.test(product.category.name)
       && (!path || product.category.name === path || product.category.name.startsWith(path + ' / '))
     ).length
     const now = Date.now()
+    const rejectedAudits = await db.auditLog.findMany({
+      where: { action: 'REJECT_MONITOR_PROPOSAL' }, orderBy: { createdAt: 'desc' }, take: 5000,
+      select: { entityId: true, details: true },
+    })
+    const rejected = new Set(rejectedAudits.map(row => {
+      const details = row.details as { linkId?: string; oldPrice?: number; competitorPrice?: number } | null
+      return row.entityId + ':' + details?.linkId + ':' + details?.oldPrice + ':' + details?.competitorPrice
+    }))
+    const pending = await db.oneCPriceChange.findMany({ where: { status: 'PENDING' }, select: { productId: true } })
+    const pendingIds = new Set(pending.map(row => row.productId))
+    const minMarginPercent = Math.max(0, Math.min(40, Number(process.env.MONITOR_MIN_MARGIN_PERCENT ?? 5) || 5))
     const counted = new Map<number, number>()
     const eligible: Array<{
-      id: string; productId: number; productName: string; oldPrice: number;
+      id: string; productId: number; productName: string; categoryPath: string; costPrice: number; oldPrice: number;
       competitorPrice: number; newPrice: number; lastSuccessAt: string;
       unknownCost: boolean; largeChange: boolean; oneCQueued: boolean;
     }> = []
     for (const link of links) {
       const product = link.product
-      if (!product?.oneCId || product.status !== 'ACTIVE'
-        || product.stockQty <= product.reservedQty
-        || !/(?:смартфон|smartphone)/i.test(product.category.name)
+      if (!product?.oneCId || !product.priceSyncEnabled || product.status !== 'ACTIVE'
+        || product.stockQty <= product.reservedQty || pendingIds.has(product.id)
         || (path && product.category.name !== path && !product.category.name.startsWith(path + ' / '))) continue
       counted.set(product.id, (counted.get(product.id) || 0) + 1)
       const newPrice = (link.latestPrice || 0) - 500
@@ -867,12 +876,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         && link.inStock === true && newPrice > 0
         && fingerprint(product) === link.confirmedProductFingerprint
         && fingerprint({ name: link.externalName || '', attributes: link.attributes }) === link.confirmedFingerprint
-        && (!product.costPrice || newPrice >= product.costPrice)
+        && !!product.costPrice && newPrice >= Math.ceil(product.costPrice * (1 + minMarginPercent / 100))
+        && Math.abs(newPrice - product.price) <= product.price * 0.1
+        && !rejected.has(product.id + ':' + link.id + ':' + product.price + ':' + link.latestPrice)
         && newPrice !== product.price
       if (!valid) continue
       eligible.push({
-        id: link.id, productId: product.id, productName: product.name,
-        oldPrice: product.price, competitorPrice: link.latestPrice!,
+        id: link.id, productId: product.id, productName: product.name, categoryPath: product.category.name,
+        costPrice: product.costPrice!, oldPrice: product.price, competitorPrice: link.latestPrice!,
         newPrice, lastSuccessAt: link.lastSuccessAt!.toISOString(),
         unknownCost: !product.costPrice,
         largeChange: Math.abs(newPrice - product.price) > product.price * 0.1,
@@ -882,7 +893,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // Never choose between multiple competing cards linked to one 1C product.
     const unique = eligible.filter(row => counted.get(row.productId) === 1)
       .sort((a, b) => a.productId - b.productId || a.id.localeCompare(b.id))
-    // Include in-stock 1C smartphones with no 05.ru match in the skipped count.
+    // Include every imported 1C category; blocked/unknown-cost rows are counted as skipped.
     const skipped = Math.max(0, totalScope - unique.length)
     const token = createHash('sha256').update(JSON.stringify({ path, totalScope, rows: unique })).digest('hex')
     return {
@@ -916,7 +927,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         throw new BadRequestException('Есть изменения более 10%. Требуется явное подтверждение.')
       }
       let oneCQueued = 0
-      for (const item of snapshot.items) {
+      const selection = new Set(dto.ids)
+      const chosen = snapshot.items.filter(item => selection.has(item.id))
+      if (!selection.size || selection.size !== chosen.length) {
+        throw new BadRequestException('Выбранные предложения устарели или не прошли проверки')
+      }
+      for (const item of chosen) {
         const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } })
         const message = await OneCPriceSyncService.queue(tx, product, item.newPrice, item.id)
         const changed = await tx.product.updateMany({
@@ -924,7 +940,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           data: { price: item.newPrice },
         })
         if (changed.count !== 1) throw new ConflictException('Цена товара изменилась во время применения. Все изменения отменены.')
-        if (message) oneCQueued++
+        if (!message) throw new ConflictException('Товар не подключён к обмену с 1С. Ничего не изменено.')
+        oneCQueued++
         await tx.auditLog.create({ data: {
           action: 'APPLY_MONITOR_SITE_PRICE', entity: 'Product', entityId: String(product.id),
           details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
@@ -933,9 +950,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null },
         } })
       }
-      return { ok: true, applied: snapshot.count, skipped: snapshot.skipped,
-        oneCQueued, siteOnly: snapshot.count - oneCQueued }
+      return { ok: true, applied: chosen.length, skipped: snapshot.skipped,
+        oneCQueued, siteOnly: 0 }
     }, { timeout: 120000 })
+  }
+
+  /** Decline selected observations; a changed competitor or website price can be proposed again. */
+  async rejectBulkPrices(dto: BulkApplyPricesDto) {
+    return this.prisma.$transaction(async tx => {
+      const snapshot = await this.bulkPriceSnapshot(tx, dto.categoryPath)
+      if (snapshot.token !== dto.token) throw new ConflictException('Предложения изменились. Обновите страницу.')
+      const ids = new Set(dto.ids)
+      const chosen = snapshot.items.filter(item => ids.has(item.id))
+      if (!ids.size || ids.size !== chosen.length) throw new BadRequestException('Предложения устарели')
+      for (const item of chosen) await tx.auditLog.create({ data: {
+        action: 'REJECT_MONITOR_PROPOSAL', entity: 'Product', entityId: String(item.productId),
+        details: { linkId: item.id, oldPrice: item.oldPrice, competitorPrice: item.competitorPrice,
+          suggestedPrice: item.newPrice, category: item.categoryPath },
+      } })
+      return { ok: true, rejected: chosen.length }
+    })
   }
 
   async settings(sourceKey: StoreKey = '05ru') {

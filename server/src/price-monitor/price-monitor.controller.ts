@@ -24,6 +24,7 @@ export class PriceMonitorController {
 
   @Post('bulk-price-preview') previewBulkPrices(@Body() dto: BulkPriceScopeDto) { return this.monitor.previewBulkPrices(dto) }
   @Post('bulk-price-apply') applyBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.applyBulkPrices(dto) }
+  @Post('bulk-price-reject') rejectBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.rejectBulkPrices(dto) }
 
   @Get('jobs') jobs() { return this.monitor.jobs() }
   @Post('scan') scan(@Body() dto: ScanFiveRuDto) { return this.monitor.scan(dto) }

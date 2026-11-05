@@ -84,6 +84,7 @@ export class BulkPriceScopeDto {
 }
 export class BulkApplyPricesDto extends BulkPriceScopeDto {
   @IsString() @MaxLength(64) token!: string
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @IsString({ each: true }) ids!: string[]
   @IsBoolean() acceptUnknownCost!: boolean
   @IsBoolean() acceptLargeChange!: boolean
 }

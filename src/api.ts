@@ -100,6 +100,11 @@ export type CheckAllResult =
 
 export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
 
+export type PriceApprovalPreview = {
+  token: string; count: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
+  items: Array<{ id: string; productId: number; productName: string; categoryPath: string; costPrice: number;
+    oldPrice: number; competitorPrice: number; newPrice: number; lastSuccessAt: string }>
+}
 export type OneCPriceSyncStatus = {
   scope: Array<{ id: number; oneCId: string | null; name: string; price: number; stockQty: number }>
   changes: Array<{ id: string; name: string; oneCId: string; oldPrice: number; newPrice: number;
@@ -244,13 +249,17 @@ export const api = {
   monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
   adminImportOneC(data: unknown) { return request('/admin/integrations/1c/catalog', { method: 'POST', body: JSON.stringify(data) }) },
   monitorBulkPreview(categoryPath: string) {
-    return request<{ token: string; count: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
-      items: Array<{ id: string; productId: number; productName: string; oldPrice: number; competitorPrice: number; newPrice: number }> }>(
+    return request<PriceApprovalPreview>(
       '/admin/price-monitor/bulk-price-preview', { method: 'POST', body: JSON.stringify({ categoryPath }) })
   },
-  monitorBulkApply(input: { categoryPath: string; token: string; acceptUnknownCost: boolean; acceptLargeChange: boolean }) {
+  monitorBulkApply(input: { categoryPath: string; token: string; ids: string[]; acceptUnknownCost: boolean; acceptLargeChange: boolean }) {
     return request<{ ok: boolean; applied: number; skipped: number; oneCQueued: number; siteOnly: number }>(
       '/admin/price-monitor/bulk-price-apply', { method: 'POST', body: JSON.stringify(input) })
+  },
+  monitorBulkReject(input: { categoryPath: string; token: string; ids: string[] }) {
+    return request<{ ok: boolean; rejected: number }>(
+      '/admin/price-monitor/bulk-price-reject',
+      { method: 'POST', body: JSON.stringify({ ...input, acceptUnknownCost: false, acceptLargeChange: false }) })
   },
   adminPriceMonitor() { return request<PriceMonitorItem[]>('/admin/price-monitor') },
   adminCheckCompetitorPrice(input: { url: string; productId?: number }) { return request<PriceMonitorItem>('/admin/price-monitor/check', { method: 'POST', body: JSON.stringify(input) }) },

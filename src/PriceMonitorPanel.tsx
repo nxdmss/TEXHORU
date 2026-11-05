@@ -271,11 +271,11 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
 
   async function setAutomaticChecks(enabled: boolean) {
     await run('schedule', async () => {
-      const settings = await api.monitorSaveSettings('05ru', MONITOR_CATALOG_URL, enabled ? 360 : 0, region)
+      const settings = await api.monitorSaveSettings('05ru', MONITOR_CATALOG_URL, enabled ? 1440 : 0, region)
       setIntervalMinutes(settings.intervalMinutes)
       setNextRunAt(settings.nextRunAt)
       setSources(await api.monitorSources())
-    }, enabled ? 'Автопроверка ' + sourceName + ' включена. Подтверждённые ссылки будут проверяться каждые 6 часов.' : 'Автопроверка ' + sourceName + ' выключена.')
+    }, enabled ? 'Автопроверка ' + sourceName + ' включена. Проверка каждый день в 06:00 по Москве.' : 'Автопроверка ' + sourceName + ' выключена.')
   }
 
   async function bindManually(product: ApiProduct) {
@@ -315,8 +315,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       ].filter(Boolean).join('\n')
       if (!window.confirm(text)) return
       const result = await api.monitorBulkApply({
-        categoryPath: displayPath, token: preview.token,
-        acceptUnknownCost: preview.unknownCost > 0, acceptLargeChange: preview.largeChanges > 0,
+        categoryPath: displayPath, token: preview.token, ids: preview.items.map(item => item.id),
+        acceptUnknownCost: false, acceptLargeChange: false,
       })
       await onCatalogImported()
       await refresh(true)
@@ -477,8 +477,8 @@ export function PriceMonitorPanel({ products, onCatalogImported }: {
       <span>
         <b>Автопроверка {sourceName}</b>
         <small>{!settingsReady ? 'Загрузка расписания…' : intervalMinutes > 0
-          ? 'Каждые ' + (intervalMinutes / 60) + ' ч · следующая: ' + prettyDate(nextRunAt)
-          : 'Выключена · включить на 6 часов'}</small>
+          ? (intervalMinutes === 1440 ? 'Ежедневно в 06:00 МСК' : 'Каждые ' + (intervalMinutes / 60) + ' ч') + ' · следующая: ' + prettyDate(nextRunAt)
+          : 'Выключена · включить на 06:00 (МСК)'}</small>
       </span>
     </label>
     {active && <div className="mp-progress" role="status">
