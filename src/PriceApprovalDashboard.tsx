@@ -268,7 +268,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
     <details className="pa-specialist">
       <summary>Настройки и инструменты специалиста</summary>
       <label className="pa-schedule-toggle">
-        <input type="checkbox" checked={interval > 0} disabled={Boolean(busy)}
+        <input type="checkbox" checked={interval === 1440} disabled={Boolean(busy)}
           onChange={e => void toggleSchedule(e.target.checked)}/>
         Проверять сохранённые ссылки автоматически в 06:00 (МСК)
       </label>

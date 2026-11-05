@@ -876,7 +876,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         && link.inStock === true && newPrice > 0
         && fingerprint(product) === link.confirmedProductFingerprint
         && fingerprint({ name: link.externalName || '', attributes: link.attributes }) === link.confirmedFingerprint
-        && !!product.costPrice && newPrice >= Math.ceil(product.costPrice * (1 + minMarginPercent / 100))
+        && !!product.costPrice && newPrice >= Math.ceil(product.costPrice / (1 - minMarginPercent / 100))
         && Math.abs(newPrice - product.price) <= product.price * 0.1
         && !rejected.has(product.id + ':' + link.id + ':' + product.price + ':' + link.latestPrice)
         && newPrice !== product.price

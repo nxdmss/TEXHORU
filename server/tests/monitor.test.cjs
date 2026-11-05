@@ -2504,7 +2504,7 @@ test('Bulk 1C matching builds a persistent 05.ru smartphone index before local m
   await monitor.cancelJob(matchJob.id)
 })
 
-test('1C smartphones appear on the storefront only with available stock, and batch pricing is confirmed, atomic and fresh', async () => {
+test('Selected price approvals require 1C scope, preserve atomicity and reject stale observations', async () => {
   // Previous test scenarios leave queued jobs; isolate these admin operations.
   await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } },
     data: { status: 'CANCELLED', finishedAt: new Date() } })
@@ -2536,27 +2536,30 @@ test('1C smartphones appear on the storefront only with available stock, and bat
   const observation = await monitor.check({ url: link, productId: before.id })
   assert.equal(observation.latestPrice, 96990)
   await monitor.confirm(observation.id, before.id)
+  // Allow the selected candidate in the TEST-only 1C scope.
+  await prisma.product.update({ where: { id: before.id }, data: { priceSyncEnabled: true } })
   const scope = { categoryPath }
   const preview = await monitor.previewBulkPrices(scope)
   assert.equal(preview.count, 1)
-  assert.equal(preview.totalScope, 2)
-  assert.equal(preview.skipped, 1)
+  assert.equal(preview.totalScope, 1)
+  assert.equal(preview.skipped, 0)
   assert.equal(preview.items[0].newPrice, 96490)
   assert.equal(preview.items[0].oldPrice, 91000)
   await assert.rejects(
-    () => monitor.applyBulkPrices({ ...scope, token: 'incorrect', acceptUnknownCost: false, acceptLargeChange: false }),
+    () => monitor.applyBulkPrices({ ...scope, ids: [observation.id], token: 'incorrect', acceptUnknownCost: false, acceptLargeChange: false }),
     /Обнови предварительный просмотр/
   )
   const applied = await monitor.applyBulkPrices({
-    ...scope, token: preview.token, acceptUnknownCost: false, acceptLargeChange: false,
+    ...scope, ids: [observation.id], token: preview.token, acceptUnknownCost: false, acceptLargeChange: false,
   })
   assert.equal(applied.applied, 1)
-  assert.equal(applied.siteOnly, 1)
-  assert.equal(applied.oneCQueued, 0)
+  assert.equal(applied.siteOnly, 0)
+  assert.equal(applied.oneCQueued, 1)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } })).price, 96490)
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: before.id, status: 'PENDING' } }), 1)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: zeroId } })).price, 95000)
   await assert.rejects(() => monitor.applyBulkPrices({
-    ...scope, token: preview.token, acceptUnknownCost: false, acceptLargeChange: false,
+    ...scope, ids: [observation.id], token: preview.token, acceptUnknownCost: false, acceptLargeChange: false,
   }), /Обнови предварительный просмотр/)
   const completedPreview = await monitor.previewBulkPrices(scope)
   assert.equal(completedPreview.count, 0)
