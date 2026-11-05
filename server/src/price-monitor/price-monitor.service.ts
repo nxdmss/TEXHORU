@@ -163,6 +163,13 @@ function hasDecisiveWinner<T extends RankedMatch>(ranked: T[]): boolean {
 }
 
 @Injectable()
+/** Next 06:00 Moscow time (UTC+3 year round). Schedules reading only. */
+function nextDailyPriceCheck(after: Date): Date {
+  const next = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), 3))
+  if (next <= after) next.setUTCDate(next.getUTCDate() + 1)
+  return next
+}
+
 export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
   private followUpTimer?: NodeJS.Timeout
@@ -938,7 +945,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.monitorSettings.upsert({
       where: { id: sourceKey },
       update: {},
-      create: { id: sourceKey, catalogUrl: sourceKey === '05ru' ? 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/' : definition.baseUrl },
+      create: { id: sourceKey, catalogUrl: sourceKey === '05ru' ? 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/' : definition.baseUrl,
+        intervalMinutes: sourceKey === '05ru' ? 1440 : 0,
+        nextRunAt: sourceKey === '05ru' ? nextDailyPriceCheck(new Date()) : null },
     })
   }
   async updateSettings(dto: MonitorSettingsDto) {
@@ -956,9 +965,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.monitorSettings.upsert({
       where: { id: sourceKey },
       create: { id: sourceKey, catalogUrl, region, intervalMinutes: dto.intervalMinutes,
-        nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
+        nextRunAt: dto.intervalMinutes === 1440 ? nextDailyPriceCheck(new Date()) : dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
       update: { catalogUrl, region, intervalMinutes: dto.intervalMinutes,
-        nextRunAt: dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
+        nextRunAt: dto.intervalMinutes === 1440 ? nextDailyPriceCheck(new Date()) : dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
     })
   }
   jobs() { return this.prisma.monitorJob.findMany({ where: { OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'desc' }, take: 30 }) }
@@ -1226,7 +1235,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         }
         await this.prisma.monitorSettings.update({
           where: { id: setting.id },
-          data: { nextRunAt: new Date(Date.now() + setting.intervalMinutes * 60000) },
+          data: { nextRunAt: setting.intervalMinutes === 1440 ? nextDailyPriceCheck(now) : new Date(Date.now() + setting.intervalMinutes * 60000) },
         })
       }
       // Older releases queued a 50-page scan even for 1-13 products. Cancel
