@@ -162,7 +162,6 @@ function hasDecisiveWinner<T extends RankedMatch>(ranked: T[]): boolean {
   return ranked[0].check.score - ranked[1].check.score >= 10
 }
 
-@Injectable()
 /** Next 06:00 Moscow time (UTC+3 year round). Schedules reading only. */
 function nextDailyPriceCheck(after: Date): Date {
   const next = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), after.getUTCDate(), 3))
@@ -170,6 +169,7 @@ function nextDailyPriceCheck(after: Date): Date {
   return next
 }
 
+@Injectable()
 export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
   private followUpTimer?: NodeJS.Timeout

@@ -226,7 +226,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
                 <span>Конкурент <b>{rub(item.competitorPrice)}</b></span>
                 <span>Предложение <b>{rub(item.newPrice)}</b></span>
               </div>
-              <small>Маржа: {item.marginPercent ?? '—'}% · Проверено: {dateLabel(item.lastSuccessAt)}</small>
+              <small>Маржа: {Math.round((item.newPrice - item.costPrice) / item.newPrice * 1000) / 10}% · Проверено: {dateLabel(item.lastSuccessAt)}</small>
             </div>
           </label>)}
         </div>)}
