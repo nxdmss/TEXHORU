@@ -15,6 +15,7 @@ export class IntegrationsController {
   @Post('admin/integrations/1c/catalog') @UseGuards(AuthGuard, AdminGuard) manualCatalog(@Body() dto: OneCCatalogDto) { return this.integrations.importCatalog(dto) }
   @Post('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) priceScope(@Body() dto: PriceSyncScopeDto) { return this.priceSync.configureScope(dto) }
   @Get('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) getPriceScope() { return this.priceSync.scope() }
+  @Get('integrations/1c/price-sync/product/:oneCId') @UseGuards(OneCGuard) priceSyncProduct(@Param('oneCId') oneCId: string) { return this.priceSync.productByOneCId(oneCId) }
   @Get('integrations/1c/price-sync/pending') @UseGuards(OneCGuard) pendingPrices() { return this.priceSync.pending() }
   @Post('integrations/1c/price-sync/receipts') @UseGuards(OneCGuard) priceReceipts(@Body() dto: PriceSyncReceiptsDto) { return this.priceSync.receipts(dto) }
   @Get('admin/integrations/1c/price-sync') @UseGuards(AuthGuard, AdminGuard) priceSyncDashboard() { return this.priceSync.dashboard() }

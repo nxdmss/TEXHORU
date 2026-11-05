@@ -35,6 +35,19 @@ export class OneCPriceSyncService {
     })
   }
 
+  /** Small, read-only lookup for a single approved TEST candidate: avoids pulling the whole public catalog into 1C. */
+  async productByOneCId(oneCId: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(oneCId)) {
+      throw new BadRequestException('Неверный формат GUID 1С')
+    }
+    const product = await this.prisma.product.findFirst({
+      where: { oneCId, status: 'ACTIVE' },
+      select: { oneCId: true, name: true, price: true, stockQty: true },
+    })
+    if (!product) throw new NotFoundException('Активный товар с указанным GUID 1С на сайте не найден')
+    return product
+  }
+
   async scope() {
     return this.prisma.product.findMany({
       where: { priceSyncEnabled: true }, select: { id: true, oneCId: true, name: true, price: true, stockQty: true },
