@@ -2579,6 +2579,9 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   storefront = await site.list()
   assert(storefront.some(row => row.oneCId === zeroId))
   assert.equal(await prisma.product.count({ where: { oneCId: zeroId } }), 1)
+  // Simulate the 1C receipt to leave no PENDING message for subsequent tests.
+  await prisma.oneCPriceChange.updateMany({ where: { productId: before.id, status: 'PENDING' },
+    data: { status: 'DELIVERED', deliveredAt: new Date() } })
 })
 
 test('In-stock smartphone-only auto matching excludes other 1C categories and zero-stock phone SKUs', async () => {

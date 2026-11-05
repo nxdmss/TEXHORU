@@ -1,4 +1,4 @@
-.pa-root { display:grid;gap:18px;color:var(--white,#161616);width:100%; }
+.pa-root { display:grid;gap:18px;color:#171717;width:100%; }
 .pa-top {display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}
 .pa-top h2{font-size:clamp(24px,2.6vw,32px);margin:0 0 6px;font-weight:750}
 .pa-top p,.pa-muted{color:var(--muted,#676767);font-size:13px;line-height:1.5;margin:0}
