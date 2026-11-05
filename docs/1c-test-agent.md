@@ -30,8 +30,10 @@
 
 ## Первоначальная установка
 
-Все команды выполняй из **32-битного PowerShell**:
-`C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe`
+Подключение к 1С (`01`, `02`, `03`, `05`) запускай из **32-битного PowerShell**:
+`C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe`.
+
+Установку и остановку **Планировщика Windows** (`04`, `STOP`) можно выполнить из обычного 64-битного PowerShell того же Windows-пользователя; сам планировщик будет запускать именно 32-битный агент.
 
 1. Перейди в папку скопированных файлов `onec/agent-test`. Запусти `01-Configure.ps1`. Он запросит имя HTTPS-хоста TEXHORU (без `https://`), пароль пользователя 1С TEST и `ONE_C_API_KEY`. **Не показывай ключ или пароль на скриншоте.** Если выполнение `.ps1` заблокировано политикой, запускай через `powershell.exe -ExecutionPolicy Bypass -File <путь-к-скрипту>`.
 2. Запусти `02-Read-Test.ps1`. Успех: `Connected to 1C TEST. Nomenclature read OK` и `READ-ONLY health check passed`. Цены не меняются.

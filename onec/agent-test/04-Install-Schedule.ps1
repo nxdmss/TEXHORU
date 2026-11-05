@@ -1,7 +1,7 @@
 # Install a per-user Windows scheduled task: every 5 minutes, only while logged on.
 # Task is READ-ONLY until a separate, explicit TEST pilot approval file is created.
 $ErrorActionPreference = 'Stop'
-if ([Environment]::Is64BitProcess) { throw 'Open 32-bit PowerShell' }
+# This installer can run in regular 64-bit PowerShell. The TASK itself uses the 32-bit executable.
 $dataDir = Join-Path $env:LOCALAPPDATA 'TEXHORU-1C-TEST-Agent'
 if (!(Test-Path (Join-Path $dataDir 'credential.xml'))) { throw 'Run 01-Configure.ps1 first' }
 $exe = Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
