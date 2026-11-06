@@ -832,19 +832,21 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
    */
   private async bulkPriceSnapshot(db: PrismaService | Prisma.TransactionClient, categoryPath = '') {
     const path = categoryPath.trim()
+    // Include every saved 05.ru price change, not only rows already eligible for 1C.
+    // The preview is read-only: it never creates OneCPriceChange records.
     const links = await db.competitorProduct.findMany({
-      where: { source: { key: '05ru' }, product: { isNot: null } },
-      include: { source: true, product: { include: { category: true } } },
+      where: { source: { key: '05ru' } },
+      include: {
+        source: true,
+        product: { include: { category: true } },
+        history: {
+          where: { oldPrice: { not: null } },
+          orderBy: [{ checkedAt: 'desc' }, { createdAt: 'desc' }],
+          take: 1,
+        },
+      },
       take: 10000,
     })
-    const stockProducts = await db.product.findMany({
-      where: { oneCId: { not: null }, priceSyncEnabled: true, status: ProductStatus.ACTIVE, stockQty: { gt: 0 } },
-      select: { stockQty: true, reservedQty: true, category: { select: { name: true } } },
-    })
-    const totalScope = stockProducts.filter(product =>
-      product.stockQty > product.reservedQty
-      && (!path || product.category.name === path || product.category.name.startsWith(path + ' / '))
-    ).length
     const now = Date.now()
     const rejectedAudits = await db.auditLog.findMany({
       where: { action: 'REJECT_MONITOR_PROPOSAL' }, orderBy: { createdAt: 'desc' }, take: 5000,
@@ -856,54 +858,95 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     }))
     const pending = await db.oneCPriceChange.findMany({ where: { status: 'PENDING' }, select: { productId: true } })
     const pendingIds = new Set(pending.map(row => row.productId))
-    const minMarginPercent = Math.max(0, Math.min(40, Number(process.env.MONITOR_MIN_MARGIN_PERCENT ?? 5) || 5))
-    const counted = new Map<number, number>()
-    const eligible: Array<{
-      id: string; productId: number; productName: string; categoryPath: string; costPrice: number; oldPrice: number;
-      competitorPrice: number; newPrice: number; lastSuccessAt: string;
-      unknownCost: boolean; largeChange: boolean; oneCQueued: boolean;
-    }> = []
+    const linkCounts = new Map<number, number>()
     for (const link of links) {
+      if (link.productId !== null) linkCounts.set(link.productId, (linkCounts.get(link.productId) || 0) + 1)
+    }
+    const minMarginPercent = Math.max(0, Math.min(40, Number(process.env.MONITOR_MIN_MARGIN_PERCENT ?? 5) || 5))
+    const rows: Array<{
+      id: string; productId: number | null; productName: string; categoryPath: string;
+      costPrice: number | null; oldPrice: number | null; previousCompetitorPrice: number;
+      competitorPrice: number; newPrice: number; lastSuccessAt: string | null; externalUrl: string;
+      canSend: boolean; blockedReasons: string[];
+    }> = []
+
+    for (const link of links) {
+      const history = link.history[0]
+      // A first observation is a baseline, not a price change.
+      if (!history || history.oldPrice === null || history.oldPrice === history.price) continue
+
       const product = link.product
-      if (!product?.oneCId || !product.priceSyncEnabled || product.status !== 'ACTIVE'
-        || product.stockQty <= product.reservedQty || pendingIds.has(product.id)
-        || (path && product.category.name !== path && !product.category.name.startsWith(path + ' / '))) continue
-      counted.set(product.id, (counted.get(product.id) || 0) + 1)
-      const newPrice = (link.latestPrice || 0) - 500
-      const valid = link.matchStatus === 'CONFIRMED'
-        && link.priceSource !== 'USER_FILE'
-        && !link.lastError && link.lastSuccessAt
-        && now - link.lastSuccessAt.getTime() >= 0
-        && now - link.lastSuccessAt.getTime() <= 24 * 3600_000
-        && link.inStock === true && newPrice > 0
-        && fingerprint(product) === link.confirmedProductFingerprint
-        && fingerprint({ name: link.externalName || '', attributes: link.attributes }) === link.confirmedFingerprint
-        && !!product.costPrice && newPrice >= Math.ceil(product.costPrice / (1 - minMarginPercent / 100))
-        && Math.abs(newPrice - product.price) <= product.price * 0.1
-        && !rejected.has(product.id + ':' + link.id + ':' + product.price + ':' + link.latestPrice)
-        && newPrice !== product.price
-      if (!valid) continue
-      eligible.push({
-        id: link.id, productId: product.id, productName: product.name, categoryPath: product.category.name,
-        costPrice: product.costPrice!, oldPrice: product.price, competitorPrice: link.latestPrice!,
-        newPrice, lastSuccessAt: link.lastSuccessAt!.toISOString(),
-        unknownCost: !product.costPrice,
-        largeChange: Math.abs(newPrice - product.price) > product.price * 0.1,
-        oneCQueued: product.priceSyncEnabled,
+      const competitorPrice = link.latestPrice ?? history.price
+      const newPrice = competitorPrice - 500
+      const reasons: string[] = []
+      const addReason = (reason: string) => { if (!reasons.includes(reason)) reasons.push(reason) }
+
+      if (!product) addReason('Товар не сопоставлен с каталогом TEXHORU')
+      if (link.matchStatus !== 'CONFIRMED') addReason('Сопоставление с товаром не подтверждено')
+      if (link.priceSource === 'USER_FILE') addReason('Цена загружена из файла, а не проверена на 05.ru')
+      if (link.lastError) addReason('Последняя проверка завершилась ошибкой: ' + link.lastError)
+      if (!link.lastSuccessAt || now - link.lastSuccessAt.getTime() < 0 || now - link.lastSuccessAt.getTime() > 24 * 3600_000) {
+        addReason('Цена 05.ru устарела: нужна успешная проверка не старше 24 часов')
+      }
+      if (link.latestPrice === null) addReason('Нет актуальной цены 05.ru')
+      else if (link.latestPrice !== history.price) addReason('Текущая цена 05.ru не совпадает с последней записью истории')
+      if (link.inStock !== true) addReason(link.inStock === false ? 'На 05.ru товар отсутствует в наличии' : 'Наличие товара на 05.ru не подтверждено')
+      if (newPrice <= 0) addReason('Цена 05.ru минус 500 ₽ должна быть больше нуля')
+
+      if (product) {
+        if (product.status !== ProductStatus.ACTIVE) addReason('Товар неактивен в TEXHORU')
+        if (!product.oneCId) addReason('У товара отсутствует GUID 1С')
+        if (!product.priceSyncEnabled) addReason('Товар не включён в разрешённую область обмена с 1С')
+        if (product.stockQty <= product.reservedQty) addReason('Нет свободного остатка товара')
+        if (pendingIds.has(product.id)) addReason('Предыдущее изменение цены ещё ожидает подтверждения 1С')
+        if ((linkCounts.get(product.id) || 0) > 1) addReason('Несколько карточек 05.ru сопоставлены с одним товаром')
+        if (link.matchStatus === 'CONFIRMED'
+          && (fingerprint(product) !== link.confirmedProductFingerprint
+            || fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint)) {
+          addReason('Сопоставление устарело: данные товара или карточки 05.ru изменились')
+        }
+        if (!product.costPrice) {
+          addReason('Не указана себестоимость')
+        } else if (newPrice < Math.ceil(product.costPrice / (1 - minMarginPercent / 100))) {
+          addReason('Предлагаемая цена ниже минимальной маржи ' + minMarginPercent + '%')
+        }
+        if (product.price > 0 && Math.abs(newPrice - product.price) > product.price * 0.1) {
+          addReason('Изменение превышает 10% от текущей цены')
+        }
+        if (newPrice === product.price) addReason('Предлагаемая цена уже совпадает с текущей ценой TEXHORU')
+        if (rejected.has(product.id + ':' + link.id + ':' + product.price + ':' + competitorPrice)) {
+          addReason('Это предложение уже отклонено для текущих цен')
+        }
+      }
+
+      if (path && product && product.category.name !== path && !product.category.name.startsWith(path + ' / ')) continue
+      rows.push({
+        id: link.id,
+        productId: product?.id ?? null,
+        productName: product?.name || link.externalName || 'Товар без названия',
+        categoryPath: product?.category.name || 'Без сопоставления',
+        costPrice: product?.costPrice ?? null,
+        oldPrice: product?.price ?? null,
+        previousCompetitorPrice: history.oldPrice,
+        competitorPrice,
+        newPrice,
+        lastSuccessAt: link.lastSuccessAt?.toISOString() ?? null,
+        externalUrl: link.externalUrl,
+        canSend: reasons.length === 0,
+        blockedReasons: reasons,
       })
     }
-    // Never choose between multiple competing cards linked to one 1C product.
-    const unique = eligible.filter(row => counted.get(row.productId) === 1)
-      .sort((a, b) => a.productId - b.productId || a.id.localeCompare(b.id))
-    // Include every imported 1C category; blocked/unknown-cost rows are counted as skipped.
-    const skipped = Math.max(0, totalScope - unique.length)
-    const token = createHash('sha256').update(JSON.stringify({ path, totalScope, rows: unique })).digest('hex')
+
+    rows.sort((a, b) => a.categoryPath.localeCompare(b.categoryPath, 'ru')
+      || a.productName.localeCompare(b.productName, 'ru') || a.id.localeCompare(b.id))
+    const available = rows.filter(row => row.canSend)
+    const blocked = rows.filter(row => !row.canSend)
+    const token = createHash('sha256').update(JSON.stringify({ path, rows })).digest('hex')
     return {
-      token, count: unique.length, totalScope, skipped,
-      unknownCost: unique.filter(row => row.unknownCost).length,
-      largeChanges: unique.filter(row => row.largeChange).length,
-      oneCQueued: unique.filter(row => row.oneCQueued).length,
-      items: unique,
+      token, count: available.length, totalScope: rows.length, skipped: blocked.length,
+      unknownCost: blocked.filter(row => row.blockedReasons.includes('Не указана себестоимость')).length,
+      largeChanges: blocked.filter(row => row.blockedReasons.includes('Изменение превышает 10% от текущей цены')).length,
+      oneCQueued: available.length, items: rows,
     }
   }
 
