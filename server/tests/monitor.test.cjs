@@ -2532,11 +2532,15 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   assert(!storefront.some(row => row.oneCId === zeroId))
   const before = await prisma.product.findUniqueOrThrow({ where: { oneCId } })
   const link = 'https://05.ru/cat/396f7486/p/smartfon-iphone-17-pro-256-orange-' + batch.replace(/-/g, '') + '/'
-  const parser = { parse: async (url) => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }) }
+  let observedPrice = 97490
+  const parser = { parse: async (url) => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url, price: observedPrice }) }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   const observation = await monitor.check({ url: link, productId: before.id })
-  assert.equal(observation.latestPrice, 96990)
+  assert.equal(observation.latestPrice, 97490)
   await monitor.confirm(observation.id, before.id)
+  // The first observation is a baseline. Only a subsequent change is proposed.
+  observedPrice = 96990
+  await monitor.check({ url: link, productId: before.id })
   // Allow the selected candidate in the TEST-only 1C scope.
   await prisma.product.update({ where: { id: before.id }, data: { priceSyncEnabled: true } })
   const scope = { categoryPath }
@@ -2895,4 +2899,99 @@ test('A site-created product still accepts a direct price edit without creating 
   const result = await site.update(product.id, { price: 1200 })
   assert.equal(result.price, 1200)
   assert.equal(await prisma.oneCPriceChange.count({ where: { productId: product.id } }), 0)
+})
+
+test('Bulk price preview lists every changed 05.ru price, explains blocked rows, and queues only selected eligible rows', async () => {
+  const integration = new IntegrationsService(prisma, {})
+  const exchange = new MonitorExchangeService(prisma)
+  const monitor = new PriceMonitorService(prisma, {}, exchange)
+  const categoryId = randomUUID()
+  const enabledId = randomUUID()
+  const disabledId = randomUUID()
+  const unconfirmedId = randomUUID()
+  const category = { oneCId: categoryId, name: 'Тестовые товары цен', slug: 'bulk-price-test-' + categoryId }
+  await integration.importCatalog({ categories: [category], products: [
+    { oneCId: enabledId, sku: 'BULK-ENABLED-' + enabledId, slug: 'bulk-enabled-' + enabledId,
+      name: 'Тестовый товар доступный', brand: 'Test', categoryOneCId: categoryId,
+      price: 70000, stockQty: 5, costPrice: 60000 },
+    { oneCId: disabledId, sku: 'BULK-DISABLED-' + disabledId, slug: 'bulk-disabled-' + disabledId,
+      name: 'Тестовый товар без области 1С', brand: 'Test', categoryOneCId: categoryId,
+      price: 70000, stockQty: 5, costPrice: 60000 },
+    { oneCId: unconfirmedId, sku: 'BULK-UNCONFIRMED-' + unconfirmedId, slug: 'bulk-unconfirmed-' + unconfirmedId,
+      name: 'Тестовый товар без подтверждения', brand: 'Test', categoryOneCId: categoryId,
+      price: 70000, stockQty: 5, costPrice: 60000 },
+  ] })
+  const enabled = await prisma.product.findUniqueOrThrow({ where: { oneCId: enabledId } })
+  const disabled = await prisma.product.findUniqueOrThrow({ where: { oneCId: disabledId } })
+  const unconfirmed = await prisma.product.findUniqueOrThrow({ where: { oneCId: unconfirmedId } })
+  await prisma.product.update({ where: { id: enabled.id }, data: { priceSyncEnabled: true } })
+  await prisma.product.update({ where: { id: unconfirmed.id }, data: { priceSyncEnabled: true } })
+  const enabledProduct = await prisma.product.findUniqueOrThrow({ where: { id: enabled.id } })
+  const disabledProduct = await prisma.product.findUniqueOrThrow({ where: { id: disabled.id } })
+  const unconfirmedProduct = await prisma.product.findUniqueOrThrow({ where: { id: unconfirmed.id } })
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  const now = new Date()
+  async function addChangedLink({ product, externalName, matchStatus = 'CONFIRMED' }) {
+    const attributes = {}
+    return prisma.competitorProduct.create({ data: {
+      sourceId: source.id, productId: product?.id ?? null,
+      externalUrl: 'https://05.ru/cat/test/p/' + randomUUID() + '/',
+      externalName, attributes, seller: '05.ru', priceSource: 'JSON-LD Offer',
+      matchStatus,
+      confirmedFingerprint: product && matchStatus === 'CONFIRMED' ? fingerprint({ name: externalName, attributes }) : null,
+      confirmedProductFingerprint: product && matchStatus === 'CONFIRMED' ? fingerprint(product) : null,
+      lastSuccessAt: now, lastCheckedAt: now, latestPrice: 71000, inStock: true,
+      history: { create: { price: 71000, oldPrice: 72000, inStock: true, checkedAt: now } },
+    } })
+  }
+  const eligibleLink = await addChangedLink({ product: enabledProduct, externalName: enabledProduct.name })
+  const disabledLink = await addChangedLink({ product: disabledProduct, externalName: disabledProduct.name })
+  const unconfirmedLink = await addChangedLink({
+    product: unconfirmedProduct, externalName: unconfirmedProduct.name, matchStatus: 'SUGGESTED',
+  })
+  const testProductIds = [enabled.id, disabled.id, unconfirmed.id]
+
+  // Merely collecting and previewing a price change must not create a retail-price task.
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: { in: testProductIds } } }), 0)
+  const preview = await monitor.previewBulkPrices({})
+  const testRows = preview.items.filter(item => [eligibleLink.id, disabledLink.id, unconfirmedLink.id].includes(item.id))
+  assert.equal(testRows.length, 3)
+  const eligibleRow = testRows.find(item => item.id === eligibleLink.id)
+  const disabledRow = testRows.find(item => item.id === disabledLink.id)
+  const unconfirmedRow = testRows.find(item => item.id === unconfirmedLink.id)
+  assert.equal(eligibleRow.canSend, true)
+  assert.equal(eligibleRow.previousCompetitorPrice, 72000)
+  assert.equal(eligibleRow.competitorPrice, 71000)
+  assert.equal(eligibleRow.newPrice, 70500) // 05.ru minus 500 ₽
+  assert.equal(testRows.filter(item => item.canSend).length, 1)
+  assert.equal(disabledRow.canSend, false)
+  assert(disabledRow.blockedReasons.some(reason => reason.includes('не включён')))
+  assert.equal(unconfirmedRow.canSend, false)
+  assert(unconfirmedRow.blockedReasons.some(reason => reason.includes('не подтверждено')))
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: { in: testProductIds } } }), 0)
+
+  // A blocked row cannot be smuggled into the queue through the API.
+  await prisma.monitorJob.updateMany({
+    where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() },
+  })
+  await assert.rejects(() => monitor.applyBulkPrices({
+    categoryPath: '', token: preview.token, ids: [disabledLink.id],
+    acceptUnknownCost: false, acceptLargeChange: false,
+  }), /заблокированные или устаревшие/)
+
+  const result = await monitor.applyBulkPrices({
+    categoryPath: '', token: preview.token, ids: [eligibleLink.id],
+    acceptUnknownCost: false, acceptLargeChange: false,
+  })
+  assert.equal(result.oneCQueued, 1)
+  const queued = await prisma.oneCPriceChange.findMany({
+    where: { productId: enabled.id, status: 'PENDING' },
+  })
+  assert.equal(queued.length, 1)
+  assert.equal(queued[0].newPrice, 70500)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: enabled.id } })).price, 70000,
+    'TEXHORU keeps the old price until 1C confirms the posted document')
 })
