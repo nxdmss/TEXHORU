@@ -51,3 +51,9 @@
   .pa-approval{position:static}
   .pa-approval .pa-action{width:100%;min-width:0}
 }
+
+.pa-diagnostics{border:1px solid #e9d9b6;border-radius:8px;padding:12px 14px;background:#fffcf5;font-size:13px}
+.pa-diagnostics>summary{cursor:pointer;font-weight:700}
+.pa-diagnostics p{line-height:1.6;color:#555}
+.pa-diagnostics ul{max-height:180px;overflow-y:auto;padding-left:19px}
+.pa-diagnostics li{margin:5px 0;overflow-wrap:anywhere}

@@ -840,7 +840,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         source: true,
         product: { include: { category: true } },
         history: {
-          where: { oldPrice: { not: null } },
+          // The first successful scan is a baseline. It can still differ from the
+          // TEXHORU retail price and must be eligible for a manual proposal.
           orderBy: [{ checkedAt: 'desc' }, { createdAt: 'desc' }],
           take: 1,
         },
@@ -865,19 +866,23 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const minMarginPercent = Math.max(0, Math.min(40, Number(process.env.MONITOR_MIN_MARGIN_PERCENT ?? 5) || 5))
     const rows: Array<{
       id: string; productId: number | null; productName: string; categoryPath: string;
-      costPrice: number | null; oldPrice: number | null; previousCompetitorPrice: number;
+      costPrice: number | null; oldPrice: number | null; previousCompetitorPrice: number | null;
       competitorPrice: number; newPrice: number; lastSuccessAt: string | null; externalUrl: string;
       canSend: boolean; blockedReasons: string[];
     }> = []
 
     for (const link of links) {
       const history = link.history[0]
-      // A first observation is a baseline, not a price change.
-      if (!history || history.oldPrice === null || history.oldPrice === history.price) continue
-
       const product = link.product
-      const competitorPrice = link.latestPrice ?? history.price
+      const competitorPrice = link.latestPrice ?? history?.price ?? null
+      if (competitorPrice === null) continue
       const newPrice = competitorPrice - 500
+      // A price difference against TEXHORU matters even if 05.ru has never changed.
+      // Unmapped cards have no site retail price: show only actual 05.ru movements.
+      const differsFromSite = !!product && newPrice !== product.price
+      const changedOn05 = history?.oldPrice !== null && history?.oldPrice !== undefined
+        && history.oldPrice !== history.price
+      if (!differsFromSite && !(changedOn05 && !product)) continue
       const reasons: string[] = []
       const addReason = (reason: string) => { if (!reasons.includes(reason)) reasons.push(reason) }
 
@@ -889,7 +894,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         addReason('Цена 05.ru устарела: нужна успешная проверка не старше 24 часов')
       }
       if (link.latestPrice === null) addReason('Нет актуальной цены 05.ru')
-      else if (link.latestPrice !== history.price) addReason('Текущая цена 05.ru не совпадает с последней записью истории')
+      else if (history && link.latestPrice !== history.price) addReason('Текущая цена 05.ru не совпадает с последней записью истории')
       if (link.inStock !== true) addReason(link.inStock === false ? 'На 05.ru товар отсутствует в наличии' : 'Наличие товара на 05.ru не подтверждено')
       if (newPrice <= 0) addReason('Цена 05.ru минус 500 ₽ должна быть больше нуля')
 
@@ -927,7 +932,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         categoryPath: product?.category.name || 'Без сопоставления',
         costPrice: product?.costPrice ?? null,
         oldPrice: product?.price ?? null,
-        previousCompetitorPrice: history.oldPrice,
+        previousCompetitorPrice: history?.oldPrice ?? null,
         competitorPrice,
         newPrice,
         lastSuccessAt: link.lastSuccessAt?.toISOString() ?? null,
@@ -935,6 +940,35 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         canSend: reasons.length === 0,
         blockedReasons: reasons,
       })
+    }
+
+    // Catalog diagnostics are separate from price-change proposals. No retail
+    // price is guessed for products without a verified 05.ru card.
+    const imported = await db.product.findMany({
+      where: { oneCId: { not: null }, status: ProductStatus.ACTIVE },
+      select: { id: true, name: true, category: { select: { name: true } } },
+      take: 10000,
+    })
+    const linkedProductIds = new Set(links.flatMap(link => link.productId === null ? [] : [link.productId]))
+    const unlinkedProducts = imported
+      .filter(product => !linkedProductIds.has(product.id))
+      .filter(product => !path || product.category.name === path || product.category.name.startsWith(path + ' / '))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    const uncheckedLinks = links.filter(link => link.product?.oneCId
+      && (!link.lastSuccessAt || link.latestPrice === null || link.lastError)
+      && (!path || link.product.category.name === path || link.product.category.name.startsWith(path + ' / ')))
+    const diagnostics = {
+      unlinkedCount: unlinkedProducts.length,
+      unlinked: unlinkedProducts.slice(0, 50).map(product => ({
+        productId: product.id, productName: product.name, categoryPath: product.category.name,
+      })),
+      uncheckedCount: uncheckedLinks.length,
+      unchecked: uncheckedLinks.slice(0, 50).map(link => ({
+        productId: link.productId, productName: link.product!.name,
+        reason: link.lastError || (!link.lastSuccessAt
+          ? 'Карточка 05.ru ещё не проверена парсером'
+          : 'Нет достоверной текущей цены 05.ru'),
+      })),
     }
 
     rows.sort((a, b) => a.categoryPath.localeCompare(b.categoryPath, 'ru')
@@ -946,7 +980,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       token, count: available.length, totalScope: rows.length, skipped: blocked.length,
       unknownCost: blocked.filter(row => row.blockedReasons.includes('Не указана себестоимость')).length,
       largeChanges: blocked.filter(row => row.blockedReasons.includes('Изменение превышает 10% от текущей цены')).length,
-      oneCQueued: available.length, items: rows,
+      oneCQueued: available.length, items: rows, diagnostics,
     }
   }
 
