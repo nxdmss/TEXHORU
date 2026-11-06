@@ -919,7 +919,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      if (path && product && product.category.name !== path && !product.category.name.startsWith(path + ' / ')) continue
+      if (path && (!product || (product.category.name !== path && !product.category.name.startsWith(path + ' / ')))) continue
       rows.push({
         id: link.id,
         productId: product?.id ?? null,
@@ -981,7 +981,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
           details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
             competitorPrice: item.competitorPrice, newPrice: item.newPrice,
-            costUnknown: !product.costPrice, largeChange: Math.abs(item.newPrice - item.oldPrice) > item.oldPrice * 0.1,
+            costUnknown: !product.costPrice, largeChange: Math.abs(item.newPrice - product.price) > product.price * 0.1,
             oneCQueued: true, oneCMessageId: message.id },
         } })
       }
