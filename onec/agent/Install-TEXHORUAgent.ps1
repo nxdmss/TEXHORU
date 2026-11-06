@@ -1,4 +1,4 @@
-# One-time installation of the TEXHORU agent. Run as the same Windows user that opens the TEST 1C base.
+﻿# One-time installation of the TEXHORU agent. Run as the same Windows user that opens the TEST 1C base.
 # Windows PowerShell 5.1 or newer.
 $ErrorActionPreference = 'Stop'
 
