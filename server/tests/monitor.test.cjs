@@ -2532,11 +2532,15 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   assert(!storefront.some(row => row.oneCId === zeroId))
   const before = await prisma.product.findUniqueOrThrow({ where: { oneCId } })
   const link = 'https://05.ru/cat/396f7486/p/smartfon-iphone-17-pro-256-orange-' + batch.replace(/-/g, '') + '/'
-  const parser = { parse: async (url) => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url }) }
+  let observedPrice = 97490
+  const parser = { parse: async (url) => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url, price: observedPrice }) }
   const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
   const observation = await monitor.check({ url: link, productId: before.id })
-  assert.equal(observation.latestPrice, 96990)
+  assert.equal(observation.latestPrice, 97490)
   await monitor.confirm(observation.id, before.id)
+  // The first observation is a baseline. Only a subsequent change is proposed.
+  observedPrice = 96990
+  await monitor.check({ url: link, productId: before.id })
   // Allow the selected candidate in the TEST-only 1C scope.
   await prisma.product.update({ where: { id: before.id }, data: { priceSyncEnabled: true } })
   const scope = { categoryPath }
