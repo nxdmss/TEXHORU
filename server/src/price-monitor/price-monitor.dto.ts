@@ -40,7 +40,7 @@ export class ApplyRecommendedPriceDto {
   @Type(() => Number) @IsInt() @Min(0) expectedCurrentPrice!: number
   @Type(() => Number) @IsInt() @Min(1) expectedCompetitorPrice!: number
   @Type(() => Number) @IsInt() @Min(1) targetPrice!: number
-  @IsBoolean() acceptUnknownCost!: boolean
+  @IsOptional() @IsBoolean() acceptUnknownCost?: boolean
   @IsBoolean() acceptLargeChange!: boolean
 }
 export class MatchProductDto {
@@ -85,6 +85,6 @@ export class BulkPriceScopeDto {
 export class BulkApplyPricesDto extends BulkPriceScopeDto {
   @IsString() @MaxLength(64) token!: string
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @IsString({ each: true }) ids!: string[]
-  @IsBoolean() acceptUnknownCost!: boolean
+  @IsOptional() @IsBoolean() acceptUnknownCost?: boolean
   @IsBoolean() acceptLargeChange!: boolean
 }

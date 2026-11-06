@@ -1061,11 +1061,16 @@ test('Parses recorded live product data; ignores instalment and unrelated Produc
   assert.equal(fiveRuUrl(url + '?utm_source=x#foo', 'product'), url)
 })
 
-test('Recommendations require confirmed stock, fresh data, cost floor and a <=10% change', () => {
+test('Recommendations ignore cost temporarily, use 05.ru minus 100, and retain the <=10% change guard', () => {
   const input = { latestPrice: 96990, inStock: true, lastSuccessAt: new Date() }
-  assert.equal(recommendation(input, { price: 99990, costPrice: 80000 }).recommendedPrice, 96490)
-  for (const bad of [{ ...input, inStock: null }, { ...input, lastError: '403' }, { ...input, lastSuccessAt: new Date(0) }]) assert.equal(recommendation(bad, { price: 99990, costPrice: 80000 }).recommendedPrice, null)
-  for (const ours of [{ price: 99990 }, { price: 150000, costPrice: 80000 }, { price: 99990, costPrice: 98000 }]) assert.equal(recommendation(input, ours).recommendedPrice, null)
+  assert.equal(recommendation(input, { price: 99990, costPrice: 80000 }).recommendedPrice, 96890)
+  assert.equal(recommendation(input, { price: 99990 }).recommendedPrice, 96890,
+    'unknown cost must not block the temporary pricing rule')
+  assert.equal(recommendation(input, { price: 99990, costPrice: 98000 }).recommendedPrice, 96890,
+    'known cost must not change the temporary proposal')
+  for (const bad of [{ ...input, inStock: null }, { ...input, lastError: '403' }, { ...input, lastSuccessAt: new Date(0) }]) assert.equal(recommendation(bad, { price: 99990 }).recommendedPrice, null)
+  assert.equal(recommendation(input, { price: 150000 }).recommendedPrice, null,
+    'the separate 10% change guard remains active')
 })
 
 test('Full persistence: 1C import, candidate confirmation, durable delivery, failed ack/retry, changed variant and import rollback', async () => {
@@ -1104,7 +1109,7 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal(pending[0].price, 95990)
   assert.equal(pending[0].previousPrice, 96990)
   assert.equal(pending[0].priceChange, -1000)
-  assert.equal(pending[0].recommendedPrice, 95490)
+  assert.equal(pending[0].recommendedPrice, 95890)
   assert.equal((await exchange.pending()).items[0].id, pending[0].id)
   await exchange.ack(pending[0].id, 'Тест: сеть недоступна')
   assert.equal((await exchange.pending()).items.length, 1)
@@ -1114,7 +1119,7 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   assert.equal(await prisma.syncLog.count({ where: { entity: 'PRICE_MONITOR', status: 'SUCCESS' } }), 1)
   assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 99990)
   const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 95990,
-    targetPrice: 95490, acceptUnknownCost: false, acceptLargeChange: false }
+    targetPrice: 95890, acceptUnknownCost: false, acceptLargeChange: false }
   await assert.rejects(() => monitor.applyRecommended(link.id, { ...applyDto, expectedCurrentPrice: 90000 }))
   await assert.rejects(() => monitor.applyRecommended(link.id, applyDto), /не включён в разрешённую область/)
   assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 99990)
@@ -1254,9 +1259,9 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   const monitor = new PriceMonitorService(prisma, { parse: async () => {} }, exchange)
   const priceChange = await monitor.applyRecommended(link.id, {
     expectedCurrentPrice: changedPrice, expectedCompetitorPrice: 70900,
-    targetPrice: 70400, acceptUnknownCost: false, acceptLargeChange: false,
+    targetPrice: 70800, acceptUnknownCost: false, acceptLargeChange: false,
   })
-  assert.equal(priceChange.newPrice, 70400)
+  assert.equal(priceChange.newPrice, 70800)
   assert.equal(priceChange.oneCQueued, true)
   assert.equal(priceChange.siteOnly, false)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, changedPrice)
@@ -1264,7 +1269,7 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   assert.equal(pending.items.length, 1)
   assert.equal(pending.items[0].oneCId, ids[0])
   assert.equal(pending.items[0].expectedPrice, changedPrice)
-  assert.equal(pending.items[0].targetPrice, 70400)
+  assert.equal(pending.items[0].targetPrice, 70800)
   const failureReceipt = await sync.receipts({ items: [{ id: pending.items[0].id, error: '1C TEST temporarily unavailable' }] })
   assert.equal(failureReceipt.results[0].status, 'PENDING')
   assert.equal((await sync.pending()).items.length, 1) // safe retry, no lost update
@@ -1277,15 +1282,15 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   assert.equal(ours.price, changedPrice)
   await assert.rejects(() => monitor.applyRecommended(link.id, {
     expectedCurrentPrice: changedPrice, expectedCompetitorPrice: 70900,
-    targetPrice: 70400, acceptUnknownCost: false, acceptLargeChange: false,
+    targetPrice: 70800, acceptUnknownCost: false, acceptLargeChange: false,
   }))
   // The site price changes only after 1C confirms the posted retail-price document.
-  const acknowledgement = await sync.receipts({ items: [{ id: pending.items[0].id, appliedPrice: 70400 }] })
+  const acknowledgement = await sync.receipts({ items: [{ id: pending.items[0].id, appliedPrice: 70800 }] })
   assert.equal(acknowledgement.results[0].status, 'DELIVERED')
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 70400)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } } )).price, 70800)
   assert.equal((await sync.pending()).items.length, 0)
-  await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: 70400 }] })
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 70400)
+  await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: 70800 }] })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } } )).price, 70800)
   // Another independent change in 1C is reflected on the site, no echo.
   await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: 72500 }] })
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 72500)
@@ -2549,7 +2554,7 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   assert.equal(preview.count, 1)
   assert.equal(preview.totalScope, 1)
   assert.equal(preview.skipped, 0)
-  assert.equal(preview.items[0].newPrice, 96490)
+  assert.equal(preview.items[0].newPrice, 96890)
   assert.equal(preview.items[0].oldPrice, 91000)
   await assert.rejects(
     () => monitor.applyBulkPrices({ ...scope, ids: [observation.id], token: 'incorrect', acceptUnknownCost: false, acceptLargeChange: false }),
@@ -2573,9 +2578,9 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   const sync = new OneCPriceSyncService(prisma)
   const queued = await sync.pending()
   assert.equal(queued.items.length, 1)
-  const receipt = await sync.receipts({ items: [{ id: queued.items[0].id, appliedPrice: 96490 }] })
+  const receipt = await sync.receipts({ items: [{ id: queued.items[0].id, appliedPrice: 96890 }] })
   assert.equal(receipt.results[0].status, 'DELIVERED')
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } })).price, 96490)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } } )).price, 96890)
 
   await prisma.product.update({ where: { id: before.id }, data: { price: 91000 } })
   await prisma.competitorProduct.update({ where: { id: observation.id },
@@ -2965,7 +2970,7 @@ test('Bulk price preview lists every changed 05.ru price, explains blocked rows,
   assert.equal(eligibleRow.canSend, true)
   assert.equal(eligibleRow.previousCompetitorPrice, 72000)
   assert.equal(eligibleRow.competitorPrice, 71000)
-  assert.equal(eligibleRow.newPrice, 70500) // 05.ru minus 500 ₽
+  assert.equal(eligibleRow.newPrice, 70900) // 05.ru minus 100 ₽
   assert.equal(testRows.filter(item => item.canSend).length, 1)
   assert.equal(disabledRow.canSend, false)
   assert(disabledRow.blockedReasons.some(reason => reason.includes('не включён')))
@@ -2992,7 +2997,7 @@ test('Bulk price preview lists every changed 05.ru price, explains blocked rows,
     where: { productId: enabled.id, status: 'PENDING' },
   })
   assert.equal(queued.length, 1)
-  assert.equal(queued[0].newPrice, 70500)
+  assert.equal(queued[0].newPrice, 70900)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: enabled.id } })).price, 70000,
     'TEXHORU keeps the old price until 1C confirms the posted document')
 })
@@ -3010,7 +3015,7 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   }], products: ids.map((oneCId, i) => ({
     oneCId, sku: 'FIRST-SCAN-' + oneCId, slug: 'first-scan-' + oneCId,
     name: 'Первый замер ' + i, brand: 'Test', categoryOneCId: categoryId,
-    price: 70000, stockQty: 3, costPrice: 60000,
+    price: 70000, stockQty: 3, costPrice: i === 0 ? null : 60000,
   })) })
   const products = await Promise.all(ids.map(oneCId =>
     prisma.product.findUniqueOrThrow({ where: { oneCId } })))
@@ -3020,6 +3025,7 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   const fresh = await Promise.all(products.map(product => prisma.product.findUniqueOrThrow({
     where: { id: product.id },
   })))
+  assert.equal(fresh[0].costPrice, null, 'the selected first-scan product deliberately has no cost')
   const source = await prisma.competitorSource.upsert({
     where: { key: '05ru' }, update: {},
     create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
@@ -3041,15 +3047,15 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   }
   const diff = await addLink(fresh[0], 71000)
   await addLink(fresh[2], 71000, false)
-  const equal = await addLink(fresh[3], 70500)
+  const equal = await addLink(fresh[3], 70100)
 
   const preview = await monitor.previewBulkPrices({ categoryPath })
   assert.equal(preview.items.length, 1,
-    'Only 05.ru - 500 differences should become price proposals, including first scans')
+    'Only 05.ru - 100 differences should become price proposals, including first scans')
   assert.equal(preview.count, 1)
   assert.equal(preview.items[0].id, diff.id)
   assert.equal(preview.items[0].previousCompetitorPrice, null)
-  assert.equal(preview.items[0].newPrice, 70500)
+  assert.equal(preview.items[0].newPrice, 70900)
   assert.equal(preview.items[0].canSend, true)
   assert(!preview.items.some(item => item.id === equal.id), 'No change needed if the retail price already matches')
   assert.equal(preview.diagnostics.unlinkedCount, 1)
@@ -3074,13 +3080,13 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
     where: { productId: fresh[0].id, status: 'PENDING' },
   })
   assert.equal(queued.length, 1)
-  assert.equal(queued[0].newPrice, 70500)
+  assert.equal(queued[0].newPrice, 70900)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70000,
     'Site price must remain unchanged before 1C posts and acknowledges')
   await new OneCPriceSyncService(prisma).receipts({
-    items: [{ id: queued[0].id, appliedPrice: 70500 }],
+    items: [{ id: queued[0].id, appliedPrice: 70900 }],
   })
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70500)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70900)
 })
 
 test('TEST 1C catalog upload can grant price scope automatically, never writing prices or enabling admin JSON imports', async () => {
