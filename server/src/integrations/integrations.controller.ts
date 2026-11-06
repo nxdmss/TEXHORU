@@ -37,7 +37,11 @@ export class IntegrationsController {
   @Post('integrations/1c/price-sync/receipts') @UseGuards(OneCGuard) priceReceipts(@Body() dto: PriceSyncReceiptsDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.receipts(dto) }
   @Get('admin/integrations/1c/price-sync') @UseGuards(AuthGuard, AdminGuard)
   async priceSyncDashboard() {
-    return { ...await this.priceSync.dashboard(), testAutoScopeOnCatalogImport: this.testAutoPriceScopeEnabled() }
+    return {
+      ...await this.priceSync.dashboard(),
+      testPriceSyncEnabled: process.env.ONE_C_BASE_KIND === 'TEST' && process.env.ONE_C_TEST_PRICE_SYNC_ENABLED === 'true',
+      testAutoScopeOnCatalogImport: this.testAutoPriceScopeEnabled(),
+    }
   }
 
   @Get('integrations/1c/orders/pending') @UseGuards(OneCGuard) pendingOrders() { return this.integrations.pendingOrders() }
