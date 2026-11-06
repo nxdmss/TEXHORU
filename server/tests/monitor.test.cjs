@@ -3015,7 +3015,7 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   }], products: ids.map((oneCId, i) => ({
     oneCId, sku: 'FIRST-SCAN-' + oneCId, slug: 'first-scan-' + oneCId,
     name: 'Первый замер ' + i, brand: 'Test', categoryOneCId: categoryId,
-    price: 70000, stockQty: 3, costPrice: 60000,
+    price: 70000, stockQty: 3, costPrice: i === 0 ? null : 60000,
   })) })
   const products = await Promise.all(ids.map(oneCId =>
     prisma.product.findUniqueOrThrow({ where: { oneCId } })))
@@ -3025,6 +3025,7 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   const fresh = await Promise.all(products.map(product => prisma.product.findUniqueOrThrow({
     where: { id: product.id },
   })))
+  assert.equal(fresh[0].costPrice, null, 'the selected first-scan product deliberately has no cost')
   const source = await prisma.competitorSource.upsert({
     where: { key: '05ru' }, update: {},
     create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
