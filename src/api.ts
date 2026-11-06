@@ -113,6 +113,7 @@ export type PriceApprovalPreview = {
   };
 }
 export type OneCPriceSyncStatus = {
+  testAutoScopeOnCatalogImport?: boolean;
   scope: Array<{ id: number; oneCId: string | null; name: string; price: number; stockQty: number }>
   changes: Array<{ id: string; name: string; oneCId: string; oldPrice: number; newPrice: number;
     status: string; error: string | null; createdAt: string; deliveredAt: string | null }>

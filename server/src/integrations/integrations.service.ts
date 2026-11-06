@@ -10,7 +10,9 @@ import { phoneVariantKey } from '../products/phone-uniqueness'
 export class IntegrationsService {
   constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService) {}
 
-  async importCatalog(dto: OneCCatalogDto) {
+  // Auto-scope is opt-in for a trusted TEST 1C catalog push only.
+  // It grants eligibility for manual price proposals, never queues price changes.
+  async importCatalog(dto: OneCCatalogDto, options: { autoApproveTestPriceScope?: boolean } = {}) {
     try {
       return await this.prisma.$transaction(async tx => {
         if (new Set(dto.categories.map(c => c.oneCId)).size !== dto.categories.length || new Set(dto.products.map(p => p.oneCId)).size !== dto.products.length) throw new BadRequestException('Повторяющиеся идентификаторы в пакете 1С')
@@ -65,6 +67,7 @@ export class IntegrationsService {
         }
         let skippedDuplicates = 0
         const duplicateExamples: string[] = []
+        const importedProductIds: number[] = []
 
         for (const item of dto.products) {
           const categoryId = categoryIdByIncomingOneCId.get(item.categoryOneCId)
@@ -127,7 +130,9 @@ export class IntegrationsService {
             : item.price
           const productData = {
             oneCId: item.oneCId,
-            gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice,
+            // Older 1C export processors send no cost price. A repeat import
+            // must not silently wipe the independently verified cost already saved.
+            gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice ?? existing?.costPrice ?? null,
             attributes: item.attributes ? { ...item.attributes } : undefined,
             sku: item.sku,
             slug: item.slug,
@@ -145,6 +150,7 @@ export class IntegrationsService {
             ? await tx.product.update({ where: { id: existing.id }, data: productData })
             : await tx.product.create({ data: productData })
           if (variantKey) occupiedVariants.set(variantKey, { oneCId: updated.oneCId, id: updated.id })
+          if (updated.oneCId && updated.price > 0 && updated.price <= 5_000_000) importedProductIds.push(updated.id)
 
           const crossedLowStock = item.stockQty <= 3 && (!existing || existing.stockQty > 3)
           if (crossedLowStock) {
@@ -153,6 +159,34 @@ export class IntegrationsService {
               metadata: { productId: updated.id, oneCId: item.oneCId },
             } })
           }
+        }
+
+        let autoPriceScope: { enabled: number; newlyEnabled: number; skippedByLimit: number } | null = null
+        if (options.autoApproveTestPriceScope) {
+          // This is an additive, bounded TEST-only grant. A 50-item upload must
+          // not bypass the same 30-product pilot limit as the manual scope API.
+          // Never revoke older grants on partial batch imports.
+          const alreadyEnabled = await tx.product.findMany({
+            where: { priceSyncEnabled: true }, select: { id: true },
+          })
+          const enabledIds = new Set(alreadyEnabled.map(product => product.id))
+          const newIds = [...new Set(importedProductIds)].filter(id => !enabledIds.has(id))
+          const slots = Math.max(0, 30 - enabledIds.size)
+          const grantIds = newIds.slice(0, slots)
+          const newlyEnabled = grantIds.length
+            ? (await tx.product.updateMany({
+                where: { id: { in: grantIds }, priceSyncEnabled: false },
+                data: { priceSyncEnabled: true },
+              })).count : 0
+          autoPriceScope = {
+            enabled: enabledIds.size + newlyEnabled,
+            newlyEnabled,
+            skippedByLimit: newIds.length - newlyEnabled,
+          }
+          await tx.syncLog.create({ data: {
+            direction: 'FROM_1C', entity: 'PRICE_SYNC_SCOPE', status: 'SUCCESS',
+            message: `TEST: автоматический допуск после импорта; добавлено: ${newlyEnabled}; всего: ${autoPriceScope.enabled}/30; лимит: ${autoPriceScope.skippedByLimit}. Записи цен не создавались.`,
+          } })
         }
 
         await tx.syncLog.create({
@@ -166,7 +200,7 @@ export class IntegrationsService {
 
         return { ok: true, categories: dto.categories.length,
           products: dto.products.length - skippedDuplicates,
-          skippedDuplicates, duplicateExamples }
+          skippedDuplicates, duplicateExamples, ...(autoPriceScope ? { autoPriceScope } : {}) }
       }, { timeout: 180000 })
     } catch (error) {
       await this.prisma.syncLog.create({
