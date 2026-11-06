@@ -1061,11 +1061,16 @@ test('Parses recorded live product data; ignores instalment and unrelated Produc
   assert.equal(fiveRuUrl(url + '?utm_source=x#foo', 'product'), url)
 })
 
-test('Recommendations require confirmed stock, fresh data, cost floor and a <=10% change', () => {
+test('Recommendations ignore cost temporarily, use 05.ru minus 100, and retain the <=10% change guard', () => {
   const input = { latestPrice: 96990, inStock: true, lastSuccessAt: new Date() }
-  assert.equal(recommendation(input, { price: 99990, costPrice: 80000 }).recommendedPrice, 96490)
-  for (const bad of [{ ...input, inStock: null }, { ...input, lastError: '403' }, { ...input, lastSuccessAt: new Date(0) }]) assert.equal(recommendation(bad, { price: 99990, costPrice: 80000 }).recommendedPrice, null)
-  for (const ours of [{ price: 99990 }, { price: 150000, costPrice: 80000 }, { price: 99990, costPrice: 98000 }]) assert.equal(recommendation(input, ours).recommendedPrice, null)
+  assert.equal(recommendation(input, { price: 99990, costPrice: 80000 }).recommendedPrice, 96890)
+  assert.equal(recommendation(input, { price: 99990 }).recommendedPrice, 96890,
+    'unknown cost must not block the temporary pricing rule')
+  assert.equal(recommendation(input, { price: 99990, costPrice: 98000 }).recommendedPrice, 96890,
+    'known cost must not change the temporary proposal')
+  for (const bad of [{ ...input, inStock: null }, { ...input, lastError: '403' }, { ...input, lastSuccessAt: new Date(0) }]) assert.equal(recommendation(bad, { price: 99990 }).recommendedPrice, null)
+  assert.equal(recommendation(input, { price: 150000 }).recommendedPrice, null,
+    'the separate 10% change guard remains active')
 })
 
 test('Full persistence: 1C import, candidate confirmation, durable delivery, failed ack/retry, changed variant and import rollback', async () => {
@@ -2549,7 +2554,7 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   assert.equal(preview.count, 1)
   assert.equal(preview.totalScope, 1)
   assert.equal(preview.skipped, 0)
-  assert.equal(preview.items[0].newPrice, 96490)
+  assert.equal(preview.items[0].newPrice, 96890)
   assert.equal(preview.items[0].oldPrice, 91000)
   await assert.rejects(
     () => monitor.applyBulkPrices({ ...scope, ids: [observation.id], token: 'incorrect', acceptUnknownCost: false, acceptLargeChange: false }),
@@ -2965,7 +2970,7 @@ test('Bulk price preview lists every changed 05.ru price, explains blocked rows,
   assert.equal(eligibleRow.canSend, true)
   assert.equal(eligibleRow.previousCompetitorPrice, 72000)
   assert.equal(eligibleRow.competitorPrice, 71000)
-  assert.equal(eligibleRow.newPrice, 70500) // 05.ru minus 500 ₽
+  assert.equal(eligibleRow.newPrice, 70900) // 05.ru minus 100 ₽
   assert.equal(testRows.filter(item => item.canSend).length, 1)
   assert.equal(disabledRow.canSend, false)
   assert(disabledRow.blockedReasons.some(reason => reason.includes('не включён')))
@@ -2992,7 +2997,7 @@ test('Bulk price preview lists every changed 05.ru price, explains blocked rows,
     where: { productId: enabled.id, status: 'PENDING' },
   })
   assert.equal(queued.length, 1)
-  assert.equal(queued[0].newPrice, 70500)
+  assert.equal(queued[0].newPrice, 70900)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: enabled.id } })).price, 70000,
     'TEXHORU keeps the old price until 1C confirms the posted document')
 })
@@ -3041,15 +3046,15 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   }
   const diff = await addLink(fresh[0], 71000)
   await addLink(fresh[2], 71000, false)
-  const equal = await addLink(fresh[3], 70500)
+  const equal = await addLink(fresh[3], 70100)
 
   const preview = await monitor.previewBulkPrices({ categoryPath })
   assert.equal(preview.items.length, 1,
-    'Only 05.ru - 500 differences should become price proposals, including first scans')
+    'Only 05.ru - 100 differences should become price proposals, including first scans')
   assert.equal(preview.count, 1)
   assert.equal(preview.items[0].id, diff.id)
   assert.equal(preview.items[0].previousCompetitorPrice, null)
-  assert.equal(preview.items[0].newPrice, 70500)
+  assert.equal(preview.items[0].newPrice, 70900)
   assert.equal(preview.items[0].canSend, true)
   assert(!preview.items.some(item => item.id === equal.id), 'No change needed if the retail price already matches')
   assert.equal(preview.diagnostics.unlinkedCount, 1)
@@ -3078,9 +3083,9 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70000,
     'Site price must remain unchanged before 1C posts and acknowledges')
   await new OneCPriceSyncService(prisma).receipts({
-    items: [{ id: queued[0].id, appliedPrice: 70500 }],
+    items: [{ id: queued[0].id, appliedPrice: 70900 }],
   })
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70500)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70900)
 })
 
 test('TEST 1C catalog upload can grant price scope automatically, never writing prices or enabling admin JSON imports', async () => {
