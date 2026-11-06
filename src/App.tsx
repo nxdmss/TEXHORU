@@ -638,25 +638,52 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   if (checkingSession) return <section className="admin-shell"><div className="admin-loading">Проверяем сессию…</div></section>
-  if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU CONTROL</p><h1>Вход в админку</h1><label><span>Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Учётка создаётся seed-скриптом backend. Перед production меняем все секреты.</small></form></section>
+  if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU</p><h1>Вход в управление</h1><label><span>Почта</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Данные для входа выдаёт администратор магазина. Пароль из примера нужно заменить.</small></form></section>
 
   const unread = notifications.filter((item) => !item.isRead).length
-  const tabNames: Record<AdminTab, string> = { overview: 'Обзор', products: 'Товары', content: 'Витрина', prices: 'Обновление цен', orders: 'Заказы', notifications: 'Уведомления', sync: '1С', audit: 'Аудит' }
+  const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Обмен с 1С', audit: 'Журнал' }
+  const navigationGroups: Array<{ label: string; tabs: AdminTab[] }> = [
+    { label: 'Магазин', tabs: ['overview', 'products', 'content', 'orders', 'notifications'] },
+    { label: 'Цены и учёт', tabs: ['prices', 'sync'] },
+  ]
   return <section className="admin-shell">
-    <div className="admin-top"><div><p className="eyebrow">TEXHORU CONTROL</p><h1>Управление магазином</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'API: ошибка' : 'API: подключён'}</span><button onClick={() => load()}>Обновить</button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти</button></div></div>
-    <div className="admin-tabs">{(Object.keys(tabNames) as AdminTab[]).map((item) => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{tabNames[item]}</button>)}</div>
+    <div className="admin-top"><div><p className="eyebrow">TEXHORU</p><h1>Управление магазином</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : 'Сайт на связи'}</span><button onClick={() => load()}>Обновить данные</button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти</button></div></div>
+    <nav className="admin-tabs" aria-label="Разделы управления магазином">
+      {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
+        <span>{section.label}</span>
+        <div>{section.tabs.map(item => <button type="button" aria-current={tab === item ? 'page' : undefined}
+          className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{tabNames[item]}</button>)}</div>
+      </div>)}
+      <details className="admin-tabs-extra" open={tab === 'audit'}>
+        <summary>Ещё</summary>
+        <button type="button" className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}>Журнал действий</button>
+      </details>
+    </nav>
     {error && <div className="admin-error">{error}</div>}
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
     {loading && <div className="admin-loading">Загрузка…</div>}
-    {tab === 'overview' && <div className="admin-metrics">
-      <article><span>Из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong></article>
-      <article><span>Активных из 1С</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE').length}</strong></article>
-      <article><span>Из 1С с доступным остатком</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE' && p.stockQty > (p.reservedQty || 0)).length}</strong></article>
-      <article><span>Тестовые карточки 05.ru</span><strong>{products.filter(p => p.sku.startsWith('05RU-')).length}</strong></article>
-      <article><span>Карточек на витрине</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || (p.price > 0 && p.stockQty > (p.reservedQty || 0)))).length}</strong></article>
-      <article><span>Черновики</span><strong>{products.filter(p => p.status === 'DRAFT').length}</strong></article>
-    </div>}
-    {tab === 'overview' && <div className="admin-metrics"><article><span>Записей в базе</span><strong>{products.length}</strong></article><article><span>Категорий</span><strong>{apiCategories.length}</strong></article><article><span>Заказов</span><strong>{orders.length}</strong></article><article><span>Новых уведомлений</span><strong>{unread}</strong></article><article><span>Ошибок обмена 1С</span><strong>{logs.filter((item) => item.status === 'FAILED').length}</strong></article><article><span>Мало товара</span><strong>{products.filter((item) => Math.max(0, item.stockQty - (item.reservedQty ?? 0)) <= 3).length}</strong></article></div>}
+    {tab === 'overview' && <>
+      <div className="admin-overview-heading">
+        <h2>Состояние магазина</h2>
+        <p>Главное на сегодня. Остальные цифры можно открыть ниже.</p>
+      </div>
+      <div className="admin-metrics admin-metrics-main">
+        <article><span>Товаров на сайте</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || (p.price > 0 && p.stockQty > (p.reservedQty || 0)))).length}</strong></article>
+        <article><span>Получено из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong></article>
+        <article><span>Заказов</span><strong>{orders.length}</strong></article>
+        <article><span>Новых сообщений</span><strong>{unread}</strong></article>
+      </div>
+      <details className="admin-overview-more">
+        <summary>Дополнительные сведения</summary>
+        <div className="admin-metrics">
+          <article><span>Товаров в наличии из 1С</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE' && p.stockQty > (p.reservedQty || 0)).length}</strong></article>
+          <article><span>Разделов товаров</span><strong>{apiCategories.length}</strong></article>
+          <article><span>Скрытых товаров</span><strong>{products.filter(p => p.status === 'ARCHIVED').length}</strong></article>
+          <article><span>Мало товара</span><strong>{products.filter(p => Math.max(0, p.stockQty - (p.reservedQty ?? 0)) <= 3).length}</strong></article>
+          <article><span>Ошибок обмена</span><strong>{logs.filter(item => item.status === 'FAILED').length}</strong></article>
+        </div>
+      </details>
+    </>}
 
     {tab === 'products' && <div className="admin-products-v2">
       <aside className="admin-category-panel">
