@@ -84,7 +84,8 @@ export class OneCPriceSyncService {
     })
     const items = []
     for (const row of rows) {
-      if (!row.product.priceSyncEnabled || row.product.oneCId !== row.oneCId || row.product.price !== row.newPrice) {
+      const expectedSitePrice = row.sourceLinkId ? row.oldPrice : row.newPrice
+      if (!row.product.priceSyncEnabled || row.product.oneCId !== row.oneCId || row.product.price !== expectedSitePrice) {
         await this.prisma.oneCPriceChange.updateMany({ where: { id: row.id, status: 'PENDING' },
           data: { status: 'CANCELLED', lastError: 'Товар больше не входит в пилот или цена сайта изменилась' },
         })
@@ -109,19 +110,59 @@ export class OneCPriceSyncService {
         if (change.status !== 'PENDING') throw new ConflictException('Изменение цены уже закрыто')
         const failed = !!receipt.error || receipt.appliedPrice !== change.newPrice
         const errorMessage = receipt.error || (failed ? '1С не подтвердила точную новую цену' : null)
-        // Failed writes remain pending so 1C can retry safely after a temporary error.
-        const status = failed ? 'PENDING' : 'DELIVERED'
+        if (failed) {
+          // Failed writes remain pending so 1C can retry safely after a temporary error.
+          await tx.oneCPriceChange.update({
+            where: { id: change.id }, data: {
+              status: 'PENDING', attempts: { increment: 1 }, lastError: errorMessage, deliveredAt: null,
+            },
+          })
+          await tx.syncLog.create({ data: {
+            direction: 'TO_1C', entity: 'RETAIL_PRICE_UPDATE', entityId: change.id,
+            status: 'FAILED', message: errorMessage!,
+          } })
+          return { id: change.id, status: 'PENDING' }
+        }
+
+        // The storefront follows 1C: publish the new site price only after
+        // the agent confirms that the retail-price document was posted.
+        const productStillMatches = change.product.priceSyncEnabled
+          && change.product.oneCId === change.oneCId
+          && change.product.price === (change.sourceLinkId ? change.oldPrice : change.newPrice)
+        const changed = change.sourceLinkId && productStillMatches
+          ? await tx.product.updateMany({
+              where: { id: change.productId, oneCId: change.oneCId, price: change.oldPrice, priceSyncEnabled: true },
+              data: { price: change.newPrice },
+            })
+          : { count: productStillMatches ? 1 : 0 }
+        if (changed.count !== 1) {
+          const conflict = 'Цена сайта или разрешённая связь с 1С изменилась до подтверждения'
+          await tx.oneCPriceChange.update({
+            where: { id: change.id }, data: {
+              status: 'CONFLICT', attempts: { increment: 1 }, lastError: conflict, deliveredAt: null,
+            },
+          })
+          await tx.syncLog.create({ data: {
+            direction: 'TO_1C', entity: 'RETAIL_PRICE_UPDATE', entityId: change.id,
+            status: 'FAILED', message: conflict,
+          } })
+          return { id: change.id, status: 'CONFLICT' }
+        }
+
         await tx.oneCPriceChange.update({
           where: { id: change.id }, data: {
-            status, attempts: { increment: 1 }, lastError: errorMessage,
-            deliveredAt: failed ? null : new Date(),
+            status: 'DELIVERED', attempts: { increment: 1 }, lastError: null, deliveredAt: new Date(),
           },
         })
+        await tx.auditLog.create({ data: {
+          action: 'CONFIRM_1C_PRICE_CHANGE', entity: 'Product', entityId: String(change.productId),
+          details: { oneCPriceChangeId: change.id, oneCId: change.oneCId, previousPrice: change.oldPrice, newPrice: change.newPrice },
+        } })
         await tx.syncLog.create({ data: {
           direction: 'TO_1C', entity: 'RETAIL_PRICE_UPDATE', entityId: change.id,
-          status: failed ? 'FAILED' : 'SUCCESS', message: errorMessage || `Розничная цена ${change.newPrice} ₽ подтверждена в тестовой 1С`,
+          status: 'SUCCESS', message: `Розничная цена ${change.newPrice} ₽ подтверждена в тестовой 1С`,
         } })
-        return { id: change.id, status }
+        return { id: change.id, status: 'DELIVERED' }
       }))
     }
     return { ok: true, results }

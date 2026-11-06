@@ -1115,12 +1115,9 @@ test('Full persistence: 1C import, candidate confirmation, durable delivery, fai
   const applyDto = { expectedCurrentPrice: 99990, expectedCompetitorPrice: 95990,
     targetPrice: 95490, acceptUnknownCost: false, acceptLargeChange: false }
   await assert.rejects(() => monitor.applyRecommended(link.id, { ...applyDto, expectedCurrentPrice: 90000 }))
-  const applied = await monitor.applyRecommended(link.id, applyDto)
-  assert.equal(applied.newPrice, 95490)
-  assert.equal(applied.siteOnly, true)
-  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 95490)
-  assert.equal(await prisma.auditLog.count({ where: { action: 'APPLY_MONITOR_SITE_PRICE', entityId: String(ours.id) } }), 1)
-  await prisma.product.update({ where: { id: ours.id }, data: { price: 99990 } }) // reset fixture
+  await assert.rejects(() => monitor.applyRecommended(link.id, applyDto), /не включён в разрешённую область/)
+  assert.equal((await prisma.product.findUnique({ where: { id: ours.id } })).price, 99990)
+  assert.equal(await prisma.auditLog.count({ where: { action: 'QUEUE_MONITOR_PRICE_TO_1C', entityId: String(ours.id) } }), 0)
 
   failure = 'HTTP 403'
   await assert.rejects(() => monitor.check({ url }))
@@ -1260,6 +1257,8 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   })
   assert.equal(priceChange.newPrice, 70400)
   assert.equal(priceChange.oneCQueued, true)
+  assert.equal(priceChange.siteOnly, false)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, changedPrice)
   const pending = await sync.pending()
   assert.equal(pending.items.length, 1)
   assert.equal(pending.items[0].oneCId, ids[0])
@@ -1268,19 +1267,21 @@ test('Bidirectional pilot: 10 iPhone 13s, 1C to site, approved monitor price bac
   const failureReceipt = await sync.receipts({ items: [{ id: pending.items[0].id, error: '1C TEST temporarily unavailable' }] })
   assert.equal(failureReceipt.results[0].status, 'PENDING')
   assert.equal((await sync.pending()).items.length, 1) // safe retry, no lost update
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, changedPrice)
   await assert.rejects(() => sync.configureScope({ oneCIds: ids.slice(0,2) }))
 
-  // Site change must NOT get overwritten by 1C's stale snapshot while delivery is pending.
+  // An old 1C catalog snapshot leaves the current site price unchanged while delivery is pending.
   await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: changedPrice }] })
   ours = await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })
-  assert.equal(ours.price, 70400)
+  assert.equal(ours.price, changedPrice)
   await assert.rejects(() => monitor.applyRecommended(link.id, {
     expectedCurrentPrice: changedPrice, expectedCompetitorPrice: 70900,
     targetPrice: 70400, acceptUnknownCost: false, acceptLargeChange: false,
   }))
-  // A verified 1C write is acknowledged by stable delivery ID.
+  // The site price changes only after 1C confirms the posted retail-price document.
   const acknowledgement = await sync.receipts({ items: [{ id: pending.items[0].id, appliedPrice: 70400 }] })
   assert.equal(acknowledgement.results[0].status, 'DELIVERED')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 70400)
   assert.equal((await sync.pending()).items.length, 0)
   await integration.importCatalog({ categories: [category], products: [{ ...products[0], price: 70400 }] })
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: ids[0] } })).price, 70400)
@@ -2555,7 +2556,8 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   assert.equal(applied.applied, 1)
   assert.equal(applied.siteOnly, 0)
   assert.equal(applied.oneCQueued, 1)
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } })).price, 96490)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } })).price, 91000,
+    'the website must not publish a parser proposal before 1C confirms it')
   assert.equal(await prisma.oneCPriceChange.count({ where: { productId: before.id, status: 'PENDING' } }), 1)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: zeroId } })).price, 95000)
   await assert.rejects(() => monitor.applyBulkPrices({
@@ -2563,6 +2565,12 @@ test('Selected price approvals require 1C scope, preserve atomicity and reject s
   }), /Обнови предварительный просмотр/)
   const completedPreview = await monitor.previewBulkPrices(scope)
   assert.equal(completedPreview.count, 0)
+  const sync = new OneCPriceSyncService(prisma)
+  const queued = await sync.pending()
+  assert.equal(queued.items.length, 1)
+  const receipt = await sync.receipts({ items: [{ id: queued.items[0].id, appliedPrice: 96490 }] })
+  assert.equal(receipt.results[0].status, 'DELIVERED')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId } })).price, 96490)
 
   await prisma.product.update({ where: { id: before.id }, data: { price: 91000 } })
   await prisma.competitorProduct.update({ where: { id: observation.id },
