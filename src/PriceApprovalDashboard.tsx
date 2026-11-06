@@ -131,7 +131,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
         categoryPath: '', token: preview.token, ids: chosen.map(item => item.id),
         acceptUnknownCost: false, acceptLargeChange: false,
       })
-      setNotice('Отправлено в 1С: ' + result.oneCQueued + '. Ждём подтверждения.')
+      setNotice('В очереди 1С: ' + result.oneCQueued + '. Цены на сайте обновятся после подтверждения агента.')
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось отправить выбранные цены в 1С')
