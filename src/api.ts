@@ -101,9 +101,10 @@ export type CheckAllResult =
 export type MonitorDelivery = { id: string; status: string; attempts: number; lastError?: string | null; createdAt: string; payload: Record<string, unknown> }
 
 export type PriceApprovalPreview = {
-  token: string; count: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
-  items: Array<{ id: string; productId: number; productName: string; categoryPath: string; costPrice: number;
-    oldPrice: number; competitorPrice: number; newPrice: number; lastSuccessAt: string }>
+  token: string; count: number; totalScope: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
+  items: Array<{ id: string; productId: number | null; productName: string; categoryPath: string; costPrice: number | null;
+    oldPrice: number | null; previousCompetitorPrice: number; competitorPrice: number; newPrice: number;
+    lastSuccessAt: string | null; externalUrl: string; canSend: boolean; blockedReasons: string[] }>
 }
 export type OneCPriceSyncStatus = {
   scope: Array<{ id: number; oneCId: string | null; name: string; price: number; stockQty: number }>
