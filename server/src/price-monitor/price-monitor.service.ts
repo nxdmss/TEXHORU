@@ -965,19 +965,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         throw new ConflictException('Цены или совпадения изменились. Обнови предварительный просмотр и повтори.')
       }
       if (!snapshot.count) throw new BadRequestException('Нет подтверждённых актуальных цен для обновления')
-      if (snapshot.unknownCost && !dto.acceptUnknownCost) {
-        throw new BadRequestException('Есть товары без себестоимости. Требуется явное подтверждение риска.')
-      }
-      if (snapshot.largeChanges && !dto.acceptLargeChange) {
-        throw new BadRequestException('Есть изменения более 10%. Требуется явное подтверждение.')
-      }
       let oneCQueued = 0
       const selection = new Set(dto.ids)
-      const chosen = snapshot.items.filter(item => selection.has(item.id))
+      const chosen = snapshot.items.filter(item => selection.has(item.id) && item.canSend)
       if (!selection.size || selection.size !== chosen.length) {
-        throw new BadRequestException('Выбранные предложения устарели или не прошли проверки')
+        throw new BadRequestException('Выбраны заблокированные или устаревшие предложения. Обнови предварительный просмотр.')
       }
       for (const item of chosen) {
+        if (item.productId === null) throw new BadRequestException('Нельзя отправить несопоставленный товар в 1С')
         const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } })
         const message = await OneCPriceSyncService.queue(tx, product, item.newPrice, item.id)
         if (!message) throw new ConflictException('Товар не подключён к обмену с 1С. Ничего не изменено.')
@@ -986,7 +981,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
           details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
             competitorPrice: item.competitorPrice, newPrice: item.newPrice,
-            costUnknown: item.unknownCost, largeChange: item.largeChange,
+            costUnknown: !product.costPrice, largeChange: Math.abs(item.newPrice - item.oldPrice) > item.oldPrice * 0.1,
             oneCQueued: true, oneCMessageId: message.id },
         } })
       }
@@ -1001,8 +996,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const snapshot = await this.bulkPriceSnapshot(tx, dto.categoryPath)
       if (snapshot.token !== dto.token) throw new ConflictException('Предложения изменились. Обновите страницу.')
       const ids = new Set(dto.ids)
-      const chosen = snapshot.items.filter(item => ids.has(item.id))
-      if (!ids.size || ids.size !== chosen.length) throw new BadRequestException('Предложения устарели')
+      const chosen = snapshot.items.filter(item => ids.has(item.id) && item.canSend)
+      if (!ids.size || ids.size !== chosen.length) throw new BadRequestException('Выбраны заблокированные или устаревшие предложения')
       for (const item of chosen) await tx.auditLog.create({ data: {
         action: 'REJECT_MONITOR_PROPOSAL', entity: 'Product', entityId: String(item.productId),
         details: { linkId: item.id, oldPrice: item.oldPrice, competitorPrice: item.competitorPrice,
