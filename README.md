@@ -43,12 +43,13 @@
 npm ci
 npm --prefix server ci
 cp server/.env.example server/.env.local
+export DATABASE_URL=file:./dev-local.db
 npm run db:local:generate
 npm run db:local:push
 npm run dev
 ```
 
-На Windows вместо `cp` можно скопировать файл обычным способом. Перед запуском проверь значения в `server/.env.local`. Пароли из примера нельзя использовать на доступном из интернета сервере.
+На Windows файл можно скопировать обычным способом. В PowerShell вместо `export` используй `$env:DATABASE_URL = "file:./dev-local.db"`. Перед запуском проверь значения в `server/.env.local`. Пароли из примера нельзя использовать на доступном из интернета сервере.
 
 После запуска: магазин работает на порту **5173**, сервер на **3000**, проверка работы сервера доступна по адресу http://127.0.0.1:3000/api/health.
 
