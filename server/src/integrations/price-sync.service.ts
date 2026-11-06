@@ -84,9 +84,10 @@ export class OneCPriceSyncService {
     })
     const items = []
     for (const row of rows) {
-      if (!row.product.priceSyncEnabled || row.product.oneCId !== row.oneCId || row.product.price !== row.oldPrice) {
+      const expectedSitePrice = row.sourceLinkId ? row.oldPrice : row.newPrice
+      if (!row.product.priceSyncEnabled || row.product.oneCId !== row.oneCId || row.product.price !== expectedSitePrice) {
         await this.prisma.oneCPriceChange.updateMany({ where: { id: row.id, status: 'PENDING' },
-          data: { status: 'CANCELLED', lastError: 'Товар больше не входит в пилот или исходная цена сайта изменилась' },
+          data: { status: 'CANCELLED', lastError: 'Товар больше не входит в пилот или цена сайта изменилась' },
         })
         continue
       }
@@ -125,10 +126,15 @@ export class OneCPriceSyncService {
 
         // The storefront follows 1C: publish the new site price only after
         // the agent confirms that the retail-price document was posted.
-        const changed = await tx.product.updateMany({
-          where: { id: change.productId, oneCId: change.oneCId, price: change.oldPrice, priceSyncEnabled: true },
-          data: { price: change.newPrice },
-        })
+        const productStillMatches = change.product.priceSyncEnabled
+          && change.product.oneCId === change.oneCId
+          && change.product.price === (change.sourceLinkId ? change.oldPrice : change.newPrice)
+        const changed = change.sourceLinkId && productStillMatches
+          ? await tx.product.updateMany({
+              where: { id: change.productId, oneCId: change.oneCId, price: change.oldPrice, priceSyncEnabled: true },
+              data: { price: change.newPrice },
+            })
+          : { count: productStillMatches ? 1 : 0 }
         if (changed.count !== 1) {
           const conflict = 'Цена сайта или разрешённая связь с 1С изменилась до подтверждения'
           await tx.oneCPriceChange.update({
