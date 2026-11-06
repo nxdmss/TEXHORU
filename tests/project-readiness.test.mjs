@@ -11,6 +11,8 @@ const docs = [
   'docs/README.md',
   'docs/как-работать-с-ценами.md',
   'docs/передача-разработчику.md',
+  'onec/agent/README.md',
+  'onec/monitoring/UT103-PILOT-README.md',
 ]
 const read = (path) => readFileSync(resolve(root, path), 'utf8')
 
@@ -46,4 +48,26 @@ test('В интерфейсе понятно, что данные 05.ru не о�
   assert.match(approval, /Отправить выбранные в 1С/)
   assert.match(approval, /после ответа 1С/)
   assert.match(approval, /Связи с 05\.ru/)
+})
+
+test('Windows agent is scheduled, skips an empty queue and accepts TEST only', () => {
+  const installer = read('onec/agent/Install-TEXHORUAgent.ps1')
+  const runner = read('onec/agent/Run-TEXHORUAgent.ps1')
+  const bsl = read('onec/monitoring/UT103-PilotRetailPrices-FormModule.bsl')
+  const controller = read('server/src/integrations/integrations.controller.ts')
+  const env = read('server/.env.example')
+
+  assert.match(installer, /ПОДТВЕРЖДАЮ ТЕСТ/)
+  assert.match(installer, /New-TimeSpan -Minutes 2/)
+  assert.match(installer, /LogonType Interactive/)
+  assert.match(runner, /Local\\TEXHORU_TEST_1C_AGENT/)
+  assert.match(runner, /if \(\$items\.Count -eq 0\)/)
+  assert.match(runner, /BaseKind -ne 'TEST'/)
+  assert.match(runner, /agent-runtime\.json/)
+  assert.match(bsl, /ПараметрЗапуска/)
+  assert.match(bsl, /ПилотТЕХОРУПрименитьЦенуНаСервере/)
+  assert.match(bsl, /ЗавершитьРаботуСистемы\(Ложь\)/)
+  assert.match(bsl, /НазваниеБазы/)
+  assert.match(controller, /ONE_C_TEST_PRICE_SYNC_ENABLED/)
+  assert.match(env, /ONE_C_TEST_PRICE_SYNC_ENABLED=false/)
 })
