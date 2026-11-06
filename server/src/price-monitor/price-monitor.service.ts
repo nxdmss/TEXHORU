@@ -815,7 +815,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       await tx.auditLog.create({ data: {
         action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
         details: { monitorLinkId: id, previousPrice: product.price, competitorPrice: link.latestPrice,
-          newPrice: price, costUnknown: !product.costPrice, largeChange,
+          newPrice: price, costCheck: 'disabled', largeChange,
           oneCQueued: true, oneCMessageId: message.id },
       } })
       return { ok: true, productId: product.id, previousPrice: product.price, newPrice: price,
