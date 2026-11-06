@@ -82,6 +82,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
     inside(item.categoryPath, path)
     && (!search.trim() || item.productName.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))),
   [preview, path, search])
+  const selectableOffers = useMemo(() => offers.filter(item => item.canSend), [offers])
   const groupedOffers = useMemo(() => {
     const categories = new Map<string, typeof offers>()
     for (const item of offers) categories.set(item.categoryPath, [...(categories.get(item.categoryPath) || []), item])
@@ -89,13 +90,13 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
   }, [offers])
 
   const running = jobs.find(job => job.status === 'QUEUED' || job.status === 'RUNNING')
-  const selectedVisible = selected.filter(id => offers.some(item => item.id === id))
-  const allVisibleSelected = offers.length > 0 && selectedVisible.length === offers.length
+  const selectedVisible = selected.filter(id => selectableOffers.some(item => item.id === id))
+  const allVisibleSelected = selectableOffers.length > 0 && selectedVisible.length === selectableOffers.length
   const pending = exchange.changes.filter(change => change.status === 'PENDING').length
   const failed = exchange.changes.filter(change => change.status === 'CONFLICT' || change.status === 'FAILED').length
 
   function toggleAll() {
-    const visibleIds = offers.map(item => item.id)
+    const visibleIds = selectableOffers.map(item => item.id)
     if (allVisibleSelected) {
       setSelected(current => current.filter(id => !visibleIds.includes(id)))
     } else {
@@ -121,7 +122,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
 
   async function sendSelected() {
     if (!preview || !selectedVisible.length || running) return
-    const chosen = offers.filter(item => selectedVisible.includes(item.id))
+    const chosen = selectableOffers.filter(item => selectedVisible.includes(item.id))
     if (!window.confirm('Отправить новые цены в 1С для ' + chosen.length + ' товаров?\n\nЦены на сайте изменятся только после подтверждения 1С.')) return
     setBusy('apply')
     setError('')
@@ -165,7 +166,8 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
     </header>
 
     <div className="pa-overview" role="status">
-      <div><strong>{offers.length}</strong><span>Найдено</span></div>
+      <div><strong>{offers.length}</strong><span>Изменений</span></div>
+      <div><strong>{selectableOffers.length}</strong><span>Можно отправить</span></div>
       <div><strong>{selectedVisible.length}</strong><span>Выбрано</span></div>
       <div><strong>{pending}</strong><span>Ожидают 1С</span></div>
       <div><strong>{failed}</strong><span>Ошибки</span></div>
@@ -197,33 +199,42 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
       <input className="pa-search" aria-label="Поиск по товарам" value={search}
         onChange={e => setSearch(e.target.value)} placeholder="Поиск товара"/>
 
-      {offers.length > 0 && <label className="pa-select-all">
+      {selectableOffers.length > 0 && <label className="pa-select-all">
         <input type="checkbox" checked={allVisibleSelected} disabled={Boolean(busy) || Boolean(running)}
           onChange={toggleAll}/>
-        Выбрать все ({offers.length})
+        Выбрать все доступные ({selectableOffers.length})
       </label>}
 
       <div className="pa-offers">
         {groupedOffers.map(([category, rows]) => <div className="pa-group" key={category}>
           <h3>{category}</h3>
-          {rows.map(item => <label className="pa-offer" key={item.id}>
-            <input type="checkbox" checked={selected.includes(item.id)} disabled={Boolean(busy) || Boolean(running)}
+          {rows.map(item => <label className={item.canSend ? 'pa-offer' : 'pa-offer pa-offer-blocked'} key={item.id}>
+            <input type="checkbox" checked={selected.includes(item.id)}
+              disabled={!item.canSend || Boolean(busy) || Boolean(running)}
               onChange={e => setSelected(all => e.target.checked ? [...all, item.id] : all.filter(id => id !== item.id))}/>
             <div className="pa-offer-body">
               <strong>{item.productName}</strong>
               <div className="pa-prices">
-                <span>Сейчас <b>{rub(item.oldPrice)}</b></span>
-                <span>05.ru <b>{rub(item.competitorPrice)}</b></span>
-                <span>Новая цена <b>{rub(item.newPrice)}</b></span>
+                <span>05.ru было <b>{rub(item.previousCompetitorPrice)}</b></span>
+                <span>05.ru сейчас <b>{rub(item.competitorPrice)}</b></span>
+                <span>TEXHORU <b>{item.oldPrice === null ? '—' : rub(item.oldPrice)}</b></span>
+                <span>Предложение <b>{rub(item.newPrice)}</b></span>
               </div>
-              <small>Маржа {Math.round((item.newPrice - item.costPrice) / item.newPrice * 1000) / 10}% · {dateLabel(item.lastSuccessAt)}</small>
+              <small>
+                {item.costPrice !== null && item.newPrice > 0
+                  ? 'Маржа ' + (Math.round((item.newPrice - item.costPrice) / item.newPrice * 1000) / 10) + '% · '
+                  : ''}
+                Проверено: {dateLabel(item.lastSuccessAt)}
+              </small>
+              {!item.canSend && <small className="pa-blocked-reason">Нельзя отправить: {item.blockedReasons.join('; ')}</small>}
+              {item.canSend && <small className="pa-ready-reason">Доступно для ручного выбора и отправки в 1С</small>}
             </div>
           </label>)}
         </div>)}
         {!offers.length && !loading && <div className="pa-empty">Нет цен для обновления</div>}
       </div>
 
-      {offers.length > 0 && <div className="pa-approval">
+      {selectableOffers.length > 0 && <div className="pa-approval">
         <span>Выбрано: <b>{selectedVisible.length}</b></span>
         <button className="pa-action pa-primary" disabled={!selectedVisible.length || Boolean(busy) || Boolean(running)}
           onClick={() => void sendSelected()}>
