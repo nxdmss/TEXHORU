@@ -46,11 +46,11 @@ if ($confirm -cne 'ПОДТВЕРЖДАЮ ТЕСТ') { throw 'Подтвержд
 
 $baseMode = (Read-Required 'Тип базы: FILE (папка файловой базы) или SERVER (серверная база)').ToUpperInvariant()
 if ($baseMode -eq 'FILE') {
-    $basePath = Read-Required 'Полный путь к папке тестовой базы 1С'
+    $basePath = (Read-Required 'Полный путь к папке тестовой базы 1С').Trim('" ')
     if (-not (Test-Path -LiteralPath $basePath -PathType Container)) { throw 'Папка базы не найдена.' }
     $serverAddress = ''
 } elseif ($baseMode -eq 'SERVER') {
-    $serverAddress = Read-Required 'Адрес тестовой базы в формате сервер\имя_базы'
+    $serverAddress = (Read-Required 'Адрес тестовой базы в формате сервер\имя_базы').Trim('" ')
     $basePath = ''
 } else {
     throw 'Нужно выбрать FILE или SERVER.'
@@ -59,7 +59,7 @@ if ($baseMode -eq 'FILE') {
 $platformExe = Read-PlatformPath
 if (-not (Test-Path -LiteralPath $platformExe -PathType Leaf)) { throw 'Файл 1cv8.exe не найден.' }
 
-$epfSource = Read-Required 'Путь к собранному TEXHORU-Agent.epf'
+$epfSource = (Read-Required 'Путь к собранному TEXHORU-Agent.epf').Trim('" ')
 if (-not (Test-Path -LiteralPath $epfSource -PathType Leaf)) {
     throw 'Файл EPF не найден. Сначала программист должен один раз собрать его из модуля UT103-PilotRetailPrices-FormModule.bsl. Инструкция: onec/agent/README.md'
 }
@@ -102,6 +102,7 @@ $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRul
 $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
 $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($systemSid, 'FullControl', $inheritance, $propagation, $allow)))
 Set-Acl -LiteralPath $agentDir -AclObject $acl
+Set-Acl -LiteralPath $logsDir -AclObject $acl
 
 $epfDestination = Join-Path $agentDir 'TEXHORU-Agent.epf'
 Copy-Item -LiteralPath $epfSource -Destination $epfDestination -Force
@@ -125,7 +126,6 @@ $config = [ordered]@{
 $configPath = Join-Path $agentDir 'agent-config.json'
 $json = $config | ConvertTo-Json -Depth 4
 [IO.File]::WriteAllText($configPath, $json, [Text.UTF8Encoding]::new($false))
-Set-Acl -LiteralPath $configPath -AclObject $acl
 
 $taskName = 'TEXHORU 1C Test Agent'
 $runScript = Join-Path $agentDir 'Run-TEXHORUAgent.ps1'
