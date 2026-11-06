@@ -35,7 +35,6 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
   const [path, setPath] = useState('')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string[]>([])
-  const [advanced, setAdvanced] = useState(false)
   const lastToken = useRef<string | null>(null)
   const polling = useRef(false)
 
@@ -233,17 +232,14 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
       </div>}
     </div>
 
-    <details className="pa-specialist" open={advanced} onToggle={e => setAdvanced(e.currentTarget.open)}>
-      <summary>Настройки</summary>
+    <details className="pa-specialist">
+      <summary>Настройки и привязки</summary>
       <label className="pa-schedule-toggle">
         <input type="checkbox" checked={interval === 1440} disabled={Boolean(busy)}
           onChange={e => void toggleSchedule(e.target.checked)}/>
         Проверять цены автоматически каждый день в 06:00
       </label>
-      <button className="pa-action pa-secondary" onClick={() => setAdvanced(true)}>
-        Инструменты и привязки
-      </button>
-      {advanced && <PriceMonitorPanel products={inventory} onCatalogImported={onCatalogImported}/>}
+      <PriceMonitorPanel products={inventory} onCatalogImported={onCatalogImported}/>
     </details>
   </section>
 }
