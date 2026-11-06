@@ -103,8 +103,14 @@ export type MonitorDelivery = { id: string; status: string; attempts: number; la
 export type PriceApprovalPreview = {
   token: string; count: number; totalScope: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
   items: Array<{ id: string; productId: number | null; productName: string; categoryPath: string; costPrice: number | null;
-    oldPrice: number | null; previousCompetitorPrice: number; competitorPrice: number; newPrice: number;
-    lastSuccessAt: string | null; externalUrl: string; canSend: boolean; blockedReasons: string[] }>
+    oldPrice: number | null; previousCompetitorPrice: number | null; competitorPrice: number; newPrice: number;
+    lastSuccessAt: string | null; externalUrl: string; canSend: boolean; blockedReasons: string[] }>;
+  diagnostics: {
+    unlinkedCount: number;
+    unlinked: Array<{ productId: number; productName: string; categoryPath: string }>;
+    uncheckedCount: number;
+    unchecked: Array<{ productId: number | null; productName: string; reason: string }>;
+  };
 }
 export type OneCPriceSyncStatus = {
   scope: Array<{ id: number; oneCId: string | null; name: string; price: number; stockQty: number }>
