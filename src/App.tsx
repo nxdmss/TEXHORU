@@ -800,49 +800,77 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'prices' && <PriceApprovalDashboard products={products} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
-    {tab === 'sync' && <div className="admin-feed">
-      <article>
-        <span>Связь с тестовой 1С</span>
-        <strong>Подключено товаров: {priceSync.scope.length} из 30</strong>
-        <p>
-          {priceSync.testAutoScopeOnCatalogImport
-            ? 'Автодопуск TEST включён: новая выгрузка каталога из тестовой 1С автоматически разрешает обратный обмен цен для импортированных товаров (до 30).'
-            : 'Автодопуск TEST выключен: загрузка каталога не даёт права на обратную выгрузку цен. Для тестовой базы нужны настройки сервера ONE_C_BASE_KIND=TEST и ONE_C_TEST_AUTO_PRICE_SCOPE=true.'}
-        </p>
-        <p>Допуск не означает изменение цен. Предложение рассчитывается как цена 05.ru минус 100 ₽. Себестоимость временно не проверяется; сохраняются проверки актуальности цены, наличия, разрешения на обмен и отклонения не более 10%. Отправка начинается только после ручного выбора товаров в «Обновление цен»; проведение документа подтверждает агент.</p>
-        <button onClick={() => void load()} disabled={loading}>{loading ? 'Проверяем…' : 'Обновить информацию'}</button>
-      </article>
-      <article>
-        <span>Изменения цен</span>
-        <strong>{priceSync.changes.filter(change => change.status === 'PENDING').length} ожидают 1С · {priceSync.changes.filter(change => change.status === 'DELIVERED').length} выполнено · {priceSync.changes.filter(change => ['CONFLICT', 'CANCELLED', 'FAILED'].includes(change.status)).length} требуют внимания</strong>
-        <p>Когда цена обновится в 1С, здесь появится подтверждение. Ошибки не скрываются.</p>
-      </article>
-      {priceSync.changes.length === 0 && <article><strong>Изменений цен пока нет</strong><p>Когда утвердите изменение цены, оно появится здесь.</p></article>}
-      {priceSync.changes.map(change => <article key={change.id} className={['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}>
-        <span>{new Date(change.createdAt).toLocaleString('ru-RU')} · {easyExchangeStatus(change.status)}</span>
-        <strong>{change.name}</strong>
-        <p>Было: {money.format(change.oldPrice)} ₽ → Стало: {money.format(change.newPrice)} ₽</p>
-        {change.status === 'PENDING' && <p>Новая цена сохранена на сайте. Ждём подтверждения из 1С.</p>}
-        {change.status === 'DELIVERED' && <p>1С подтвердила новую цену. Дополнительных действий не требуется.</p>}
-        {['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) && <p>{change.error || 'Проверьте состояние обмена. Цена могла не измениться в 1С.'}</p>}
-        <details><summary>Подробности для специалиста</summary><p>Номер операции: {change.id}<br/>Идентификатор 1С: {change.oneCId}<br/>Статус: {change.status}</p></details>
-      </article>)}
-      <details>
-        <summary>Какие товары подключены к обмену ({priceSync.scope.length})</summary>
-        {priceSync.scope.map(p => <article key={p.id}><strong>{p.name}</strong><p>Цена на сайте: {money.format(p.price)} ₽ · Остаток: {p.stockQty} шт.</p></article>)}
-        {priceSync.scope.length === 0 && <p>Пока нет подключённых товаров.</p>}
+    {tab === 'sync' && <section className="admin-sync">
+      <header className="admin-sync-head">
+        <div>
+          <h2>Обмен с 1С</h2>
+          <p>Здесь видно, какие изменения отправлены и что ответила тестовая 1С.</p>
+        </div>
+        <button type="button" onClick={() => void load()} disabled={loading}>
+          {loading ? 'Обновляем…' : 'Обновить сведения'}
+        </button>
+      </header>
+
+      <div className="admin-sync-stats">
+        <article><strong>{priceSync.scope.length}<small> из 30</small></strong><span>Товаров с разрешением</span></article>
+        <article><strong>{priceSync.changes.filter(change => change.status === 'PENDING').length}</strong><span>Ожидают ответа 1С</span></article>
+        <article><strong>{priceSync.changes.filter(change => change.status === 'DELIVERED').length}</strong><span>Выполнено</span></article>
+        <article><strong>{priceSync.changes.filter(change => ['CONFLICT', 'FAILED', 'CANCELLED'].includes(change.status)).length}</strong><span>Нужно проверить</span></article>
+      </div>
+
+      <p className="admin-sync-note">Отправка начинается только после выбора товаров в разделе «Цены». До подтверждения 1С новая цена не публикуется на сайте.</p>
+
+      <details className="admin-sync-detail" open={priceSync.changes.some(change => ['CONFLICT', 'FAILED'].includes(change.status))}>
+        <summary>Отправленные изменения ({priceSync.changes.length})</summary>
+        {priceSync.changes.length === 0 && <p>Пока ничего не отправляли. Сначала проверь цены и выбери товары.</p>}
+        <div className="admin-sync-list">
+          {priceSync.changes.map(change => <article key={change.id}
+            className={['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}>
+            <small>{new Date(change.createdAt).toLocaleString('ru-RU')} · {easyExchangeStatus(change.status)}</small>
+            <strong>{change.name}</strong>
+            <p>{money.format(change.oldPrice)} ₽ → {money.format(change.newPrice)} ₽</p>
+            {change.status === 'PENDING' && <p>Ожидаем подтверждения от 1С. На сайте пока прежняя цена.</p>}
+            {change.status === 'DELIVERED' && <p>1С подтвердила изменение.</p>}
+            {['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) &&
+              <p>{change.error || 'Передача требует проверки. Не отправляй повторно, пока не выяснена причина.'}</p>}
+            <details><summary>Сведения об отправке</summary>
+              <p>Номер операции: {change.id}</p>
+              <p>Код товара 1С: {change.oneCId}</p>
+              <p>Состояние: {change.status}</p>
+            </details>
+          </article>)}
+        </div>
       </details>
-      <details>
-        <summary>История обмена с 1С ({logs.length})</summary>
-        {logs.length === 0 && <p>Обмен ещё не запускался.</p>}
-        {logs.slice(0,30).map((item) => <article key={item.id} className={item.status === 'FAILED' ? 'is-error' : ''}>
-          <span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.status === 'SUCCESS' ? 'Успешно' : 'Требует внимания'}</span>
+
+      <details className="admin-sync-detail">
+        <summary>Товары, которым разрешено менять цены ({priceSync.scope.length})</summary>
+        {priceSync.scope.length === 0 && <p>Пока ни одному товару не разрешена обратная отправка цен.</p>}
+        <div className="admin-sync-list">{priceSync.scope.map(p => <article key={p.id}>
+          <strong>{p.name}</strong>
+          <p>На сайте: {money.format(p.price)} ₽ · В наличии: {p.stockQty} шт.</p>
+        </article>)}</div>
+      </details>
+
+      <details className="admin-sync-detail">
+        <summary>Как настраивается связь с тестовой 1С</summary>
+        <p>{priceSync.testAutoScopeOnCatalogImport
+          ? 'Автоматический допуск включён: при следующей загрузке из тестовой 1С товары получат разрешение на обратную передачу цен, максимум 30.'
+          : 'Автоматический допуск выключен. Загрузка товаров сама по себе не разрешает отправлять цены обратно.'}</p>
+        <p>Эту настройку меняет программист на сервере. Она не изменяет цену и не заменяет проверку агента тестовой 1С.</p>
+      </details>
+
+      <details className="admin-sync-detail">
+        <summary>Журнал связи с 1С ({logs.length})</summary>
+        {logs.length === 0 && <p>Пока записей нет.</p>}
+        <div className="admin-sync-list">{logs.slice(0, 30).map(item => <article key={item.id}
+          className={item.status === 'FAILED' ? 'is-error' : ''}>
+          <small>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.status === 'SUCCESS' ? 'Успешно' : 'Требует внимания'}</small>
           <strong>{easyExchangeEvent(item.entity, item.direction, item.status)}</strong>
-          <p>{item.message || (item.status === 'SUCCESS' ? 'Всё прошло без ошибок.' : 'Посмотрите подробности операции.')}</p>
+          <p>{item.message || (item.status === 'SUCCESS' ? 'Всё прошло без ошибок.' : 'Открой подробности операции.')}</p>
           <details><summary>Технические сведения</summary><p>{item.direction} · {item.entity} · {item.status}</p></details>
-        </article>)}
+        </article>)}</div>
       </details>
-    </div>}
+    </section>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
   </section>
