@@ -242,9 +242,6 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
                 <span>Предложение <b>{rub(item.newPrice)}</b></span>
               </div>
               <small>
-                {item.costPrice !== null && item.newPrice > 0
-                  ? 'Маржа ' + (Math.round((item.newPrice - item.costPrice) / item.newPrice * 1000) / 10) + '% · '
-                  : ''}
                 Проверено: {dateLabel(item.lastSuccessAt)} · <a className="pa-external-link" href={item.externalUrl}
                   target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>Открыть 05.ru</a>
               </small>
