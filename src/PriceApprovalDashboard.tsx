@@ -176,6 +176,26 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
 
     {running && <div className="pa-message">Проверка цен выполняется…</div>}
     {loading && <div className="pa-message">Загрузка…</div>}
+    {preview && (preview.diagnostics.unlinkedCount > 0 || preview.diagnostics.uncheckedCount > 0) && <details className="pa-diagnostics">
+      <summary>
+        Почему нет предложений: {preview.diagnostics.unlinkedCount} товаров без связи с 05.ru,
+        {' '}{preview.diagnostics.uncheckedCount} карточек без успешного сканирования
+      </summary>
+      <p>Без привязки поиск цены не начнётся. Кнопка «Проверить цены» обновляет только подтверждённые ссылки.
+        Для новых товаров открой «Настройки и привязки» и запусти поиск совпадений 05.ru.</p>
+      {preview.diagnostics.unlinked.length > 0 && <div>
+        <strong>Нет привязки к 05.ru</strong>
+        <ul>{preview.diagnostics.unlinked.map(item => <li key={item.productId}>{item.productName}</li>)}</ul>
+        {preview.diagnostics.unlinkedCount > preview.diagnostics.unlinked.length &&
+          <small>Показаны первые {preview.diagnostics.unlinked.length} товаров из {preview.diagnostics.unlinkedCount}</small>}
+      </div>}
+      {preview.diagnostics.unchecked.length > 0 && <div>
+        <strong>Не получена цена 05.ru</strong>
+        <ul>{preview.diagnostics.unchecked.map((item, i) => <li key={item.productId + ':' + i}>
+          {item.productName}: {item.reason}
+        </li>)}</ul>
+      </div>}
+    </details>}
     {error && <div className="pa-error" role="alert">{error}</div>}
     {notice && <div className="pa-message" role="status">{notice}</div>}
 
@@ -216,7 +236,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
             <div className="pa-offer-body">
               <strong>{item.productName}</strong>
               <div className="pa-prices">
-                <span>05.ru было <b>{rub(item.previousCompetitorPrice)}</b></span>
+                <span>05.ru было <b>{item.previousCompetitorPrice === null ? 'Первый замер' : rub(item.previousCompetitorPrice)}</b></span>
                 <span>05.ru сейчас <b>{rub(item.competitorPrice)}</b></span>
                 <span>TEXHORU <b>{item.oldPrice === null ? '—' : rub(item.oldPrice)}</b></span>
                 <span>Предложение <b>{rub(item.newPrice)}</b></span>
