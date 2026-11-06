@@ -18,6 +18,7 @@
     "data:export": "npm --prefix server run data:export",
     "data:import": "npm --prefix server run data:import",
     "test:startup": "node --test tests/startup.test.mjs",
+    "test:project": "node --test tests/project-readiness.test.mjs",
     "reset:local": "node scripts/reset-local.mjs"
   },
   "dependencies": {
