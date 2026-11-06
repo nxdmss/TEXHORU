@@ -129,7 +129,8 @@ $json = $config | ConvertTo-Json -Depth 4
 
 $taskName = 'TEXHORU 1C Test Agent'
 $runScript = Join-Path $agentDir 'Run-TEXHORUAgent.ps1'
-$powerShell = Join-Path $PSHOME 'powershell.exe'
+$powerShell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (-not (Test-Path -LiteralPath $powerShell)) { throw 'Не найден Windows PowerShell 5.1.' }
 $action = New-ScheduledTaskAction -Execute $powerShell -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $runScript + '"')
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
 $principal = New-ScheduledTaskPrincipal -UserId $currentIdentity.Name -LogonType Interactive -RunLevel Limited
