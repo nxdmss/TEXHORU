@@ -24,6 +24,24 @@ jobs:
       - run: npm --prefix server run prisma:local:push
         env:
           DATABASE_URL: file:./dev-local.db
+      - name: Проверить сценарии агента Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $scripts = @(
+            'onec/agent/Install-TEXHORUAgent.ps1',
+            'onec/agent/Run-TEXHORUAgent.ps1',
+            'onec/agent/Remove-TEXHORUAgent.ps1'
+          )
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | Format-List
+              throw "Ошибка синтаксиса PowerShell: $script"
+            }
+          }
       - run: node --test tests/catalog-groups.test.mjs
       - run: npm run test:project
       - run: npm run build:all
