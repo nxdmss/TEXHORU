@@ -2995,3 +2995,89 @@ test('Bulk price preview lists every changed 05.ru price, explains blocked rows,
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: enabled.id } })).price, 70000,
     'TEXHORU keeps the old price until 1C confirms the posted document')
 })
+
+test('First 05.ru scan proposes site price differences, without waiting for competitor price movement', async () => {
+  const integration = new IntegrationsService(prisma, {})
+  const exchange = new MonitorExchangeService(prisma)
+  const monitor = new PriceMonitorService(prisma, {}, exchange)
+  const batch = randomUUID()
+  const categoryId = randomUUID()
+  const categoryPath = 'First scan approval ' + batch
+  const ids = Array.from({ length: 4 }, () => randomUUID())
+  await integration.importCatalog({ categories: [{
+    oneCId: categoryId, name: categoryPath, slug: 'first-scan-approval-' + batch,
+  }], products: ids.map((oneCId, i) => ({
+    oneCId, sku: 'FIRST-SCAN-' + oneCId, slug: 'first-scan-' + oneCId,
+    name: 'Первый замер ' + i, brand: 'Test', categoryOneCId: categoryId,
+    price: 70000, stockQty: 3, costPrice: 60000,
+  })) })
+  const products = await Promise.all(ids.map(oneCId =>
+    prisma.product.findUniqueOrThrow({ where: { oneCId } })))
+  for (const product of products) await prisma.product.update({
+    where: { id: product.id }, data: { priceSyncEnabled: true },
+  })
+  const fresh = await Promise.all(products.map(product => prisma.product.findUniqueOrThrow({
+    where: { id: product.id },
+  })))
+  const source = await prisma.competitorSource.upsert({
+    where: { key: '05ru' }, update: {},
+    create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' },
+  })
+  async function addLink(product, latestPrice, scanned = true) {
+    return prisma.competitorProduct.create({ data: {
+      sourceId: source.id, productId: product.id,
+      externalUrl: 'https://05.ru/cat/test/p/' + randomUUID() + '/',
+      externalName: product.name, attributes: {}, priceSource: 'JSON-LD Offer',
+      matchStatus: 'CONFIRMED',
+      confirmedFingerprint: fingerprint({ name: product.name, attributes: {} }),
+      confirmedProductFingerprint: fingerprint(product),
+      latestPrice: scanned ? latestPrice : null,
+      lastSuccessAt: scanned ? new Date() : null,
+      lastCheckedAt: scanned ? new Date() : null, inStock: scanned ? true : null,
+      ...(scanned ? { history: { create: { price: latestPrice,
+        oldPrice: null, inStock: true, checkedAt: new Date() } } } : {}),
+    } })
+  }
+  const diff = await addLink(fresh[0], 71000)
+  await addLink(fresh[2], 71000, false)
+  const equal = await addLink(fresh[3], 70500)
+
+  const preview = await monitor.previewBulkPrices({ categoryPath })
+  assert.equal(preview.items.length, 1,
+    'Only 05.ru - 500 differences should become price proposals, including first scans')
+  assert.equal(preview.count, 1)
+  assert.equal(preview.items[0].id, diff.id)
+  assert.equal(preview.items[0].previousCompetitorPrice, null)
+  assert.equal(preview.items[0].newPrice, 70500)
+  assert.equal(preview.items[0].canSend, true)
+  assert(!preview.items.some(item => item.id === equal.id), 'No change needed if the retail price already matches')
+  assert.equal(preview.diagnostics.unlinkedCount, 1)
+  assert(preview.diagnostics.unlinked.some(item => item.productId === fresh[1].id))
+  assert.equal(preview.diagnostics.uncheckedCount, 1)
+  assert(preview.diagnostics.unchecked.some(item => item.productId === fresh[2].id))
+  assert.equal(await prisma.oneCPriceChange.count({
+    where: { productId: { in: fresh.map(product => product.id) } },
+  }), 0, 'The first observation and its preview are read-only')
+
+  // Only an explicit manager action sends this exact first-scan proposal to TEST 1C.
+  await prisma.monitorJob.updateMany({
+    where: { status: { in: ['QUEUED', 'RUNNING'] } },
+    data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() },
+  })
+  const applied = await monitor.applyBulkPrices({
+    categoryPath, token: preview.token, ids: [diff.id],
+    acceptUnknownCost: false, acceptLargeChange: false,
+  })
+  assert.equal(applied.oneCQueued, 1)
+  const queued = await prisma.oneCPriceChange.findMany({
+    where: { productId: fresh[0].id, status: 'PENDING' },
+  })
+  assert.equal(queued.length, 1)
+  assert.equal(queued[0].newPrice, 70500)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70000,
+    'Site price must remain unchanged before 1C posts and acknowledges')
+  await new OneCPriceSyncService(prisma).receipts({
+    items: [{ id: queued[0].id, appliedPrice: 70500 }],
+  })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70500)
+})
