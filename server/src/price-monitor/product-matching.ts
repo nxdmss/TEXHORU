@@ -582,9 +582,7 @@ export function recommendation(input: { latestPrice?: number | null; inStock?: b
   if (input.lastError) reasons.push('последняя проверка с ошибкой')
   if (!input.lastSuccessAt || Date.now() - input.lastSuccessAt.getTime() > 24 * 3600_000) reasons.push('данные старше 24 часов')
   if (!product) reasons.push('товар не сопоставлен')
-  if (!product?.costPrice) reasons.push('не задана себестоимость в 1С')
-  const proposed = input.latestPrice ? Math.max(1, input.latestPrice - 500) : null
+  const proposed = input.latestPrice ? Math.max(1, input.latestPrice - 100) : null
   if (product && proposed && Math.abs(proposed - product.price) > product.price * 0.1) reasons.push('изменение больше 10%')
-  if (product?.costPrice && proposed && proposed < product.costPrice) reasons.push('ниже себестоимости')
   return { recommendedPrice: reasons.length ? null : proposed, recommendationReasons: reasons }
 }
