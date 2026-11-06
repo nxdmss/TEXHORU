@@ -19,10 +19,7 @@ function childCategories(products: ApiProduct[], path: string) {
   return [...children].sort((a, b) => a[0].localeCompare(b[0], 'ru'))
 }
 
-export function PriceApprovalDashboard({ products, onCatalogImported }: {
-  products: ApiProduct[]
-  onCatalogImported: () => Promise<void>
-}) {
+export function PriceApprovalDashboard({ products }: { products: ApiProduct[] }) {
   const [inventory, setInventory] = useState(products)
   const [preview, setPreview] = useState<PriceApprovalPreview | null>(null)
   const [jobs, setJobs] = useState<MonitorJob[]>([])
@@ -307,7 +304,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
           onChange={e => void toggleSchedule(e.target.checked)}/>
         Автоматически проверять цены каждый день в 06:00 по Москве
       </label>
-      <PriceMonitorPanel products={inventory} onCatalogImported={onCatalogImported}/>
+      <PriceMonitorPanel products={inventory}/>
     </details>
   </section>
 }
