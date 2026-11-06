@@ -165,7 +165,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
     </header>
 
     <div className="pa-overview" role="status">
-      <div><strong>{preview?.count ?? '—'}</strong><span>Найдено</span></div>
+      <div><strong>{offers.length}</strong><span>Найдено</span></div>
       <div><strong>{selectedVisible.length}</strong><span>Выбрано</span></div>
       <div><strong>{pending}</strong><span>Ожидают 1С</span></div>
       <div><strong>{failed}</strong><span>Ошибки</span></div>
