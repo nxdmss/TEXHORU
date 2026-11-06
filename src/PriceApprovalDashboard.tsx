@@ -239,7 +239,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
                 <span>05.ru было <b>{item.previousCompetitorPrice === null ? 'Первый замер' : rub(item.previousCompetitorPrice)}</b></span>
                 <span>05.ru сейчас <b>{rub(item.competitorPrice)}</b></span>
                 <span>TEXHORU <b>{item.oldPrice === null ? '—' : rub(item.oldPrice)}</b></span>
-                <span>Предложение <b>{rub(item.newPrice)}</b></span>
+                <span>Предложение (05.ru − 100 ₽) <b>{rub(item.newPrice)}</b></span>
               </div>
               <small>
                 Проверено: {dateLabel(item.lastSuccessAt)} · <a className="pa-external-link" href={item.externalUrl}
