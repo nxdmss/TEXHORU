@@ -809,17 +809,19 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (price === product.price) {
         throw new BadRequestException('Цена уже установлена; повторная отправка не требуется')
       }
+      if (!product.priceSyncEnabled || !product.oneCId) {
+        throw new BadRequestException('Товар не включён в разрешённую область обмена с 1С')
+      }
       const message = await OneCPriceSyncService.queue(tx, product, price, id)
-      const result = await tx.product.updateMany({ where: { id: product.id, price: dto.expectedCurrentPrice, status: ProductStatus.ACTIVE }, data: { price } })
-      if (result.count !== 1) throw new ConflictException('Цена товара изменилась. Обнови страницу')
+      if (!message) throw new ConflictException('Не удалось поставить цену в очередь 1С')
       await tx.auditLog.create({ data: {
-        action: 'APPLY_MONITOR_SITE_PRICE', entity: 'Product', entityId: String(product.id),
+        action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
         details: { monitorLinkId: id, previousPrice: product.price, competitorPrice: link.latestPrice,
           newPrice: price, costUnknown: !product.costPrice, largeChange,
-          siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null },
+          oneCQueued: true, oneCMessageId: message.id },
       } })
       return { ok: true, productId: product.id, previousPrice: product.price, newPrice: price,
-        siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null }
+        siteOnly: false, oneCQueued: true, oneCMessageId: message.id }
     })
     return updated
   }
@@ -935,19 +937,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       for (const item of chosen) {
         const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } })
         const message = await OneCPriceSyncService.queue(tx, product, item.newPrice, item.id)
-        const changed = await tx.product.updateMany({
-          where: { id: product.id, price: item.oldPrice, status: ProductStatus.ACTIVE },
-          data: { price: item.newPrice },
-        })
-        if (changed.count !== 1) throw new ConflictException('Цена товара изменилась во время применения. Все изменения отменены.')
         if (!message) throw new ConflictException('Товар не подключён к обмену с 1С. Ничего не изменено.')
         oneCQueued++
         await tx.auditLog.create({ data: {
-          action: 'APPLY_MONITOR_SITE_PRICE', entity: 'Product', entityId: String(product.id),
+          action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
           details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
             competitorPrice: item.competitorPrice, newPrice: item.newPrice,
             costUnknown: item.unknownCost, largeChange: item.largeChange,
-            siteOnly: !message, oneCQueued: Boolean(message), oneCMessageId: message?.id ?? null },
+            oneCQueued: true, oneCMessageId: message.id },
         } })
       }
       return { ok: true, applied: chosen.length, skipped: snapshot.skipped,
