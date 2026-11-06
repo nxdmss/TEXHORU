@@ -317,3 +317,80 @@
  .mp-match-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
  .mp-match-tabs button { min-width:0; }
 }
+
+
+/* Упрощённый экран привязки внутри раздела цен. */
+.pa-specialist .mp-shell {
+  gap: 16px;
+  padding-bottom: 20px;
+  color: #242424;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+.pa-specialist .mp-top { align-items: center; }
+.pa-specialist .mp-top h2 { font-size: 20px; letter-spacing: -.02em; }
+.pa-specialist .mp-top p { line-height: 1.5; }
+.pa-specialist .mp-summary {
+  display: flex;
+  grid-template-columns: none;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 12px 0;
+  border-block: 1px solid #ededeb;
+}
+.pa-specialist .mp-summary > span {
+  flex: 0 1 auto;
+  display: inline-flex;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #606060;
+  font-size: 12px;
+  gap: 6px;
+}
+.pa-specialist .mp-summary b { font-size: 16px; font-weight: 700; }
+.pa-specialist .mp-toolbar { gap: 10px; align-items: center; }
+.pa-specialist .mp-toolbar button,
+.pa-specialist .mp-toolbar input {
+  min-height: 43px;
+  border-radius: 9px;
+  font: 650 12px/1.3 "IBM Plex Sans", system-ui, sans-serif;
+}
+.pa-specialist .mp-toolbar input { font-weight: 400; }
+.pa-specialist .mp-helper { margin: 0; line-height: 1.55; }
+.pa-specialist .mp-browser { border-color: #e5e5e3; border-radius: 11px; padding: 14px; }
+.mp-result-filter { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.mp-result-filter label { display: grid; gap: 6px; color: #707070; font-size: 11px; }
+.mp-result-filter select {
+  min-width: 190px;
+  min-height: 41px;
+  border: 1px solid #e2e2e0;
+  border-radius: 9px;
+  background: white;
+  color: #222;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.mp-category-filter {
+  margin-bottom: 10px;
+  padding: 10px 13px;
+  background: #fafafa;
+  border: 1px solid #e6e6e4;
+  border-radius: 9px;
+}
+.mp-category-filter > summary { font-size: 12px; font-weight: 700; cursor: pointer; }
+.mp-category-filter .mp-breadcrumbs { margin: 12px 0; }
+.mp-category-filter .mp-folder-grid { padding-bottom: 5px; }
+.pa-specialist .mp-card-grid { gap: 10px; }
+.pa-specialist .mp-tile { border-radius: 10px; padding: 15px; box-shadow: none; gap: 10px; }
+.pa-specialist .mp-tile:hover { transform: none; box-shadow: none; border-color: #c4c4c1; }
+.pa-specialist .mp-tile-button,
+.pa-specialist .mp-expanded button,
+.pa-specialist .mp-extra button,
+.pa-specialist .mp-more-button { border-radius: 8px; }
+.pa-specialist .mp-extra { border-radius: 10px; }
+@media(max-width:720px) {
+  .pa-specialist .mp-top { flex-wrap: wrap; }
+  .pa-specialist .mp-summary { gap: 9px 14px; }
+  .mp-result-filter { justify-content: stretch; }
+  .mp-result-filter label, .mp-result-filter select { width: 100%; }
+}
