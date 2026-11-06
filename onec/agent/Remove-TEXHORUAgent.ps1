@@ -1,4 +1,4 @@
-param([switch]$Purge)
+﻿param([switch]$Purge)
 
 $ErrorActionPreference = 'Stop'
 $taskName = 'TEXHORU 1C Test Agent'
