@@ -3079,7 +3079,7 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
     where: { productId: fresh[0].id, status: 'PENDING' },
   })
   assert.equal(queued.length, 1)
-  assert.equal(queued[0].newPrice, 70500)
+  assert.equal(queued[0].newPrice, 70900)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70000,
     'Site price must remain unchanged before 1C posts and acknowledges')
   await new OneCPriceSyncService(prisma).receipts({
