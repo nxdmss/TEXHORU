@@ -168,6 +168,7 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
     <div className="pa-overview" role="status">
       <div><strong>{offers.length}</strong><span>Изменений</span></div>
       <div><strong>{selectableOffers.length}</strong><span>Можно отправить</span></div>
+      <div><strong>{offers.length - selectableOffers.length}</strong><span>Заблокировано</span></div>
       <div><strong>{selectedVisible.length}</strong><span>Выбрано</span></div>
       <div><strong>{pending}</strong><span>Ожидают 1С</span></div>
       <div><strong>{failed}</strong><span>Ошибки</span></div>
@@ -224,7 +225,8 @@ export function PriceApprovalDashboard({ products, onCatalogImported }: {
                 {item.costPrice !== null && item.newPrice > 0
                   ? 'Маржа ' + (Math.round((item.newPrice - item.costPrice) / item.newPrice * 1000) / 10) + '% · '
                   : ''}
-                Проверено: {dateLabel(item.lastSuccessAt)}
+                Проверено: {dateLabel(item.lastSuccessAt)} · <a className="pa-external-link" href={item.externalUrl}
+                  target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>Открыть 05.ru</a>
               </small>
               {!item.canSend && <small className="pa-blocked-reason">Нельзя отправить: {item.blockedReasons.join('; ')}</small>}
               {item.canSend && <small className="pa-ready-reason">Доступно для ручного выбора и отправки в 1С</small>}
