@@ -1,4 +1,4 @@
-# Runs one queue check in the TEST 1C base. Called by Windows Task Scheduler.
+﻿# Runs one queue check in the TEST 1C base. Called by Windows Task Scheduler.
 $ErrorActionPreference = 'Stop'
 
 $AgentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
