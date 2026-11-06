@@ -818,7 +818,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         <article><strong>{priceSync.changes.filter(change => ['CONFLICT', 'FAILED', 'CANCELLED'].includes(change.status)).length}</strong><span>Нужно проверить</span></article>
       </div>
 
-      <p className="admin-sync-note">Отправка начинается только после выбора товаров в разделе «Цены». До подтверждения 1С новая цена не публикуется на сайте.</p>
+      <p className="admin-sync-note">Предложения 05.ru попадают сюда только после выбора товаров в разделе «Цены». Для них цена на сайте меняется лишь после подтверждения 1С. Ручное редактирование товара работает отдельно.</p>
 
       <details className="admin-sync-detail" open={priceSync.changes.some(change => ['CONFLICT', 'FAILED'].includes(change.status))}>
         <summary>Отправленные изменения ({priceSync.changes.length})</summary>
@@ -829,7 +829,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
             <small>{new Date(change.createdAt).toLocaleString('ru-RU')} · {easyExchangeStatus(change.status)}</small>
             <strong>{change.name}</strong>
             <p>{money.format(change.oldPrice)} ₽ → {money.format(change.newPrice)} ₽</p>
-            {change.status === 'PENDING' && <p>Ожидаем подтверждения от 1С. На сайте пока прежняя цена.</p>}
+            {change.status === 'PENDING' && <p>Ждём подтверждения применения цены в 1С.</p>}
             {change.status === 'DELIVERED' && <p>1С подтвердила изменение.</p>}
             {['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) &&
               <p>{change.error || 'Передача требует проверки. Не отправляй повторно, пока не выяснена причина.'}</p>}
