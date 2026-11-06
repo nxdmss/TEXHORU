@@ -793,17 +793,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         throw new BadRequestException('Связь с 05.ru устарела: проверь и подтверди товар заново')
       }
       if (link.lastError || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000
-        || link.inStock !== true || !link.latestPrice || link.latestPrice <= 500) {
+        || link.inStock !== true || !link.latestPrice || link.latestPrice <= 100) {
         throw new BadRequestException('Нужна свежая проверка цены и подтверждённое наличие на 05.ru')
       }
       const product = link.product
-      const price = link.latestPrice - 500
+      const price = link.latestPrice - 100
       if (dto.expectedCurrentPrice !== product.price || dto.expectedCompetitorPrice !== link.latestPrice || dto.targetPrice !== price) {
         throw new ConflictException('Цена изменилась. Обнови мониторинг перед применением')
       }
       if (price < 1) throw new BadRequestException('Некорректная новая цена')
-      if (product.costPrice && price < product.costPrice) throw new BadRequestException('Цена ниже известной себестоимости')
-      if (!product.costPrice && !dto.acceptUnknownCost) throw new BadRequestException('Себестоимость неизвестна. Требуется явное подтверждение риска')
       const largeChange = Math.abs(price - product.price) > product.price * 0.1
       if (largeChange && !dto.acceptLargeChange) throw new BadRequestException('Изменение больше 10%. Требуется явное подтверждение')
       if (price === product.price) {
@@ -863,7 +861,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     for (const link of links) {
       if (link.productId !== null) linkCounts.set(link.productId, (linkCounts.get(link.productId) || 0) + 1)
     }
-    const minMarginPercent = Math.max(0, Math.min(40, Number(process.env.MONITOR_MIN_MARGIN_PERCENT ?? 5) || 5))
     const rows: Array<{
       id: string; productId: number | null; productName: string; categoryPath: string;
       costPrice: number | null; oldPrice: number | null; previousCompetitorPrice: number | null;
@@ -876,7 +873,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const product = link.product
       const competitorPrice = link.latestPrice ?? history?.price ?? null
       if (competitorPrice === null) continue
-      const newPrice = competitorPrice - 500
+      const newPrice = competitorPrice - 100
       // A price difference against TEXHORU matters even if 05.ru has never changed.
       // Unmapped cards have no site retail price: show only actual 05.ru movements.
       const differsFromSite = !!product && newPrice !== product.price
@@ -896,7 +893,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (link.latestPrice === null) addReason('Нет актуальной цены 05.ru')
       else if (history && link.latestPrice !== history.price) addReason('Текущая цена 05.ru не совпадает с последней записью истории')
       if (link.inStock !== true) addReason(link.inStock === false ? 'На 05.ru товар отсутствует в наличии' : 'Наличие товара на 05.ru не подтверждено')
-      if (newPrice <= 0) addReason('Цена 05.ru минус 500 ₽ должна быть больше нуля')
+      if (newPrice <= 0) addReason('Цена 05.ru минус 100 ₽ должна быть больше нуля')
 
       if (product) {
         if (product.status !== ProductStatus.ACTIVE) addReason('Товар неактивен в TEXHORU')
@@ -909,11 +906,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           && (fingerprint(product) !== link.confirmedProductFingerprint
             || fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint)) {
           addReason('Сопоставление устарело: данные товара или карточки 05.ru изменились')
-        }
-        if (!product.costPrice) {
-          addReason('Не указана себестоимость')
-        } else if (newPrice < Math.ceil(product.costPrice / (1 - minMarginPercent / 100))) {
-          addReason('Предлагаемая цена ниже минимальной маржи ' + minMarginPercent + '%')
         }
         if (product.price > 0 && Math.abs(newPrice - product.price) > product.price * 0.1) {
           addReason('Изменение превышает 10% от текущей цены')
@@ -1015,7 +1007,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
           details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
             competitorPrice: item.competitorPrice, newPrice: item.newPrice,
-            costUnknown: !product.costPrice, largeChange: Math.abs(item.newPrice - product.price) > product.price * 0.1,
+            costCheck: 'disabled', largeChange: Math.abs(item.newPrice - product.price) > product.price * 0.1,
             oneCQueued: true, oneCMessageId: message.id },
         } })
       }
