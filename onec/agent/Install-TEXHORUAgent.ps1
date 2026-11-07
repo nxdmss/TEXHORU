@@ -126,7 +126,7 @@ $config = [ordered]@{
 }
 $configPath = Join-Path $agentDir 'agent-config.json'
 $json = $config | ConvertTo-Json -Depth 4
-[IO.File]::WriteAllText($configPath, $json, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($configPath, $json, (New-Object Text.UTF8Encoding -ArgumentList $false))
 
 $taskName = 'TEXHORU 1C Test Agent'
 $runScript = Join-Path $agentDir 'Run-TEXHORUAgent.ps1'
