@@ -1209,6 +1209,8 @@ test('HTTP routes reject missing credentials and invalid input; admin and 1C rou
     const cookie = login.headers.get('set-cookie').split(';')[0]
     for (const path of ['/admin/price-monitor','/admin/price-monitor/jobs','/admin/price-monitor/deliveries','/admin/price-monitor/settings','/admin/price-monitor/export-1c']) assert.equal((await fetch(base+path,{headers:{cookie}})).status,200,path)
     assert.equal((await fetch(base+'/integrations/1c/price-monitor/pending',{headers:{'x-1c-key':key}})).status,200)
+    assert.equal((await fetch(base+'/integrations/1c/agent/heartbeat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state: 'idle' }) })).status, 401)
+    assert.equal((await fetch(base+'/integrations/1c/agent/heartbeat', { method: 'POST', headers: { 'x-1c-key': key, 'content-type': 'application/json' }, body: JSON.stringify({ state: 'idle' }) })).status, 403)
     assert.equal((await fetch(base+'/admin/price-monitor/scan',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({url:'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/',maxPages:101})})).status,400)
     assert.equal((await fetch(base+'/admin/price-monitor/scan',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({url:'https://05.ru.attacker.test/cat/c/a/',maxPages:1})})).status,400)
   } finally {

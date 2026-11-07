@@ -113,6 +113,8 @@ export type PriceApprovalPreview = {
   };
 }
 export type OneCPriceSyncStatus = {
+  agent?: { lastSeenAt: string; online: boolean; state?: string; applied: number; failed: number } | null;
+  summary?: { pending: number; delivered: number; needsAttention: number };
   testPriceSyncEnabled?: boolean;
   testAutoScopeOnCatalogImport?: boolean;
   scope: Array<{ id: number; oneCId: string | null; name: string; price: number; stockQty: number }>

@@ -31,7 +31,9 @@ jobs:
           $scripts = @(
             'onec/agent/Install-TEXHORUAgent.ps1',
             'onec/agent/Run-TEXHORUAgent.ps1',
-            'onec/agent/Remove-TEXHORUAgent.ps1'
+            'onec/agent/Remove-TEXHORUAgent.ps1',
+            'onec/agent/Agent-Protocol.ps1',
+            'onec/agent/Update-TEXHORUAgent.ps1'
           )
           foreach ($script in $scripts) {
             $tokens = $null
@@ -42,7 +44,11 @@ jobs:
               throw "Ошибка синтаксиса PowerShell: $script"
             }
           }
-      - run: node --test tests/catalog-groups.test.mjs
+      - name: Проверить протокол результата агента
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tests/agent-protocol.test.ps1
+      - run: node --test tests/catalog-groups.test.mjs tests/demo-launcher.test.mjs
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor

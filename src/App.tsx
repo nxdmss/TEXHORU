@@ -405,6 +405,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [savingProduct, setSavingProduct] = useState(false)
   const [productEditorError, setProductEditorError] = useState('')
   const [priceSyncNotice, setPriceSyncNotice] = useState('')
+  const [syncUnavailable, setSyncUnavailable] = useState(false)
 
   const load = async () => {
     setLoading(true); setError('')
@@ -418,6 +419,21 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     api.me().then(async () => { setAuthenticated(true); await load() }).catch(() => setAuthenticated(false)).finally(() => setCheckingSession(false))
   }, [])
+
+  useEffect(() => {
+    if (!authenticated || tab !== 'sync') return
+    let active = true, polling = false
+    const refresh = async () => {
+      if (polling || document.hidden) return
+      polling = true
+      try { const data = await api.priceSyncStatus(); if (active) { setPriceSync(data); setSyncUnavailable(false) } }
+      catch { if (active) setSyncUnavailable(true) }
+      finally { polling = false }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 5000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [authenticated, tab])
 
   const login = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true); setError('')
@@ -811,11 +827,19 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         </button>
       </header>
 
+      <p className="admin-sync-note" role="status">
+        <strong>{syncUnavailable ? 'Не удалось обновить состояние обмена' : !priceSync.agent ? 'Агент ещё не подключался' : !priceSync.agent.online
+          ? 'Нет свежей связи с агентом' : priceSync.agent.state === 'processing'
+          ? 'Агент записывает цены в 1С' : priceSync.agent.state === 'error'
+          ? 'Агент на связи: есть ошибка обмена' : 'Агент на связи'}</strong>
+        {priceSync.agent && <> · Последняя связь: {new Date(priceSync.agent.lastSeenAt).toLocaleTimeString('ru-RU')}
+          {' · '}Последний отчёт: подтверждено {priceSync.agent.applied}, ошибок {priceSync.agent.failed}.</>}
+      </p>
       <div className="admin-sync-stats">
         <article><strong>{priceSync.scope.length}<small> из 30</small></strong><span>Товаров с разрешением</span></article>
-        <article><strong>{priceSync.changes.filter(change => change.status === 'PENDING').length}</strong><span>Ожидают ответа 1С</span></article>
-        <article><strong>{priceSync.changes.filter(change => change.status === 'DELIVERED').length}</strong><span>Выполнено</span></article>
-        <article><strong>{priceSync.changes.filter(change => ['CONFLICT', 'FAILED', 'CANCELLED'].includes(change.status)).length}</strong><span>Нужно проверить</span></article>
+        <article><strong>{priceSync.summary?.pending ?? priceSync.changes.filter(change => change.status === 'PENDING').length}</strong><span>Ожидают ответа 1С</span></article>
+        <article><strong>{priceSync.summary?.delivered ?? priceSync.changes.filter(change => change.status === 'DELIVERED').length}</strong><span>Выполнено</span></article>
+        <article><strong>{priceSync.summary?.needsAttention ?? priceSync.changes.filter(change => change.error || ['CONFLICT', 'FAILED', 'CANCELLED'].includes(change.status)).length}</strong><span>Нужно проверить</span></article>
       </div>
 
       <p className="admin-sync-note">Предложения 05.ru попадают сюда только после выбора товаров в разделе «Цены». Для них цена на сайте меняется лишь после подтверждения 1С. Ручное редактирование товара работает отдельно.</p>
@@ -825,11 +849,11 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         {priceSync.changes.length === 0 && <p>Пока ничего не отправляли. Сначала проверь цены и выбери товары.</p>}
         <div className="admin-sync-list">
           {priceSync.changes.map(change => <article key={change.id}
-            className={['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}>
+            className={change.error || ['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}>
             <small>{new Date(change.createdAt).toLocaleString('ru-RU')} · {easyExchangeStatus(change.status)}</small>
             <strong>{change.name}</strong>
             <p>{money.format(change.oldPrice)} ₽ → {money.format(change.newPrice)} ₽</p>
-            {change.status === 'PENDING' && <p>Ждём подтверждения применения цены в 1С.</p>}
+            {change.status === 'PENDING' && <p>{change.error || 'Ждём подтверждения применения цены в 1С.'}</p>}
             {change.status === 'DELIVERED' && <p>1С подтвердила изменение.</p>}
             {['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) &&
               <p>{change.error || 'Передача требует проверки. Не отправляй повторно, пока не выяснена причина.'}</p>}

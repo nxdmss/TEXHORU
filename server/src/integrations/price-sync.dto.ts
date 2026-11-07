@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsInt, IsIn, Max, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 
 /** One explicitly approved group of up to thirty demo SKUs, identified by immutable 1C GUID. */
@@ -18,4 +18,11 @@ export class PriceSyncReceiptsDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(10)
   @ValidateNested({ each: true }) @Type(() => PriceSyncReceiptDto)
   items!: PriceSyncReceiptDto[]
+}
+
+/** Agent activity only; this never acknowledges a price change. */
+export class OneCAgentHeartbeatDto {
+  @IsIn(['idle', 'processing', 'error']) state!: 'idle' | 'processing' | 'error'
+  @IsOptional() @IsInt() @Min(0) @Max(30) applied?: number
+  @IsOptional() @IsInt() @Min(0) @Max(30) failed?: number
 }

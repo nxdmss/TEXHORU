@@ -107,6 +107,7 @@ Set-Acl -LiteralPath $logsDir -AclObject $acl
 $epfDestination = Join-Path $agentDir 'TEXHORU-Agent.epf'
 Copy-Item -LiteralPath $epfSource -Destination $epfDestination -Force
 Copy-Item -LiteralPath (Join-Path $sourceDir 'Run-TEXHORUAgent.ps1') -Destination (Join-Path $agentDir 'Run-TEXHORUAgent.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $sourceDir 'Agent-Protocol.ps1') -Destination (Join-Path $agentDir 'Agent-Protocol.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $sourceDir 'Remove-TEXHORUAgent.ps1') -Destination (Join-Path $agentDir 'Remove-TEXHORUAgent.ps1') -Force
 
 $config = [ordered]@{
@@ -134,8 +135,8 @@ if (-not (Test-Path -LiteralPath $powerShell)) { throw 'Не найден Window
 $action = New-ScheduledTaskAction -Execute $powerShell -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $runScript + '"')
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
 $principal = New-ScheduledTaskPrincipal -UserId $currentIdentity.Name -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'TEXHORU: process only explicitly approved retail-price changes in the TEST 1C base.' -Force | Out-Null
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($trigger, (New-ScheduledTaskTrigger -AtLogOn -User $currentIdentity.Name)) -Principal $principal -Settings $settings -Description 'TEXHORU: process only explicitly approved retail-price changes in the TEST 1C base.' -Force | Out-Null
 
 Write-Host ''
 Write-Host 'Агент установлен.' -ForegroundColor Green

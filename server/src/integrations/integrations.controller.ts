@@ -5,7 +5,7 @@ import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 import { IntegrationsService } from './integrations.service'
 import { OneCGuard } from './onec.guard'
 import { OneCPriceSyncService } from './price-sync.service'
-import { PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
+import { OneCAgentHeartbeatDto, PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
 
 @Controller()
 export class IntegrationsController {
@@ -35,6 +35,8 @@ export class IntegrationsController {
   @Get('integrations/1c/price-sync/product/:oneCId') @UseGuards(OneCGuard) priceSyncProduct(@Param('oneCId') oneCId: string) { this.assertTestPriceSyncEnabled(); return this.priceSync.productByOneCId(oneCId) }
   @Get('integrations/1c/price-sync/pending') @UseGuards(OneCGuard) pendingPrices() { this.assertTestPriceSyncEnabled(); return this.priceSync.pending() }
   @Post('integrations/1c/price-sync/receipts') @UseGuards(OneCGuard) priceReceipts(@Body() dto: PriceSyncReceiptsDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.receipts(dto) }
+  @Post('integrations/1c/agent/heartbeat') @UseGuards(OneCGuard)
+  heartbeat(@Body() dto: OneCAgentHeartbeatDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.heartbeat(dto) }
   @Get('admin/integrations/1c/price-sync') @UseGuards(AuthGuard, AdminGuard)
   async priceSyncDashboard() {
     return {
