@@ -63,7 +63,7 @@ test('Windows agent is scheduled, skips an empty queue and accepts TEST only', (
   assert.match(runner, /Local\\TEXHORU_TEST_1C_AGENT/)
   assert.match(runner, /if \(\$items\.Count -eq 0\)/)
   assert.match(runner, /BaseKind -ne 'TEST'/)
-  assert.match(runner, /agent-runtime\.json/)
+  assert.match(runner, /agent-runtime-/)
   assert.match(bsl, /ПараметрЗапуска/)
   assert.match(bsl, /ПилотТЕХОРУПрименитьОднуЦену\(/)
   assert.match(bsl, /Функция ПилотТЕХОРУПолучитьЦеныДляАгента\(/)

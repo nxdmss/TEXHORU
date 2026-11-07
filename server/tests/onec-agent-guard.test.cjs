@@ -9,6 +9,7 @@ test('reverse retail-price exchange requires an explicit TEST server switch', as
     scope: async () => { calls.push('scope-read'); return [] },
     productByOneCId: async id => { calls.push('product-read'); return { oneCId: id } },
     pending: async () => { calls.push('pending-read'); return { schemaVersion: 1, items: [] } },
+    heartbeat: async dto => { calls.push('heartbeat'); return { ok: true } },
     receipts: async dto => { calls.push('receipt-write'); return { ok: true, results: dto.items } },
   }
   const controller = new IntegrationsController({}, sync)
@@ -21,6 +22,7 @@ test('reverse retail-price exchange requires an explicit TEST server switch', as
     () => controller.getPriceScope(),
     () => controller.priceSyncProduct('test-guid'),
     () => controller.pendingPrices(),
+    () => controller.heartbeat({ state: 'idle' }),
     () => controller.priceReceipts({ items: [{ id: 'test-change', appliedPrice: 100 }] }),
   ]
 
@@ -51,7 +53,8 @@ test('reverse retail-price exchange requires an explicit TEST server switch', as
     assert.deepEqual(await controller.pendingPrices(), { schemaVersion: 1, items: [] })
     assert.deepEqual(await controller.priceReceipts({ items: [{ id: 'test-change', appliedPrice: 100 }] }),
       { ok: true, results: [{ id: 'test-change', appliedPrice: 100 }] })
-    assert.deepEqual(calls, ['scope-write', 'scope-read', 'product-read', 'pending-read', 'receipt-write'])
+    assert.deepEqual(await controller.heartbeat({ state: 'idle' }), { ok: true })
+    assert.deepEqual(calls, ['scope-write', 'scope-read', 'product-read', 'pending-read', 'receipt-write', 'heartbeat'])
   } finally {
     restore('ONE_C_BASE_KIND', previousKind)
     restore('ONE_C_TEST_PRICE_SYNC_ENABLED', previousEnabled)

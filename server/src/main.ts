@@ -40,11 +40,11 @@ async function bootstrap() {
       throw new Error(`Storefront build not found: ${indexPath}. Run npm run build first.`)
     }
 
-    app.useStaticAssets(storefrontDist, { index: false, fallthrough: true })
+    app.useStaticAssets(storefrontDist, { index: false, fallthrough: true, dotfiles: 'allow' })
     const express = app.getHttpAdapter().getInstance()
     express.use((req: any, res: any, next: any) => {
       if (req.method !== 'GET' || req.path?.startsWith('/api')) return next()
-      return res.sendFile(indexPath)
+      return res.sendFile(indexPath, { dotfiles: 'allow' })
     })
   }
 

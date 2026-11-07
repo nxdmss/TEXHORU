@@ -6,6 +6,7 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "dev": "node scripts/dev.mjs",
+    "demo": "node scripts/demo.mjs",
     "dev:frontend": "vite --host 127.0.0.1 --port 5173",
     "dev:backend": "npm --prefix server run start:dev",
     "stop": "node scripts/stop.mjs",

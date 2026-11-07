@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
+import { OneCAgentHeartbeatDto, PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
 
 /**
  * Restricted, pull-based retail price exchange.
@@ -168,13 +168,34 @@ export class OneCPriceSyncService {
     return { ok: true, results }
   }
 
+  async heartbeat(dto: OneCAgentHeartbeatDto) {
+    // One bounded row, server time, no secrets or client error strings.
+    const data = { direction: 'FROM_1C' as const, entity: 'ONEC_AGENT',
+      status: dto.state === 'error' ? 'FAILED' as const : 'SUCCESS' as const,
+      payload: { state: dto.state, applied: dto.applied ?? 0, failed: dto.failed ?? 0 }, createdAt: new Date() }
+    await this.prisma.syncLog.upsert({ where: { id: 'onec-agent-status' },
+      create: { id: 'onec-agent-status', ...data }, update: data })
+    return { ok: true }
+  }
+
   async dashboard() {
-    const [scope, recent] = await Promise.all([
+    const [scope, recent, activity, pending, delivered, needsAttention] = await Promise.all([
       this.scope(),
       this.prisma.oneCPriceChange.findMany({ include: { product: { select: { name: true } } },
         orderBy: { createdAt: 'desc' }, take: 30 }),
+      this.prisma.syncLog.findUnique({ where: { id: 'onec-agent-status' } }),
+      this.prisma.oneCPriceChange.count({ where: { status: 'PENDING' } }),
+      this.prisma.oneCPriceChange.count({ where: { status: 'DELIVERED' } }),
+      this.prisma.oneCPriceChange.count({ where: { OR: [
+        { status: { in: ['CONFLICT', 'CANCELLED'] } }, { status: 'PENDING', lastError: { not: null } },
+      ] } }),
     ])
-    return { scope, changes: recent.map(c => ({
+    const agentData = activity?.payload as { state?: string; applied?: number; failed?: number } | null
+    return { scope, summary: { pending, delivered, needsAttention },
+      agent: activity ? { lastSeenAt: activity.createdAt.toISOString(),
+        online: Date.now() - activity.createdAt.getTime() < 5 * 60_000,
+        state: agentData?.state, applied: agentData?.applied ?? 0, failed: agentData?.failed ?? 0 } : null,
+      changes: recent.map(c => ({
       id: c.id, name: c.product.name, oneCId: c.oneCId, oldPrice: c.oldPrice,
       newPrice: c.newPrice, status: c.status, error: c.lastError, createdAt: c.createdAt,
       deliveredAt: c.deliveredAt,
