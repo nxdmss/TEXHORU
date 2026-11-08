@@ -865,7 +865,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       id: string; productId: number | null; productName: string; categoryPath: string;
       costPrice: number | null; oldPrice: number | null; previousCompetitorPrice: number | null;
       competitorPrice: number; newPrice: number; lastSuccessAt: string | null; externalUrl: string;
-      canSend: boolean; blockedReasons: string[];
+      canSend: boolean; blockedReasons: string[]; externalName: string; matchVerified: boolean; awaitingOneC: boolean;
     }> = []
 
     for (const link of links) {
@@ -883,6 +883,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const reasons: string[] = []
       const addReason = (reason: string) => { if (!reasons.includes(reason)) reasons.push(reason) }
 
+      const comparison = product ? compareItems(product, { name: link.externalName || '', attributes: link.attributes }) : null
+      const matchVerified = !!product && link.matchStatus === 'CONFIRMED' && !comparison?.conflicts.length
+      if (comparison?.conflicts.length) addReason('Карточка 05.ru не совпадает с нашим товаром: ' + comparison.conflicts.join(', '))
       if (!product) addReason('Товар не сопоставлен с каталогом TEXHORU')
       if (link.matchStatus !== 'CONFIRMED') addReason('Сопоставление с товаром не подтверждено')
       if (link.priceSource === 'USER_FILE') addReason('Цена загружена из файла, а не проверена на 05.ru')
@@ -929,6 +932,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         newPrice,
         lastSuccessAt: link.lastSuccessAt?.toISOString() ?? null,
         externalUrl: link.externalUrl,
+        externalName: link.externalName || 'Название не получено',
+        matchVerified,
+        awaitingOneC: product ? pendingIds.has(product.id) : false,
         canSend: reasons.length === 0,
         blockedReasons: reasons,
       })

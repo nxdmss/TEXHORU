@@ -21,7 +21,7 @@ function Send-Heartbeat([string]$State) {
         Invoke-RestMethod -Method Post -Uri ('https://' + $config.ApiHost + '/api/integrations/1c/agent/heartbeat') -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 10 | Out-Null
     } catch { Write-AgentLog 'Не удалось передать состояние агента на сайт.' }
 }
-$mutex = [System.Threading.Mutex]::new($false, 'Local\TEXHORU_TEST_1C_AGENT')
+$mutex = New-Object System.Threading.Mutex -ArgumentList $false, 'Local\TEXHORU_TEST_1C_AGENT'
 $locked = $false
 
 function Write-AgentLog([string]$Message) {
@@ -92,7 +92,7 @@ try {
         baseKind = 'TEST'
         baseLabel = [string]$config.BaseLabel
     } | ConvertTo-Json -Compress
-    [IO.File]::WriteAllText($RuntimePath, $runtime, [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($RuntimePath, $runtime, (New-Object Text.UTF8Encoding -ArgumentList $false))
     if (Test-Path $ResultPath) { Remove-Item -LiteralPath $ResultPath -Force }
     if (Test-Path $OneCOutputPath) { Remove-Item -LiteralPath $OneCOutputPath -Force }
 
@@ -124,7 +124,7 @@ try {
     $arguments += '/DisableStartupDialogs /Out ' + (Quote-Argument $OneCOutputPath) + ' -NoTruncate'
 
     Write-AgentLog ('В очереди изменений: ' + $items.Count + '. Запускаю только тестовую базу "' + $config.BaseLabel + '".')
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
     $startInfo.FileName = [string]$config.PlatformExe
     $startInfo.Arguments = $arguments
     $startInfo.UseShellExecute = $false

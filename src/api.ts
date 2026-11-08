@@ -104,7 +104,7 @@ export type PriceApprovalPreview = {
   token: string; count: number; totalScope: number; skipped: number; unknownCost: number; largeChanges: number; oneCQueued: number;
   items: Array<{ id: string; productId: number | null; productName: string; categoryPath: string; costPrice: number | null;
     oldPrice: number | null; previousCompetitorPrice: number | null; competitorPrice: number; newPrice: number;
-    lastSuccessAt: string | null; externalUrl: string; canSend: boolean; blockedReasons: string[] }>;
+    lastSuccessAt: string | null; externalUrl: string; externalName: string; matchVerified: boolean; awaitingOneC: boolean; canSend: boolean; blockedReasons: string[] }>;
   diagnostics: {
     unlinkedCount: number;
     unlinked: Array<{ productId: number; productName: string; categoryPath: string }>;
@@ -226,6 +226,11 @@ export const api = {
   adminNotifications() { return request<any[]>('/admin/notifications') },
   adminMarkNotificationRead(id: string) { return request(`/admin/notifications/${id}/read`, { method: 'PATCH' }) },
   syncLogs() { return request<any[]>('/admin/integrations/1c/logs') },
+  addTestPriceScope(oneCIds: string[]) {
+    return request<{ ok: boolean; added: number; count: number }>('/admin/integrations/1c/price-sync/scope/add', {
+      method: 'POST', body: JSON.stringify({ oneCIds }),
+    })
+  },
   priceSyncStatus() { return request<OneCPriceSyncStatus>('/admin/integrations/1c/price-sync') },
   auditLogs() { return request<any[]>('/admin/audit') },
   importManualCompetitorPrices(rows: Array<{ oneCId?: string; url: string; name: string; price: number; observedAt: string; inStock?: boolean }>) {

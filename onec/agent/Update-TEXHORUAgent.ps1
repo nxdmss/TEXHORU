@@ -14,7 +14,7 @@ foreach ($name in @('Run-TEXHORUAgent.ps1', 'Agent-Protocol.ps1')) {
 $taskName = 'TEXHORU 1C Test Agent'
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
 if ($task.State -eq 'Running') { throw 'Агент ещё выполняет обмен. Дождись завершения и повтори обновление.' }
-$mutex = [System.Threading.Mutex]::new($false, 'Local\TEXHORU_TEST_1C_AGENT')
+$mutex = New-Object System.Threading.Mutex -ArgumentList $false, 'Local\TEXHORU_TEST_1C_AGENT'
 $locked = $mutex.WaitOne(0)
 if (-not $locked) { $mutex.Dispose(); throw 'Агент ещё работает. Дождись окончания обмена.' }
 try {

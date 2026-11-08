@@ -70,7 +70,7 @@ function SourceEvidence({ item }: { item: PriceMonitorItem }) {
   </span>
 }
 
-export function PriceMonitorPanel({ products }: { products: ApiProduct[] }) {
+export function PriceMonitorPanel({ products, initialPath }: { products: ApiProduct[]; initialPath?: string }) {
   const [stock, setStock] = useState<ApiProduct[]>(products)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
@@ -78,9 +78,10 @@ export function PriceMonitorPanel({ products }: { products: ApiProduct[] }) {
   const [group, setGroup] = useState<'ALL' | 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'PENDING'>('ALL')
   const [sources, setSources] = useState<MonitorSource[]>([])
   const sourceKey = '05ru' as const
-  const [path, setPath] = useState('')
+  const [path, setPath] = useState(initialPath || '')
   const [search, setSearch] = useState('')
   const [opened, setOpened] = useState<string | null>(null)
+  useEffect(() => { if (initialPath !== undefined) { setPath(initialPath); setSearch(''); setOpened(null) } }, [initialPath])
   const [matches, setMatches] = useState<MatchCandidate[]>([])
   const [selected, setSelected] = useState('')
   const [history, setHistory] = useState<Array<{ id: string; price: number; checkedAt: string }>>([])
