@@ -53,6 +53,7 @@ export class MonitorSettingsDto {
   @Type(() => Number) @IsInt() @Min(0) @Max(10080) intervalMinutes!: number
 }
 export class CheckAllDto {
+  @IsOptional() @IsBoolean() authorizedOnly?: boolean
   @IsOptional() @IsIn(['05ru', 'all']) sourceKey?: string
 }
 export class PriceUpdateDto {

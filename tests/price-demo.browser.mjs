@@ -29,16 +29,16 @@ try {
   await prisma.product.create({ data: { categoryId: accessories.id, brand: 'Baseus', name: 'Автовизитка Baseus', sku: 'ACCESSORY', slug: 'accessory', oneCId: randomUUID(), price: 500 } })
   const source = await prisma.competitorSource.create({ data: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' } })
   const products = []
-  for (const [name, price] of [['Apple iPhone 16 128GB Green', 63900], ['Apple iPhone 15 256GB Black', 61900]]) {
-    products.push(await prisma.product.create({ data: { categoryId: category.id, name, price, oneCId: randomUUID(), brand: 'Apple', sku: randomUUID(), slug: randomUUID(), stockQty: 1 } }))
+  for (const [name, price] of [['Apple iPhone 16 128GB Green', 63900], ['Apple iPhone 15 256GB Black', 61900], ['Apple iPhone 16 128GB White', 57900]]) {
+    products.push(await prisma.product.create({ data: { categoryId: category.id, name, price, oneCId: randomUUID(), brand: 'Apple', sku: randomUUID(), slug: randomUUID(), stockQty: 1, priceSyncEnabled: true } }))
   }
   for (let i = 0; i < products.length; i++) {
-    const p = products[i], externalName = i === 0 ? p.name : 'Apple iPhone 15 128GB Black б/у'
+    const p = products[i], externalName = i !== 1 ? p.name : 'Apple iPhone 15 128GB Black б/у'
     await prisma.competitorProduct.create({ data: { sourceId: source.id, productId: p.id, externalName,
-      externalUrl: 'https://05.ru/cat/test/p/' + i + '/', attributes: {}, matchStatus: i === 0 ? 'CONFIRMED' : 'SUGGESTED',
-      confirmedFingerprint: i === 0 ? fingerprint({ name: externalName, attributes: {} }) : null,
-      confirmedProductFingerprint: i === 0 ? fingerprint(p) : null,
-      latestPrice: i === 0 ? 64990 : 37990, inStock: true, lastSuccessAt: new Date(), priceSource: 'JSON-LD Offer' } })
+      externalUrl: 'https://05.ru/cat/test/p/' + i + '/', attributes: {}, matchStatus: i !== 1 ? 'CONFIRMED' : 'SUGGESTED',
+      confirmedFingerprint: i !== 1 ? fingerprint({ name: externalName, attributes: {} }) : null,
+      confirmedProductFingerprint: i !== 1 ? fingerprint(p) : null,
+      latestPrice: i !== 1 ? 64990 : 37990, inStock: true, lastSuccessAt: new Date(), priceSource: 'JSON-LD Offer' } })
   }
   const socket = net.createServer()
   await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve))
@@ -79,11 +79,11 @@ try {
     }
     const body = request.postDataJSON(); startBodies.push(body)
     const target = body.productIds ? all.filter(p => body.productIds.includes(p.id)) : all
-    operation = { id: randomUUID(), state: 'CHECKING', total: target.length, checked: 0,
+    operation = { id: randomUUID(), state: 'QUEUING', total: target.length, checked: target.length,
       ready: 0, queued: 0, pending: 0, applied: 0, failed: 0, skipped: 0,
       createdAt: new Date().toISOString(), finishedAt: null,
       items: target.map(p => ({ productId: p.id, name: p.name, categoryPath: p.category.name,
-        status: 'CHECKING', reason: null, oldPrice: p.price, newPrice: null, messageId: null })) }
+        status: 'READY', reason: null, oldPrice: p.price, newPrice: null, messageId: null })) }
     await route.fulfill({ json: operation })
   })
   const page = await context.newPage()
@@ -92,50 +92,47 @@ try {
   let hiddenToolRequests = 0; page.on('request', r => { if (r.url().endsWith('/price-monitor/jobs')) hiddenToolRequests++ })
   await page.goto(url + '/admin')
   await page.getByRole('button', { name: 'Цены', exact: true }).click()
-  await page.getByRole('button', { name: 'Обновить все цены', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Обновить готовые (2)', exact: true }).waitFor()
   assert.equal(await page.locator('.pu-selection').getAttribute('open'), null)
   assert.equal(await page.locator('.pu-advanced').getAttribute('open'), null)
   assert.equal(await page.locator('.pu-advanced .price-monitor').count(), 0)
-  assert.equal(hiddenToolRequests, 0, 'hidden matching tools must not poll')
-  if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH.replace('.png', '-desktop.png'), fullPage: true })
-  await page.locator('.pu-selection summary').click()
+  assert.equal(hiddenToolRequests, 0)
+  await page.getByRole('button', { name: '2 Нельзя обновить', exact: true }).click()
+  await page.getByText('Не совпадают характеристики', { exact: true }).waitFor()
+  await page.getByText('Не разрешён обмен с 1С', { exact: true }).waitFor()
+  assert.equal(await page.locator('.pu-product-list input[type=checkbox]').count(), 0)
+  await page.getByRole('button', { name: '2 Готовы к обновлению', exact: true }).click()
   await page.getByLabel('Раздел товаров').selectOption(category.name)
-  await page.getByRole('button', { name: 'Обновить выбранные (2)', exact: true }).waitFor()
   assert.equal(await page.locator('.pu-product-list label').count(), 2)
   await page.getByRole('button', { name: 'Снять выбор', exact: true }).click()
   assert(await page.getByRole('button', { name: 'Обновить выбранные (0)', exact: true }).isDisabled())
   await page.getByLabel('Обновить товар: ' + products[0].name).check()
-  const startButton = page.getByRole('button', { name: 'Обновить выбранные (1)', exact: true })
-  await startButton.click()
-  await page.getByText('Проверяем цены: 0 из 1', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Обновить выбранные (1)', exact: true }).click()
+  await page.getByText('Подготавливаем передачу в 1С', { exact: true }).waitFor()
   assert.deepEqual(startBodies, [{ productIds: [products[0].id] }])
-  assert.equal(dialogs, 0, 'the explicit update button should not require another dialog')
-  assert(await page.getByRole('button', { name: 'Обновление идёт…', exact: true }).isDisabled())
+  assert.equal(dialogs, 0)
   operation = { ...operation, state: 'WAITING', checked: 1, pending: 1, queued: 1,
     items: operation.items.map(item => ({ ...item, status: 'PENDING', newPrice: 64890, messageId: 'fixture-receipt' })) }
   await page.getByText('Ожидаем подтверждения 1С: 1', { exact: true }).waitFor({ timeout: 12000 })
   assert.equal(await page.locator('.pu-counts').innerText(), '0 обновлено\n1 ждут 1С')
-  assert.equal(await page.locator('.pu-results').getAttribute('open'), null)
   operation = { ...operation, state: 'COMPLETED', pending: 0, applied: 1, finishedAt: new Date().toISOString(),
     items: operation.items.map(item => ({ ...item, status: 'APPLIED' })) }
   await page.getByText('Обновление завершено', { exact: true }).waitFor({ timeout: 12000 })
   await page.locator('.pu-results summary').first().click()
   await page.getByText('Обновлено', { exact: true }).waitFor()
-  assert((await page.locator('.pu-result').innerText()).includes('64'))
-  await page.getByRole('button', { name: 'Все товары', exact: true }).click()
-  await page.getByRole('button', { name: 'Обновить все цены', exact: true }).click()
-  await page.getByText('Проверяем цены: 0 из 3', { exact: true }).waitFor()
-  assert.deepEqual(startBodies[1], {}, 'all-products action must not silently retain selected IDs')
-  if ((await page.locator('.pu-results').getAttribute('open')) === null) await page.locator('.pu-results summary').first().click()
+  await page.getByRole('button', { name: 'Все готовые', exact: true }).click()
+  await page.getByRole('button', { name: 'Обновить готовые (2)', exact: true }).click()
+  await page.getByText('Подготавливаем передачу в 1С', { exact: true }).waitFor()
+  assert.deepEqual(startBodies[1], { productIds: [products[0].id, products[2].id] }, 'all-ready action must send only permitted ready IDs')
   await page.getByRole('button', { name: 'Остановить подготовку', exact: true }).click()
   await page.getByText('Оставшиеся товары остановлены', { exact: true }).waitFor()
   await page.locator('.pu-results summary').first().click()
-  await page.locator('.pu-selection summary').click()
+  if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH.replace('.png', '-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })
   assert(await page.locator('.pu-root').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'price UI overflows on mobile')
   assert.deepEqual(errors, [])
   if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH, fullPage: true })
-  console.log('PASS: compact default, collapsed tools, category/selected/all intent, one click, receipt-only success, cancellation and mobile layout. Workflow HTTP responses are mocked; persistence is tested in backend suite.')
+  console.log('PASS: three readiness groups, short reasons, permitted-only selection and all-ready intent, one click, receipt-only success, cancellation and mobile layout. Workflow HTTP responses are mocked; persistence is tested in backend suite.')
 
 } finally {
   await browser?.close()

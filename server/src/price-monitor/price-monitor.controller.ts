@@ -26,6 +26,9 @@ export class PriceMonitorController {
   @Post('bulk-price-apply') applyBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.applyBulkPrices(dto) }
   @Post('bulk-price-reject') rejectBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.rejectBulkPrices(dto) }
 
+  @Get('price-readiness') priceReadiness() { return this.monitor.priceReadiness() }
+  @Post('check-allowed-prices') checkAllowedPrices() { return this.monitor.checkAllowedPrices() }
+
   @Post('price-update') startPriceUpdate(@Body() dto: PriceUpdateDto) { return this.monitor.startPriceUpdate(dto) }
   @Get('price-update/current') async currentPriceUpdate(@Res() response: { json: (value: unknown) => unknown }) {
     // Nest sends an empty body for a bare null. Explicit JSON preserves the

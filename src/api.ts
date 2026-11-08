@@ -112,6 +112,11 @@ export type PriceApprovalPreview = {
     unchecked: Array<{ productId: number | null; productName: string; reason: string }>;
   };
 }
+export type PriceReadiness = {
+  authorized: number; checking: boolean;
+  items: Array<{ productId: number; name: string; categoryPath: string; authorized: boolean;
+    oldPrice: number; newPrice: number | null; status: 'READY' | 'PENDING' | 'BLOCKED'; reason: string | null }>;
+}
 export type OneCPriceSyncStatus = {
   agent?: { lastSeenAt: string; online: boolean; state?: string; applied: number; failed: number } | null;
   summary?: { pending: number; delivered: number; needsAttention: number };
@@ -264,6 +269,8 @@ export const api = {
   monitorExport() { return request<{ schemaVersion: number; items: Array<Record<string, unknown>> }>('/admin/price-monitor/export-1c') },
   monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
   adminImportOneC(data: unknown) { return request('/admin/integrations/1c/catalog', { method: 'POST', body: JSON.stringify(data) }) },
+  priceReadiness() { return request<PriceReadiness>('/admin/price-monitor/price-readiness') },
+  checkAllowedPrices() { return request<{ queued: number }>('/admin/price-monitor/check-allowed-prices', { method: 'POST' }) },
   priceUpdateCurrent() { return request<PriceUpdateOperation | null>('/admin/price-monitor/price-update/current') },
   startPriceUpdate(productIds?: number[]) {
     return request<PriceUpdateOperation>('/admin/price-monitor/price-update', {
