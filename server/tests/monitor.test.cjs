@@ -1071,6 +1071,10 @@ test('Recommendations ignore cost temporarily, use 05.ru minus 100, and retain t
   for (const bad of [{ ...input, inStock: null }, { ...input, lastError: '403' }, { ...input, lastSuccessAt: new Date(0) }]) assert.equal(recommendation(bad, { price: 99990 }).recommendedPrice, null)
   assert.equal(recommendation(input, { price: 150000 }).recommendedPrice, null,
     'the separate 10% change guard remains active')
+  for (const price of [57900, 58900, 63900]) {
+    assert.equal(recommendation({ ...input, latestPrice: 64990 }, { price }, { allowLargeChange: true }).recommendedPrice, 64890)
+  }
+  assert.equal(recommendation({ ...input, inStock: false }, { price: 150000 }, { allowLargeChange: true }).recommendedPrice, null)
 })
 
 test('Full persistence: 1C import, candidate confirmation, durable delivery, failed ack/retry, changed variant and import rollback', async () => {

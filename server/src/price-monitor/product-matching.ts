@@ -575,7 +575,7 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   if (a.brand && b.brand && a.brand !== b.brand) score -= 10
   return score >= 20 ? { score, reasons } : null
 }
-export function recommendation(input: { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null }, product?: { price: number; costPrice?: number | null } | null) {
+export function recommendation(input: { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null }, product?: { price: number; costPrice?: number | null } | null, options: { allowLargeChange?: boolean } = {}) {
   const reasons: string[] = []
   if (!input.latestPrice || input.latestPrice <= 0) reasons.push('нет цены')
   if (input.inStock !== true) reasons.push('наличие не подтверждено')
@@ -583,6 +583,6 @@ export function recommendation(input: { latestPrice?: number | null; inStock?: b
   if (!input.lastSuccessAt || Date.now() - input.lastSuccessAt.getTime() > 24 * 3600_000) reasons.push('данные старше 24 часов')
   if (!product) reasons.push('товар не сопоставлен')
   const proposed = input.latestPrice ? Math.max(1, input.latestPrice - 100) : null
-  if (product && proposed && Math.abs(proposed - product.price) > product.price * 0.1) reasons.push('изменение больше 10%')
+  if (!options.allowLargeChange && product && proposed && Math.abs(proposed - product.price) > product.price * 0.1) reasons.push('изменение больше 10%')
   return { recommendedPrice: reasons.length ? null : proposed, recommendationReasons: reasons }
 }

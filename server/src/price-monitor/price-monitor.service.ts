@@ -15,6 +15,11 @@ import { PriceUpdateWorkflow } from './price-update.workflow'
 // Small 1C batches should not read 50 catalog pages before matching.
 const FAST_MATCH_MAX_ITEMS = 40
 
+// Temporary demo policy: TEST prices can change by any percentage.
+function allowLargeTestPriceChange() {
+  return process.env.ONE_C_BASE_KIND === 'TEST' && process.env.ONE_C_TEST_PRICE_SYNC_ENABLED === 'true'
+}
+
 // Temporary 05.ru-only testing. Retain historical DNS and M.Video data.
 const ENABLED_STORE_KEYS: StoreKey[] = ['05ru']
 function requireEnabledStore(key: StoreKey) {
@@ -249,7 +254,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
   private decorated<T extends { latestPrice?: number | null; inStock?: boolean | null; lastError?: string | null; lastSuccessAt?: Date | null; product?: { name: string; price: number; costPrice?: number | null } | null; matchStatus: string; confirmedFingerprint?: string | null; confirmedProductFingerprint?: string | null; externalName?: string | null; attributes: unknown }>(row: T) {
     const valid = row.matchStatus === 'CONFIRMED' && row.product && fingerprint(row.product) === row.confirmedProductFingerprint && fingerprint({ name: row.externalName || '', attributes: row.attributes }) === row.confirmedFingerprint
-    return { ...row, matchStatus: row.matchStatus === 'CONFIRMED' && !valid ? 'REVIEW_REQUIRED' : row.matchStatus, ...recommendation(row, valid ? row.product : null) }
+    return { ...row, matchStatus: row.matchStatus === 'CONFIRMED' && !valid ? 'REVIEW_REQUIRED' : row.matchStatus, ...recommendation(row, valid ? row.product : null, { allowLargeChange: allowLargeTestPriceChange() }) }
   }
   async matchOutcomes(sourceKey: StoreKey = '05ru') {
     requireEnabledStore(sourceKey)
@@ -837,7 +842,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
       if (price < 1) throw new BadRequestException('Некорректная новая цена')
       const largeChange = Math.abs(price - product.price) > product.price * 0.1
-      if (largeChange && !dto.acceptLargeChange) throw new BadRequestException('Изменение больше 10%. Требуется явное подтверждение')
+      if (!allowLargeTestPriceChange() && largeChange && !dto.acceptLargeChange) throw new BadRequestException('Изменение больше 10%. Требуется явное подтверждение')
       if (price === product.price) {
         throw new BadRequestException('Цена уже установлена; повторная отправка не требуется')
       }
@@ -944,7 +949,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
             || fingerprint({ name: link.externalName || '', attributes: link.attributes }) !== link.confirmedFingerprint)) {
           addReason('Сопоставление устарело: данные товара или карточки 05.ru изменились')
         }
-        if (product.price > 0 && Math.abs(newPrice - product.price) > product.price * 0.1) {
+        if (!allowLargeTestPriceChange() && product.price > 0 && Math.abs(newPrice - product.price) > product.price * 0.1) {
           addReason('Изменение превышает 10% от текущей цены')
         }
         if (newPrice === product.price) addReason('Предлагаемая цена уже совпадает с текущей ценой TEXHORU')
