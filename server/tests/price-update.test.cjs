@@ -126,7 +126,7 @@ test('one click replaces idle accessory scope, stages 35 verified prices as 30+5
   assert.equal(await prisma.product.count({ where: { id: { in: products.map(p => p.id) }, price: 49000 } }), 35)
 })
 
-test('one click keeps identity, file, stock, stale-price and 10% blockers; cancellation preserves queued failures', async () => {
+test('one click keeps identity, file, stock and stale-price blockers while allowing large TEST changes; cancellation preserves queued failures', async () => {
   const { product, workflow, checked, sync } = await fixture()
   const good = await product()
   const wrongMemory = await product({}, { externalName: 'Смартфон Apple iPhone 15 256 Гб черный' })
@@ -141,22 +141,47 @@ test('one click keeps identity, file, stock, stale-price and 10% blockers; cance
   await checked()
   for (let i = 0; i < products.length; i++) await workflow.advance()
   const status = await workflow.current()
-  assert.equal(status.queued, 1)
-  assert.equal(status.skipped, 7)
+  assert.equal(status.queued, 2)
+  assert.equal(status.skipped, 6)
   for (const id of [wrongMemory.id, wrongColor.id, used.id]) assert.match(status.items.find(item => item.productId === id).reason, /не совпадает/)
-  assert.match(status.items.find(item => item.productId === large.id).reason, /10%/)
+  assert.equal(status.items.find(item => item.productId === large.id).status, 'PENDING')
+  const largeMessage = (await sync.pending()).items.find(item => item.id === status.items.find(row => row.productId === large.id).messageId)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: large.id } })).price, 60000)
+  await sync.receipts({ items: [{ id: largeMessage.id, appliedPrice: largeMessage.targetPrice }] })
   const message = (await sync.pending()).items[0]
   await sync.receipts({ items: [{ id: message.id, error: 'Не удалось провести документ' }] })
   await workflow.advance()
   const failed = await workflow.current()
   assert.equal(failed.pending, 1)
-  assert.equal(failed.applied, 0)
+  assert.equal(failed.applied, 1)
   assert.match(failed.items.find(item => item.productId === good.id).reason, /провести/)
   const cancelled = await workflow.cancel(operation.id)
   assert.equal(cancelled.state, 'CANCELLED')
   assert.equal(cancelled.pending, 1)
   assert.equal((await sync.pending()).items[0].id, message.id)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: good.id } })).price, 50000)
+})
+
+test('all iPhone 16 price changes queue in TEST and publish only after receipts', async () => {
+  const { product, workflow, monitor, checked, sync } = await fixture()
+  const products = []
+  for (const price of [57900, 58900, 63900]) products.push(await product({ price }, { latestPrice: 64990 }))
+  process.env.ONE_C_BASE_KIND = 'PRODUCTION'
+  try {
+    const snapshot = await monitor.bulkPriceSnapshot(prisma)
+    assert.equal(snapshot.items.filter(row => row.blockedReasons.some(reason => reason.includes('10%'))).length, 2)
+  } finally { process.env.ONE_C_BASE_KIND = 'TEST' }
+  await workflow.start(products.map(row => row.id))
+  await checked()
+  for (const row of products) await workflow.advance()
+  assert.equal((await workflow.current()).pending, 3)
+  for (const row of products) assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).price, row.price)
+  const packet = await sync.pending()
+  assert.equal(packet.items.length, 3)
+  for (const row of packet.items) assert.equal(row.targetPrice, 64890)
+  await sync.receipts({ items: packet.items.map(row => ({ id: row.id, appliedPrice: row.targetPrice })) })
+  await workflow.advance()
+  assert.equal((await workflow.current()).applied, 3)
 })
 
 test('worker rechecks the real saved card, respects TEST switches, database lease and recovers completed matching cursor', async () => {

@@ -197,7 +197,7 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
       {toolsOpen && <PriceMonitorPanel products={inventory} initialPath={category} />}
     </details>
     <details className="pu-rule"><summary>Как обновляются цены</summary>
-      <p>Для подтверждённых совпадений используем свежую цену 05.ru минус 100 ₽. Другая память, цвет, состояние или изменение больше 10% требуют проверки. Цена сайта меняется после подтверждения 1С.</p>
+      <p>Для подтверждённых совпадений используем свежую цену 05.ru минус 100 ₽. Другая память, цвет или состояние требуют проверки. В TEST ограничение изменения 10% временно отключено. Цена сайта меняется после подтверждения 1С.</p>
     </details>
   </section>
 }
