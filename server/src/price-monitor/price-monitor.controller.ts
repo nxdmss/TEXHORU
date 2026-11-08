@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
-import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto, PriceUpdateDto } from './price-monitor.dto'
 import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
 import type { StoreKey } from './storefront-adapter'
@@ -25,6 +25,10 @@ export class PriceMonitorController {
   @Post('bulk-price-preview') previewBulkPrices(@Body() dto: BulkPriceScopeDto) { return this.monitor.previewBulkPrices(dto) }
   @Post('bulk-price-apply') applyBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.applyBulkPrices(dto) }
   @Post('bulk-price-reject') rejectBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.rejectBulkPrices(dto) }
+
+  @Post('price-update') startPriceUpdate(@Body() dto: PriceUpdateDto) { return this.monitor.startPriceUpdate(dto) }
+  @Get('price-update/current') currentPriceUpdate() { return this.monitor.currentPriceUpdate() }
+  @Post('price-update/:id/cancel') cancelPriceUpdate(@Param('id') id: string) { return this.monitor.cancelPriceUpdate(id) }
 
   @Get('jobs') jobs() { return this.monitor.jobs() }
   @Post('scan') scan(@Body() dto: ScanFiveRuDto) { return this.monitor.scan(dto) }

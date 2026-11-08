@@ -264,6 +264,15 @@ export const api = {
   monitorExport() { return request<{ schemaVersion: number; items: Array<Record<string, unknown>> }>('/admin/price-monitor/export-1c') },
   monitorReceipts(data: unknown) { return request('/admin/price-monitor/receipts', { method: 'POST', body: JSON.stringify(data) }) },
   adminImportOneC(data: unknown) { return request('/admin/integrations/1c/catalog', { method: 'POST', body: JSON.stringify(data) }) },
+  priceUpdateCurrent() { return request<PriceUpdateOperation | null>('/admin/price-monitor/price-update/current') },
+  startPriceUpdate(productIds?: number[]) {
+    return request<PriceUpdateOperation>('/admin/price-monitor/price-update', {
+      method: 'POST', body: JSON.stringify(productIds ? { productIds } : {}),
+    })
+  },
+  cancelPriceUpdate(id: string) {
+    return request<PriceUpdateOperation>('/admin/price-monitor/price-update/' + encodeURIComponent(id) + '/cancel', { method: 'POST' })
+  },
   monitorBulkPreview(categoryPath: string) {
     return request<PriceApprovalPreview>(
       '/admin/price-monitor/bulk-price-preview', { method: 'POST', body: JSON.stringify({ categoryPath }) })
@@ -298,3 +307,14 @@ export const api = {
 }
 
 export { API_URL }
+
+export type PriceUpdateOperation = {
+  id: string;
+  state: 'CHECKING' | 'QUEUING' | 'WAITING' | 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'CANCELLED';
+  total: number; checked: number; ready: number; queued: number; pending: number;
+  applied: number; failed: number; skipped: number; createdAt: string; finishedAt: string | null;
+  waitingExternal?: number; error?: string | null;
+  items: Array<{ productId: number; name: string; categoryPath: string;
+    status: 'CHECKING' | 'READY' | 'PENDING' | 'APPLIED' | 'SKIPPED' | 'FAILED';
+    reason: string | null; oldPrice: number | null; newPrice: number | null; messageId: string | null }>;
+}

@@ -55,6 +55,11 @@ export class MonitorSettingsDto {
 export class CheckAllDto {
   @IsOptional() @IsIn(['05ru', 'all']) sourceKey?: string
 }
+export class PriceUpdateDto {
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5000)
+  @Type(() => Number) @IsInt({ each: true }) @Min(1, { each: true })
+  productIds?: number[]
+}
 export class MonitorReceiptDto {
   @IsString() @MaxLength(100) id!: string
   @IsOptional() @IsString() @MaxLength(2000) error?: string

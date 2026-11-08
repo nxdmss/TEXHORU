@@ -15,7 +15,7 @@
     "data:export": "tsx scripts/export-catalog.ts",
     "data:import": "tsx scripts/import-catalog.ts",
     "data:clear-products": "tsx scripts/clear-products.ts",
-    "test:monitor": "npm run build && node --test tests/monitor.test.cjs tests/onec-agent-guard.test.cjs tests/demo-exchange.test.cjs"
+    "test:monitor": "npm run build && node --test tests/monitor.test.cjs tests/onec-agent-guard.test.cjs tests/demo-exchange.test.cjs tests/price-update.test.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.0.0",

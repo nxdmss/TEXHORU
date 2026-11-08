@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { createHash } from 'node:crypto'
 import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto, CheckAllDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, ImportManualCompetitorPricesDto, MonitorSettingsDto, ScanFiveRuDto, CheckAllDto, PriceUpdateDto } from './price-monitor.dto'
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
 import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter, type StoreProductResult } from './storefront-adapter'
 import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
@@ -10,6 +10,7 @@ import { canDeclareNoMatch, type SearchEvidence } from './match-outcome'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
+import { PriceUpdateWorkflow } from './price-update.workflow'
 
 // Small 1C batches should not read 50 catalog pages before matching.
 const FAST_MATCH_MAX_ITEMS = 40
@@ -178,13 +179,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private working = false
   private parsing = false
   private readonly matching = new MatchingEngine()
+  private readonly priceUpdate: PriceUpdateWorkflow
   constructor(
     private readonly prisma: PrismaService,
     private readonly fiveRu: FiveRuParser,
     private readonly exchange: MonitorExchangeService,
     private readonly mvideo: MvideoParser,
     private readonly dns: DnsParser,
-  ) {}
+  ) {
+    this.priceUpdate = new PriceUpdateWorkflow(prisma,
+      db => this.bulkPriceSnapshot(db),
+      async productId => {
+        const product = await this.prisma.product.findUnique({ where: { id: productId } })
+        if (!product?.oneCId || product.status !== 'ACTIVE') return false
+        return this.refreshKnownMatch(product, '05ru', this.fiveRu)
+      })
+  }
+
+  startPriceUpdate(dto: PriceUpdateDto) { return this.priceUpdate.start(dto.productIds) }
+  currentPriceUpdate() { return this.priceUpdate.current() }
+  cancelPriceUpdate(id: string) { return this.priceUpdate.cancel(id) }
 
   onModuleInit() {
     this.stopped = false
@@ -393,7 +407,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw error
     } finally { this.parsing = false }
   }
-  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false, autoConfirmExact = false) {
+  private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false, autoConfirmExact = false, repairConflictingLinks: string[] = []) {
     return this.prisma.$transaction(async tx => {
       const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
       let productId = existing?.productId || suggestedProductId || null
@@ -441,6 +455,26 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           confirmedFingerprint = externalFingerprint
           confirmedProductFingerprint = fingerprint(product)
           autoConfirmed = true
+        }
+      }
+
+      if (autoConfirmed && repairConflictingLinks.length) {
+        // A workflow may replace only a legacy assignment that its own fresh
+        // card read proved wrong. Keep the old observation/history for review,
+        // but do not let that obsolete binding make the exact replacement
+        // ambiguous forever. Never detach a valid or merely incomplete card.
+        const obsolete = await tx.competitorProduct.findMany({ where: {
+          id: { in: repairConflictingLinks }, sourceId, productId: suggestedProductId,
+          matchStatus: 'REVIEW_REQUIRED', ...(existing ? { NOT: { id: existing.id } } : {}),
+        } })
+        for (const old of obsolete) {
+          const product = await tx.product.findUniqueOrThrow({ where: { id: suggestedProductId! } })
+          if (!compareItems(product, { name: old.externalName || '', attributes: old.attributes }).conflicts.length) continue
+          await tx.competitorProduct.update({ where: { id: old.id }, data: {
+            productId: null, confirmedAt: null, confirmedFingerprint: null, confirmedProductFingerprint: null,
+          } })
+          await tx.auditLog.create({ data: { action: 'REPLACE_CONFLICTING_MONITOR_LINK', entity: 'Product',
+            entityId: String(suggestedProductId), details: { obsoleteLinkId: old.id, replacementUrl: result.url } } })
         }
       }
 
@@ -681,7 +715,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return ready
   }
 
-  private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }): Promise<boolean> {
+  private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }, repairConflictingLinks: string[] = []): Promise<boolean> {
     const requested = identity(product)
     if (!requested.model && !requested.productCode && !requested.mpn) return false
     const catalogFilters: Prisma.CompetitorCatalogEntryWhereInput[] = []
@@ -740,7 +774,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // Same decision policy as live search. An indexed model/colour/SIM match
     // should not remain stuck in review just because there are two offers.
     if (exact.length && hasDecisiveWinner(exact)) {
-      await this.save(exact[0].result, source.id, product.id, false, true)
+      await this.save(exact[0].result, source.id, product.id, false, true, repairConflictingLinks)
       return true
     }
     if (exact.length > 1) {
@@ -1071,7 +1105,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         nextRunAt: dto.intervalMinutes === 1440 ? nextDailyPriceCheck(new Date()) : dto.intervalMinutes ? new Date(Date.now() + dto.intervalMinutes * 60000) : null },
     })
   }
-  jobs() { return this.prisma.monitorJob.findMany({ where: { OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'desc' }, take: 30 }) }
+  jobs() { return this.prisma.monitorJob.findMany({ where: { kind: { not: 'PRICE_UPDATE' }, OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'desc' }, take: 30 }) }
   async scan(dto: ScanFiveRuDto) {
     const url = fiveRuUrl(dto.url, 'catalog')
     return this.prisma.monitorJob.create({ data: { kind: 'CATALOG', sourceKey: '05ru', url, maxPages: dto.maxPages || 1, perPage: 200 } })
@@ -1294,6 +1328,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   async retryJob(id: string) {
     const job = await this.prisma.monitorJob.findUnique({ where: { id } })
     if (job?.sourceKey) requireEnabledStore(job.sourceKey as StoreKey)
+    if (job?.kind === 'PRICE_UPDATE') throw new BadRequestException('Для повторной проверки используй кнопку «Обновить цены»')
     if (!job || !['FAILED', 'CANCELLED'].includes(job.status)) throw new BadRequestException('Можно продолжить остановленную задачу')
     return this.prisma.monitorJob.update({ where: { id }, data: { status: 'QUEUED', leaseUntil: null, finishedAt: null, lastError: null } })
   }
@@ -1303,6 +1338,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     this.working = true
     let handledJob = false
     try {
+      await this.priceUpdate.advance()
       const now = new Date()
       await this.prisma.monitorJob.updateMany({
         where: { sourceKey: { in: ['dns', 'mvideo'] }, status: { in: ['QUEUED', 'RUNNING'] } },
@@ -1469,8 +1505,29 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const parser = this.parserFor(sourceKey)
               const source = await this.source(sourceKey)
               const settings = await this.settings(sourceKey)
-              if (!(await this.refreshKnownMatch(product, sourceKey, parser, settings.region))) {
-              if (sourceKey === '05ru' && await this.refreshIndexedMatch(product)) {
+              const markers = this.strings(job.visitedUrls)
+              const workflow = markers.some(marker => marker.startsWith('PRICE_UPDATE:'))
+              const repairPrefix = 'REPAIR_LINK:' + product.id + ':'
+              let repairLinks = workflow ? markers.filter(marker => marker.startsWith(repairPrefix)).map(marker => marker.slice(repairPrefix.length)) : []
+              let knownRefreshed = false
+              try { knownRefreshed = await this.refreshKnownMatch(product, sourceKey, parser, settings.region) }
+              catch (error) {
+                const message = error instanceof Error ? error.message : String(error)
+                if (!workflow || !message.includes('сохранённая карточка изменилась, совпадение требует проверки:')) throw error
+                const demoted = await this.prisma.competitorProduct.findMany({ where: {
+                  productId: product.id, sourceId: source.id, matchStatus: 'REVIEW_REQUIRED',
+                  lastSuccessAt: { gte: job.createdAt },
+                } })
+                repairLinks = demoted.filter(link => compareItems(product, {
+                  name: link.externalName || '', attributes: link.attributes,
+                }).conflicts.length).map(link => link.id)
+                if (!repairLinks.length) throw error // missing/uncertain variants still require review
+                await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: {
+                  visitedUrls: [...markers, ...repairLinks.map(id => repairPrefix + id)],
+                } })
+              }
+              if (!knownRefreshed) {
+              if (sourceKey === '05ru' && await this.refreshIndexedMatch(product, repairLinks)) {
                 // Indexed candidates are always re-opened for an actual price check.
                 const indexedLink = await this.prisma.competitorProduct.findFirst({
                   where: { productId: product.id, source: { key: sourceKey },
@@ -1644,7 +1701,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               // is complete. This includes exact laptop hardware/SKU matches;
               // missing optional fields are allowed, explicit conflicts are not.
               const autoConfirmExact = hasClearWinner && ranked[0].check.canAutoConfirm
-              const saved = await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact)
+              const saved = await this.save(ranked[0].result, source.id, product.id, false, autoConfirmExact, repairLinks)
               await this.recordMatchOutcome(product.id, sourceKey,
                 saved.matchStatus === 'CONFIRMED' ? 'CONFIRMED' : 'REVIEW')
               }
@@ -1675,7 +1732,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         const latest = await this.prisma.monitorJob.findUnique({ where: { id: job.id } })
         if (latest?.status !== 'RUNNING') return
         const done = !this.strings(latest.pendingUrls).length && (latest.kind !== 'CATALOG' || !latest.url || latest.page >= latest.maxPages)
-        await this.prisma.monitorJob.update({ where: { id: job.id }, data: { status: done ? 'COMPLETED' : 'QUEUED', leaseUntil: null, finishedAt: done ? new Date() : null } })
+        await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: done ? 'COMPLETED' : 'QUEUED', leaseUntil: null, finishedAt: done ? new Date() : null } })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Ошибка задачи'
         await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: { status: 'FAILED', leaseUntil: null, finishedAt: new Date(), lastError: message } })

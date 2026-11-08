@@ -64,6 +64,9 @@ if (-not (Test-Path -LiteralPath $epfSource -PathType Leaf)) {
     throw 'Файл EPF не найден. Сначала программист должен один раз собрать его из модуля UT103-PilotRetailPrices-FormModule.bsl. Инструкция: onec/agent/README.md'
 }
 
+. (Join-Path $PSScriptRoot 'Agent-Protocol.ps1')
+Assert-AgentEpf $epfSource
+
 $authMode = (Read-Required 'Вход в 1С: WINDOWS (вход Windows) или ONEC (имя и пароль 1С)').ToUpperInvariant()
 if ($authMode -notin @('WINDOWS', 'ONEC')) { throw 'Нужно выбрать WINDOWS или ONEC.' }
 $oneCUser = ''

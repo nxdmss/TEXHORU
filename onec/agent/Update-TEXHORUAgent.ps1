@@ -11,6 +11,9 @@ if ([IO.Path]::GetExtension($source) -ne '.epf') { throw 'Выбери собр�
 foreach ($name in @('Run-TEXHORUAgent.ps1', 'Agent-Protocol.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $name))) { throw ('Не найден файл обновления: ' + $name) }
 }
+# Reject an obvious text module before changing the installed task or files.
+. (Join-Path $PSScriptRoot 'Agent-Protocol.ps1')
+Assert-AgentEpf $source
 $taskName = 'TEXHORU 1C Test Agent'
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
 if ($task.State -eq 'Running') { throw 'Агент ещё выполняет обмен. Дождись завершения и повтори обновление.' }

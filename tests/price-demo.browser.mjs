@@ -60,49 +60,80 @@ try {
   assert(ready, log.slice(-1500))
   const executablePath = process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
   browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : process.platform === 'win32' ? { channel: 'msedge' } : {}) })
-  const context = await browser.newContext()
+  const context = await browser.newContext({ timezoneId: 'Europe/Moscow' })
   assert((await context.request.post(url + '/api/auth/login', { data: { email, password } })).ok())
+  assert((await context.request.post(url + '/api/integrations/1c/agent/heartbeat', { headers: { 'x-1c-key': key }, data: { state: 'idle' } })).ok())
+  let operation = null
+  const startBodies = []
+  const all = await prisma.product.findMany({ include: { category: true } })
+  await context.route(/\/api\/admin\/price-monitor\/price-update(?:\/current|\/[^/]+\/cancel)?$/, async route => {
+    const request = route.request()
+    if (request.method() === 'GET') { await route.fulfill({ json: operation }); return }
+    if (request.url().endsWith('/cancel')) {
+      operation = { ...operation, state: 'CANCELLED', finishedAt: new Date().toISOString(),
+        items: operation.items.map(item => ({ ...item, status: 'SKIPPED', reason: 'Остановлено пользователем' })) }
+      await route.fulfill({ json: operation }); return
+    }
+    const body = request.postDataJSON(); startBodies.push(body)
+    const target = body.productIds ? all.filter(p => body.productIds.includes(p.id)) : all
+    operation = { id: randomUUID(), state: 'CHECKING', total: target.length, checked: 0,
+      ready: 0, queued: 0, pending: 0, applied: 0, failed: 0, skipped: 0,
+      createdAt: new Date().toISOString(), finishedAt: null,
+      items: target.map(p => ({ productId: p.id, name: p.name, categoryPath: p.category.name,
+        status: 'CHECKING', reason: null, oldPrice: p.price, newPrice: null, messageId: null })) }
+    await route.fulfill({ json: operation })
+  })
   const page = await context.newPage()
   const errors = []; page.on('pageerror', error => errors.push(error.message))
-  page.on('dialog', dialog => void dialog.accept())
+  let dialogs = 0; page.on('dialog', dialog => { dialogs++; void dialog.dismiss() })
+  let hiddenToolRequests = 0; page.on('request', r => { if (r.url().endsWith('/price-monitor/jobs')) hiddenToolRequests++ })
   await page.goto(url + '/admin')
   await page.getByRole('button', { name: 'Цены', exact: true }).click()
-  await page.locator('.pa-category-filter summary').click()
-  const levels = ['МОБИЛЬНАЯ СВЯЗЬ', 'Смартфоны', 'Смартфоны Apple']
-  for (const [i, name] of levels.entries()) {
-    const response = page.waitForResponse(r => r.url().endsWith('/bulk-price-preview') && r.request().postDataJSON()?.categoryPath === levels.slice(0, i + 1).join(' / '))
-    await page.locator('.pa-folders button').filter({ hasText: name }).click()
-    await response
-  }
-  assert.equal(await page.locator('.pa-diagnostics').count(), 0, 'unlinked accessories must not appear in Apple diagnostics')
-  await page.locator('.pa-scope summary').click()
-  const bad = page.locator('.pa-offer').filter({ hasText: products[1].name })
-  assert((await bad.locator('.pa-price-new').innerText()).includes('Сначала проверь привязку'))
-  assert((await bad.locator('.pa-source-name').innerText()).includes('128GB Black б/у'))
-  assert(await bad.locator('input[type=checkbox]').isDisabled())
-  const good = page.locator('.pa-offer').filter({ hasText: products[0].name })
-  assert(await good.locator('input[type=checkbox]').isDisabled(), 'scope is required before sending')
-  await page.locator('.pa-scope-list label').filter({ hasText: products[0].name }).locator('input').check()
-  await page.getByRole('button', { name: 'Разрешить выбранные для TEST (1)', exact: true }).click()
-  await page.getByText(/Добавлено в TEST: 1/).waitFor()
-  await good.locator('input[type=checkbox]').check()
-  assert.equal(await prisma.oneCPriceChange.count(), 0, 'granting scope must not enqueue prices')
-  await page.getByRole('button', { name: 'Отправить выбранные в 1С', exact: true }).click()
-  await page.getByText(/В очереди 1С: 1/).waitFor()
-  await good.getByText('Ожидает 1С', { exact: true }).waitFor()
-  const changes = await prisma.oneCPriceChange.findMany()
-  assert.equal(changes.length, 1)
-  assert.equal(changes[0].productId, products[0].id)
-  assert.equal(changes[0].newPrice, 64890)
-  assert.equal((await prisma.product.findUnique({ where: { id: products[0].id } })).price, 63900)
-  assert((await context.request.post(url + '/api/integrations/1c/price-sync/receipts', {
-    headers: { 'x-1c-key': key }, data: { items: [{ id: changes[0].id, appliedPrice: 64890 }] },
-  })).ok())
-  assert.equal((await prisma.product.findUnique({ where: { id: products[0].id } })).price, 64890)
-  assert.equal((await prisma.product.findUnique({ where: { id: products[1].id } })).price, 61900)
+  await page.getByRole('button', { name: 'Обновить все цены', exact: true }).waitFor()
+  assert.equal(await page.locator('.pu-selection').getAttribute('open'), null)
+  assert.equal(await page.locator('.pu-advanced').getAttribute('open'), null)
+  assert.equal(await page.locator('.pu-advanced .price-monitor').count(), 0)
+  assert.equal(hiddenToolRequests, 0, 'hidden matching tools must not poll')
+  if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH.replace('.png', '-desktop.png'), fullPage: true })
+  await page.locator('.pu-selection summary').click()
+  await page.getByLabel('Раздел товаров').selectOption(category.name)
+  await page.getByRole('button', { name: 'Обновить выбранные (2)', exact: true }).waitFor()
+  assert.equal(await page.locator('.pu-product-list label').count(), 2)
+  await page.getByRole('button', { name: 'Снять выбор', exact: true }).click()
+  assert(await page.getByRole('button', { name: 'Обновить выбранные (0)', exact: true }).isDisabled())
+  await page.getByLabel('Обновить товар: ' + products[0].name).check()
+  const startButton = page.getByRole('button', { name: 'Обновить выбранные (1)', exact: true })
+  await startButton.click()
+  await page.getByText('Проверяем цены: 0 из 1', { exact: true }).waitFor()
+  assert.deepEqual(startBodies, [{ productIds: [products[0].id] }])
+  assert.equal(dialogs, 0, 'the explicit update button should not require another dialog')
+  assert(await page.getByRole('button', { name: 'Обновление идёт…', exact: true }).isDisabled())
+  operation = { ...operation, state: 'WAITING', checked: 1, pending: 1, queued: 1,
+    items: operation.items.map(item => ({ ...item, status: 'PENDING', newPrice: 64890, messageId: 'fixture-receipt' })) }
+  await page.getByText('Ожидаем подтверждения 1С: 1', { exact: true }).waitFor({ timeout: 12000 })
+  assert.equal(await page.locator('.pu-counts').innerText(), '0 обновлено\n1 ждут 1С')
+  assert.equal(await page.locator('.pu-results').getAttribute('open'), null)
+  operation = { ...operation, state: 'COMPLETED', pending: 0, applied: 1, finishedAt: new Date().toISOString(),
+    items: operation.items.map(item => ({ ...item, status: 'APPLIED' })) }
+  await page.getByText('Обновление завершено', { exact: true }).waitFor({ timeout: 12000 })
+  await page.locator('.pu-results summary').first().click()
+  await page.getByText('Обновлено', { exact: true }).waitFor()
+  assert((await page.locator('.pu-result').innerText()).includes('64'))
+  await page.getByRole('button', { name: 'Все товары', exact: true }).click()
+  await page.getByRole('button', { name: 'Обновить все цены', exact: true }).click()
+  await page.getByText('Проверяем цены: 0 из 3', { exact: true }).waitFor()
+  assert.deepEqual(startBodies[1], {}, 'all-products action must not silently retain selected IDs')
+  if ((await page.locator('.pu-results').getAttribute('open')) === null) await page.locator('.pu-results summary').first().click()
+  await page.getByRole('button', { name: 'Остановить подготовку', exact: true }).click()
+  await page.getByText('Оставшиеся товары остановлены', { exact: true }).waitFor()
+  await page.locator('.pu-results summary').first().click()
+  await page.locator('.pu-selection summary').click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  assert(await page.locator('.pu-root').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'price UI overflows on mobile')
   assert.deepEqual(errors, [])
   if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH, fullPage: true })
-  console.log('PASS: Apple diagnostics, wrong-candidate blocking, explicit TEST approval, selected queueing and price publication after receipt.')
+  console.log('PASS: compact default, collapsed tools, category/selected/all intent, one click, receipt-only success, cancellation and mobile layout. Workflow HTTP responses are mocked; persistence is tested in backend suite.')
+
 } finally {
   await browser?.close()
   if (child && child.exitCode === null) { child.kill(); await once(child, 'exit') }

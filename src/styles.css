@@ -5459,3 +5459,30 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
   .admin-shell .admin-tab-group button { padding: 9px 10px; min-height: 39px; }
   .admin-sync-stats article { padding: 13px 12px; }
 }
+
+/* Compact exchange view; details stay folded until the user opens them. */
+.admin-sync-connection { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 0; font-size: 13px; }
+.admin-sync-connection > span:last-child:not(.admin-sync-indicator) { color: #777; font-size: 12px; }
+.admin-sync-indicator { width: 8px; height: 8px; border-radius: 50%; background: #a9813b; flex-shrink: 0; }
+.admin-sync-connection.is-connected .admin-sync-indicator { background: #3e8050; }
+.admin-sync-stats--compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-sync-stats--compact article { padding: 14px 16px; gap: 6px; }
+.admin-sync-stats--compact strong { font-size: 28px; }
+.admin-sync-stats--compact .has-errors strong { color: #a04c24; }
+.admin-sync-count { margin-left: 6px; font-size: 11px; font-weight: 500; color: #777; }
+.admin-sync .admin-sync-list { max-height: 440px; overflow-y: auto; }
+.admin-sync-operation { display: flex; gap: 8px 16px; justify-content: space-between; align-items: baseline; flex-wrap: wrap; }
+.admin-sync-operation > span { font-size: 11px; color: #777; }
+.admin-sync-list .admin-sync-operation-error { color: #a23d20; }
+.admin-sync-diagnostics { padding-bottom: 15px; display: grid; gap: 12px; font-size: 12px; color: #666; }
+.admin-sync-diagnostics > p { margin: 0; line-height: 1.5; }
+.admin-sync-diagnostics > details { border-top: 1px solid #ececea; padding-top: 12px; }
+.admin-sync-diagnostics > details > summary { cursor: pointer; color: #444; font-weight: 600; }
+.admin-sync-diagnostics > details > p { line-height: 1.5; }
+.admin-sync-diagnostics .admin-sync-list { margin-top: 10px; }
+@media(max-width:560px) {
+  .admin-sync-stats--compact { gap: 6px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-sync-stats--compact article { padding: 12px 9px; }
+  .admin-sync-stats--compact span { font-size: 11px; }
+  .admin-sync-stats--compact strong { font-size: 25px; }
+}
