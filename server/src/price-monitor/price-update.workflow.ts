@@ -6,7 +6,6 @@ import { OneCPriceSyncService } from '../integrations/price-sync.service'
 
 const CURRENT_ID = 'test-price-update-current'
 const ACTIVE = ['CHECKING', 'QUEUING', 'WAITING']
-const SCOPE_REASON = 'Товар не включён в разрешённую область обмена с 1С'
 const UNCHANGED = 'Цена уже актуальна'
 type ItemState = 'CHECKING' | 'READY' | 'PENDING' | 'APPLIED' | 'SKIPPED' | 'FAILED'
 type UpdateItem = {
@@ -23,14 +22,12 @@ type Snapshot = { items: SnapshotRow[] }
 type Job = { id: string; status: string; visitedUrls: Prisma.JsonValue; createdAt: Date; finishedAt: Date | null; lastError: string | null }
 const json = (value: Context) => value as unknown as Prisma.InputJsonValue
 
-/** Durable coordinator for the explicit “update prices” button. The existing
- * matching worker does discovery; this row stores the user's fixed selection,
- * verified candidates and stable 1C message IDs across server restarts. */
+/** Durable delivery of existing verified prices. This action never parses
+ * storefront pages, discovers matches or changes product permissions. */
 export class PriceUpdateWorkflow {
   constructor(
     private readonly prisma: PrismaService,
     private readonly snapshot: (db: PrismaService | Prisma.TransactionClient) => Promise<Snapshot>,
-    private readonly refresh: (productId: number) => Promise<boolean>,
   ) {}
 
   private enabled() {
@@ -97,51 +94,35 @@ export class PriceUpdateWorkflow {
           return this.present(old, ctx)
         }
         const products = await tx.product.findMany({
-          where: { oneCId: { not: null }, status: 'ACTIVE', ...(productIds ? { id: { in: productIds } } : {}) },
+          where: { oneCId: { not: null }, status: 'ACTIVE', ...(productIds ? {} : { priceSyncEnabled: true }), ...(productIds ? { id: { in: productIds } } : {}) },
           include: { category: true }, orderBy: { id: 'asc' }, take: 5001,
         })
-        if (!products.length) throw new BadRequestException('Сначала загрузи товары из 1С')
+        if (!products.length) throw new BadRequestException('Нет разрешённых товаров для обмена с 1С')
         if (products.length > 5000) throw new BadRequestException('Выбери раздел или не больше 5000 товаров')
         if (productIds && products.length !== productIds.length) throw new BadRequestException('Некоторые выбранные товары неактивны или не загружены из 1С')
         const pending = await tx.oneCPriceChange.findMany({ where: { status: 'PENDING', productId: { in: products.map(p => p.id) } } })
         const pendingByProduct = new Map(pending.map(change => [change.productId, change]))
-        // An “all” click does not repeatedly search known missing accessories.
-        // Explicit selection is also an explicit retry of those products.
-        const negatives = productIds ? [] : await tx.productMatchOutcome.findMany({ where: {
-          sourceKey: '05ru', status: 'NO_MATCH', checkedAt: { gte: new Date(Date.now() - 24 * 3600_000) },
-        } })
-        const negativeByProduct = new Map(negatives.map(outcome => [outcome.productId, outcome.reason]))
+        const snapshot = await this.snapshot(tx)
+        const rows = new Map(snapshot.items.map(row => [row.productId, row]))
         const items: UpdateItem[] = products.map(product => {
           const pending = pendingByProduct.get(product.id)
-          const reason = product.price < 1 || product.price > 5_000_000 ? 'Недопустимая текущая цена'
+          const row = rows.get(product.id)
+          const reason = !product.priceSyncEnabled ? 'Не разрешён обмен с 1С'
             : product.stockQty <= product.reservedQty ? 'Нет свободного остатка товара'
-            : negativeByProduct.has(product.id) ? negativeByProduct.get(product.id) || 'Совпадение на 05.ru не найдено; выбери товар для повторной проверки' : null
+            : !row ? 'Нет новой проверенной цены'
+            : row.blockedReasons.join('; ') || null
           return { productId: product.id, name: product.name, categoryPath: product.category.name,
-            status: pending ? 'PENDING' : reason ? 'SKIPPED' : 'CHECKING', reason: pending?.lastError || reason,
-            oldPrice: pending?.oldPrice ?? product.price, newPrice: pending?.newPrice ?? null,
-            messageId: pending?.id || null, linkId: pending?.sourceLinkId || null }
+            status: pending ? 'PENDING' : reason ? 'SKIPPED' : 'READY', reason: pending?.lastError || reason,
+            oldPrice: pending?.oldPrice ?? product.price, newPrice: pending?.newPrice ?? row?.newPrice ?? null,
+            messageId: pending?.id || null, linkId: pending?.sourceLinkId || row?.id || null }
         })
-        const confirmedLinks = await tx.competitorProduct.findMany({
-          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { in: products.map(p => p.id) } },
-          select: { productId: true },
-        })
-        const confirmedIds = new Set(confirmedLinks.map(link => link.productId))
-        // Show useful progress quickly: recheck saved exact cards first, then
-        // discover phones, then other products using the bounded matcher.
-        const ids = items.filter(item => item.status === 'CHECKING').sort((a, b) =>
-          Number(confirmedIds.has(b.productId)) - Number(confirmedIds.has(a.productId))
-          || Number(/смартфон|smartphone/i.test(b.name + ' ' + b.categoryPath)) - Number(/смартфон|smartphone/i.test(a.name + ' ' + a.categoryPath))
-          || a.productId - b.productId).map(item => item.productId)
+        // Never discover new matches or grant permissions from the update button.
         const id = randomUUID()
-        const child = ids.length ? await tx.monitorJob.create({ data: {
-          kind: 'MATCH_1C', sourceKey: '05ru', perPage: Math.min(40, ids.length),
-          pendingUrls: ids.map(id => 'product:' + id), visitedUrls: ['PRICE_UPDATE:' + id],
-        } }) : null
-        const ctx: Context = { id, childId: child?.id || null, items }
+        const ctx: Context = { id, childId: null, items }
         const now = new Date()
         const job = await tx.monitorJob.upsert({ where: { id: CURRENT_ID },
-          create: { id: CURRENT_ID, kind: 'PRICE_UPDATE', sourceKey: '05ru', status: 'CHECKING', visitedUrls: json(ctx), perPage: items.length },
-          update: { status: 'CHECKING', visitedUrls: json(ctx), perPage: items.length, processed: 0, errors: 0,
+          create: { id: CURRENT_ID, kind: 'PRICE_UPDATE', sourceKey: '05ru', status: 'QUEUING', visitedUrls: json(ctx), perPage: items.length },
+          update: { status: 'QUEUING', visitedUrls: json(ctx), perPage: items.length, processed: 0, errors: 0,
             createdAt: now, finishedAt: null, leaseUntil: null, lastError: null },
         })
         return this.present(job, ctx)
@@ -188,37 +169,26 @@ export class PriceUpdateWorkflow {
       const job = await this.prisma.monitorJob.findUniqueOrThrow({ where: { id: CURRENT_ID } })
       const ctx = this.context(job)
       await this.reconcile(ctx)
-      const child = ctx.childId ? await this.prisma.monitorJob.findUnique({ where: { id: ctx.childId } }) : null
-      const waiting = new Set(Array.isArray(child?.pendingUrls) ? child.pendingUrls : [])
-      const checked = ctx.items.filter(item => item.status === 'CHECKING' && !waiting.has('product:' + item.productId))
-      if (child && ['FAILED', 'CANCELLED'].includes(child.status)) {
-        for (const item of ctx.items) if (item.status === 'CHECKING') {
-          item.status = 'FAILED'; item.reason = child.lastError || 'Проверка остановлена; повтори обновление'
+      // Stop discovery left by an earlier app version, retaining its receipts.
+      if (ctx.childId) {
+        await this.prisma.monitorJob.updateMany({ where: { id: ctx.childId, status: { in: ['QUEUED', 'RUNNING'] } },
+          data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() } })
+        ctx.childId = null
+      }
+      const checking = ctx.items.filter(item => item.status === 'CHECKING')
+      if (checking.length) {
+        const snapshot = await this.snapshot(this.prisma)
+        const rows = new Map(snapshot.items.map(row => [row.productId, row]))
+        for (const item of checking) {
+          const row = rows.get(item.productId)
+          item.status = row && !row.blockedReasons.length ? 'READY' : 'SKIPPED'
+          item.reason = row ? row.blockedReasons.join('; ') || null : 'Нет новой проверенной цены'
+          if (row) { item.oldPrice = row.oldPrice ?? item.oldPrice; item.newPrice = row.newPrice; item.linkId = row.id }
         }
-      } else if (checked.length) {
-        // Bounded: one final real-card verification per worker turn, never a
-        // full-catalog crawl in an HTTP request or one long transaction.
-        const item = checked[0]
-        try {
-          const confirmed = await this.refresh(item.productId)
-          const snapshot = confirmed ? await this.snapshot(this.prisma) : null
-          const row = snapshot?.items.find(row => row.productId === item.productId)
-          if (!confirmed) {
-            const outcome = await this.prisma.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId: item.productId, sourceKey: '05ru' } } })
-            item.status = outcome?.status === 'RETRYABLE' ? 'FAILED' : 'SKIPPED'
-            item.reason = outcome?.reason || 'Нет точного подтверждённого совпадения с 05.ru'
-          } else if (!row) {
-            item.status = 'SKIPPED'; item.reason = UNCHANGED
-          } else {
-            const reasons = row.blockedReasons.filter(reason => reason !== SCOPE_REASON)
-            item.oldPrice = row.oldPrice ?? item.oldPrice; item.newPrice = row.newPrice; item.linkId = row.id
-            item.status = reasons.length ? 'SKIPPED' : 'READY'; item.reason = reasons.join('; ') || null
-          }
-        } catch (error) { item.status = 'FAILED'; item.reason = error instanceof Error ? error.message : 'Не удалось проверить цену' }
       }
 
-      // Scope is read once by each 1C session. Rotate it only after EVERY old
-      // pending message has drained, including messages outside this operation.
+      // Wait for the current 1C session and pending messages before staging.
+      // Existing permissions are retained throughout the operation.
       if (ctx.items.some(item => item.status === 'READY') && !ctx.readySince) ctx.readySince = new Date().toISOString()
       const mayStage = ctx.items.filter(item => item.status === 'READY').length >= 30
         || !ctx.items.some(item => item.status === 'CHECKING')
@@ -236,15 +206,13 @@ export class PriceUpdateWorkflow {
             const rows = new Map(snapshot.items.flatMap(row => row.productId === null ? [] : [[row.productId, row] as const]))
             const safe = candidates.filter(item => {
               const row = rows.get(item.productId)
-              const reasons = row?.blockedReasons.filter(reason => reason !== SCOPE_REASON) || []
+              const reasons = row?.blockedReasons || []
               if (!row || reasons.length) { item.status = 'SKIPPED'; item.reason = row ? reasons.join('; ') : UNCHANGED; return false }
               item.oldPrice = row.oldPrice ?? item.oldPrice; item.newPrice = row.newPrice; item.linkId = row.id
               return true
             })
             if (safe.length) {
               const ids = safe.map(item => item.productId)
-              await tx.product.updateMany({ where: { priceSyncEnabled: true, id: { notIn: ids } }, data: { priceSyncEnabled: false } })
-              await tx.product.updateMany({ where: { id: { in: ids } }, data: { priceSyncEnabled: true } })
               for (const item of safe) {
                 const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } })
                 const message = await OneCPriceSyncService.queue(tx, product, item.newPrice!, item.linkId)

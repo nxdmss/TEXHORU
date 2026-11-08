@@ -43,12 +43,12 @@ async function fixture() {
   const category = await prisma.category.create({ data: { name: 'Смартфоны / ' + key, slug: key } })
   const source = await prisma.competitorSource.upsert({ where: { key: '05ru' }, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' }, update: {} })
   const monitor = new PriceMonitorService(prisma, {}, new MonitorExchangeService(prisma), {}, {})
-  const workflow = new PriceUpdateWorkflow(prisma, db => monitor.bulkPriceSnapshot(db), async () => true)
+  const workflow = new PriceUpdateWorkflow(prisma, db => monitor.bulkPriceSnapshot(db))
   async function product(overrides = {}, external = {}) {
     const key = randomUUID()
     const product = await prisma.product.create({ data: {
       oneCId: randomUUID(), sku: key, slug: key, name: 'Смартфон Apple iPhone 15 128 Гб черный',
-      brand: 'Apple', price: 50000, stockQty: 1, categoryId: category.id, ...overrides,
+      brand: 'Apple', price: 50000, stockQty: 1, priceSyncEnabled: true, categoryId: category.id, ...overrides,
     } })
     const externalName = external.externalName || product.name
     const link = await prisma.competitorProduct.create({ data: {
@@ -58,76 +58,75 @@ async function fixture() {
       confirmedFingerprint: fingerprint({ name: externalName, attributes: {} }),
       confirmedProductFingerprint: fingerprint(product), attributes: {}, ...external,
     } })
-    await prisma.competitorPriceHistory.create({ data: { competitorProductId: link.id, price: link.latestPrice, inStock: true } })
+    if (link.latestPrice !== null) await prisma.competitorPriceHistory.create({ data: { competitorProductId: link.id, price: link.latestPrice, inStock: true } })
     return { ...product, link }
   }
-  async function checked() {
-    const job = await prisma.monitorJob.findUniqueOrThrow({ where: { id: 'test-price-update-current' } })
-    if (job.visitedUrls.childId) await prisma.monitorJob.update({ where: { id: job.visitedUrls.childId }, data: { status: 'COMPLETED', pendingUrls: [] } })
-  }
-  return { product, workflow, monitor, checked, sync: new OneCPriceSyncService(prisma) }
+  return { product, workflow, monitor, sync: new OneCPriceSyncService(prisma) }
 }
 
-test('one click replaces idle accessory scope, stages 35 verified prices as 30+5, resumes after restart and only receipts publish', async () => {
-  const { product, workflow, monitor, checked, sync } = await fixture()
-  const idle = []
-  for (let i = 0; i < 30; i++) idle.push(await product({ priceSyncEnabled: true, name: 'Чехол ' + i }))
-  // A pre-existing pending item locks the whole scope until that agent session drains.
-  const old = await prisma.oneCPriceChange.create({ data: { productId: idle[0].id, oneCId: idle[0].oneCId, oldPrice: 50000, newPrice: 50000 } })
-  const products = []
-  for (let i = 0; i < 35; i++) products.push(await product())
-  const operation = await workflow.start(products.map(p => p.id))
-  assert.equal(operation.total, 35)
-  assert.equal((await workflow.start([idle[0].id])).id, operation.id, 'duplicate press returns the same fixed selection')
-  await checked()
-  for (let i = 0; i < 35; i++) await workflow.advance()
-  let status = await workflow.current()
-  assert.equal(status.ready, 35)
-  assert.equal(status.queued, 0)
-  assert.equal(status.state, 'WAITING')
-  assert.deepEqual((await sync.scope()).map(p => p.id).sort((a, b) => a - b), idle.map(p => p.id).sort((a, b) => a - b), 'pending protects every old scope permission')
-  assert.equal((await sync.pending()).items[0].id, old.id)
-  await sync.receipts({ items: [{ id: old.id, appliedPrice: 50000 }] })
-  // A fresh coordinator instance uses persisted selection and progress.
-  const resumed = new PriceUpdateWorkflow(prisma, db => monitor.bulkPriceSnapshot(db), async () => { throw new Error('already checked products must not be reprocessed') })
+test('150 products: default update queues only the 30 permitted ones without parsing or changing scope', async () => {
+  const { product, workflow, monitor, sync } = await fixture()
+  const allowed = [], outside = []
+  for (let i = 0; i < 30; i++) allowed.push(await product())
+  for (let i = 0; i < 120; i++) outside.push(await product({ priceSyncEnabled: false }))
+  const before = await monitor.priceReadiness()
+  assert.equal(before.items.filter(row => row.status === 'READY').length, 30)
+  assert.equal(before.items.filter(row => row.status === 'BLOCKED').length, 120)
+  const operation = await workflow.start()
+  assert.equal(operation.total, 30)
+  assert.equal(operation.ready, 30)
+  assert.equal((await workflow.start([outside[0].id])).id, operation.id)
+  assert.equal(await prisma.monitorJob.count({ where: { kind: 'MATCH_1C' } }), 0)
+  const resumed = new PriceUpdateWorkflow(prisma, db => monitor.bulkPriceSnapshot(db))
   await resumed.advance()
-  status = await resumed.current()
-  assert.equal(status.queued, 30)
-  assert.equal(status.pending, 30)
-  assert.equal(status.ready, 5)
-  assert.equal(status.applied, 0)
+  assert.equal((await resumed.current()).pending, 30)
   assert.equal((await sync.scope()).length, 30)
-  assert((await sync.scope()).every(p => products.slice(0, 30).some(candidate => candidate.id === p.id)))
-  assert.equal(await prisma.product.count({ where: { id: { in: products.map(p => p.id) }, price: 50000 } }), 35, 'queueing does not publish prices')
-  await sync.heartbeat({ state: 'idle', applied: 30 })
-  assert.equal((await resumed.current()).applied, 0, 'heartbeat is not a receipt')
-  await sync.heartbeat({ state: 'processing' })
+  assert.equal(await prisma.product.count({ where: { id: { in: outside.map(p => p.id) }, priceSyncEnabled: true } }), 0)
+  assert.equal(await prisma.product.count({ where: { id: { in: allowed.map(p => p.id) }, price: 50000 } }), 30)
   for (let i = 0; i < 3; i++) {
     const packet = await sync.pending()
-    assert.equal(packet.items.length, 10)
-    await sync.receipts({ items: packet.items.map(change => ({ id: change.id, appliedPrice: change.targetPrice })) })
+    await sync.receipts({ items: packet.items.map(row => ({ id: row.id, appliedPrice: row.targetPrice })) })
   }
   await resumed.advance()
-  assert.equal((await resumed.current()).pending, 0, 'do not rotate the cached 1C scope until that session exits')
-  assert.equal((await resumed.current()).ready, 5)
-  await sync.heartbeat({ state: 'idle', applied: 30 })
-  await resumed.advance()
-  status = await resumed.current()
-  assert.equal(status.applied, 30)
-  assert.equal(status.pending, 5)
-  assert.equal(status.queued, 35)
-  assert.equal((await sync.scope()).length, 5)
-  const packet = await sync.pending()
-  await sync.receipts({ items: packet.items.map(change => ({ id: change.id, appliedPrice: change.targetPrice })) })
-  await resumed.advance()
-  status = await resumed.current()
-  assert.equal(status.state, 'COMPLETED')
-  assert.equal(status.applied, 35)
-  assert.equal(await prisma.product.count({ where: { id: { in: products.map(p => p.id) }, price: 49000 } }), 35)
+  assert.equal((await resumed.current()).applied, 30)
+  assert.equal((await resumed.current()).state, 'COMPLETED')
+  const after = await monitor.priceReadiness()
+  assert.equal(after.items.filter(row => row.status === 'READY').length, 0)
+  assert.equal(after.items.filter(row => row.reason?.includes('уже совпадает')).length, 30)
+  const recheck = await monitor.checkAllowedPrices()
+  assert.equal(recheck.queued, 30)
+  const job = await prisma.monitorJob.findUniqueOrThrow({ where: { id: recheck.id } })
+  assert(job.pendingUrls.every(url => allowed.some(product => product.link.externalUrl === url)))
+})
+
+test('readiness includes missing links, missing prices, stale cards and pending changes; recheck targets saved permitted cards only', async () => {
+  const { product, monitor, sync } = await fixture()
+  const good = await product()
+  const missing = await product()
+  await prisma.competitorProduct.delete({ where: { id: missing.link.id } })
+  const noPrice = await product({}, { latestPrice: null })
+  const stale = await product({}, { lastSuccessAt: new Date(0) })
+  const outside = await product({ priceSyncEnabled: false })
+  const pending = await product()
+  await prisma.oneCPriceChange.create({ data: { productId: pending.id, oneCId: pending.oneCId, oldPrice: pending.price, newPrice: 49000, sourceLinkId: pending.link.id } })
+  const rows = (await monitor.priceReadiness()).items
+  assert.equal(rows.find(row => row.productId === good.id).status, 'READY')
+  assert.equal(rows.find(row => row.productId === missing.id).reason, 'Нет привязки к 05.ru')
+  assert.match(rows.find(row => row.productId === noPrice.id).reason, /Нет актуальной цены/)
+  assert.match(rows.find(row => row.productId === stale.id).reason, /устарела/)
+  assert.equal(rows.find(row => row.productId === outside.id).reason, 'Не разрешён обмен с 1С')
+  assert.equal(rows.find(row => row.productId === pending.id).status, 'PENDING')
+  assert.equal(await prisma.monitorJob.count(), 0, 'readiness is read-only')
+  const result = await monitor.checkAllowedPrices()
+  const job = await prisma.monitorJob.findUniqueOrThrow({ where: { id: result.id } })
+  assert.equal(job.kind, 'RECHECK')
+  assert(!job.pendingUrls.includes(outside.link.externalUrl))
+  assert(job.pendingUrls.includes(good.link.externalUrl))
+  assert.equal((await sync.pending()).items.length, 1, 'recheck never queues prices')
 })
 
 test('one click keeps identity, file, stock and stale-price blockers while allowing large TEST changes; cancellation preserves queued failures', async () => {
-  const { product, workflow, checked, sync } = await fixture()
+  const { product, workflow, sync } = await fixture()
   const good = await product()
   const wrongMemory = await product({}, { externalName: 'Смартфон Apple iPhone 15 256 Гб черный' })
   const wrongColor = await product({}, { externalName: 'Смартфон Apple iPhone 15 128 Гб белый' })
@@ -138,7 +137,6 @@ test('one click keeps identity, file, stock and stale-price blockers while allow
   const stale = await product({}, { lastSuccessAt: new Date(Date.now() - 25 * 3600000) })
   const products = [good, wrongMemory, wrongColor, used, file, stock, large, stale]
   const operation = await workflow.start(products.map(p => p.id))
-  await checked()
   for (let i = 0; i < products.length; i++) await workflow.advance()
   const status = await workflow.current()
   assert.equal(status.queued, 2)
@@ -163,7 +161,7 @@ test('one click keeps identity, file, stock and stale-price blockers while allow
 })
 
 test('all iPhone 16 price changes queue in TEST and publish only after receipts', async () => {
-  const { product, workflow, monitor, checked, sync } = await fixture()
+  const { product, workflow, monitor, sync } = await fixture()
   const products = []
   for (const price of [57900, 58900, 63900]) products.push(await product({ price }, { latestPrice: 64990 }))
   process.env.ONE_C_BASE_KIND = 'PRODUCTION'
@@ -172,7 +170,6 @@ test('all iPhone 16 price changes queue in TEST and publish only after receipts'
     assert.equal(snapshot.items.filter(row => row.blockedReasons.some(reason => reason.includes('10%'))).length, 2)
   } finally { process.env.ONE_C_BASE_KIND = 'TEST' }
   await workflow.start(products.map(row => row.id))
-  await checked()
   for (const row of products) await workflow.advance()
   assert.equal((await workflow.current()).pending, 3)
   for (const row of products) assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).price, row.price)
@@ -184,91 +181,31 @@ test('all iPhone 16 price changes queue in TEST and publish only after receipts'
   assert.equal((await workflow.current()).applied, 3)
 })
 
-test('worker rechecks the real saved card, respects TEST switches, database lease and recovers completed matching cursor', async () => {
-  const { product, checked } = await fixture()
-  const imported = await product()
-  const calls = []
-  const parser = { parse: async url => {
-    calls.push(url)
-    return { url, name: imported.name, brand: 'Apple', attributes: {}, price: 49100,
-      oldPrice: null, inStock: true, priceSource: 'PRODUCT_PAGE', seller: null, region: null }
-  } }
-  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma), {}, {})
-  process.env.ONE_C_BASE_KIND = 'PRODUCTION'
-  await assert.rejects(() => monitor.startPriceUpdate({ productIds: [imported.id] }), /отключена/)
-  assert.equal(await prisma.monitorJob.count(), 0)
-  process.env.ONE_C_BASE_KIND = 'TEST'
-  const started = await monitor.startPriceUpdate({ productIds: [imported.id] })
-  await checked() // Simulate a restart after the child saved its completed cursor.
-  await prisma.monitorJob.update({ where: { id: 'test-price-update-current' }, data: { leaseUntil: new Date(Date.now() + 60000) } })
-  await monitor.priceUpdate.advance()
-  assert.equal(calls.length, 0, 'an unexpired lease protects another coordinator')
-  await prisma.monitorJob.update({ where: { id: 'test-price-update-current' }, data: { leaseUntil: new Date(Date.now() - 1) } })
-  await monitor.priceUpdate.advance()
-  assert.deepEqual(calls, [imported.link.externalUrl], 'fresh parse of actual source URL before queue')
-  const current = await monitor.currentPriceUpdate()
-  assert.equal(current.id, started.id)
-  assert.equal(current.pending, 1)
-  assert.equal(current.applied, 0)
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: imported.id } })).price, 50000)
-})
-
-test('workflow replaces a freshly disproved legacy 128GB used link with a unique exact 256GB card in the same click', async () => {
-  const { product } = await fixture()
-  const imported = await product({ name: 'Смартфон Apple iPhone 15 256 Гб черный' }, {
-    externalName: 'Смартфон Apple iPhone 15 128 Гб черный б/у',
-  })
-  const correctUrl = 'https://05.ru/cat/test/p/correct-' + randomUUID() + '/'
-  await prisma.competitorCatalogEntry.create({ data: { externalUrl: correctUrl, title: imported.name, model: 'iphone 15', storage: '256', color: 'black' } })
-  const calls = []
-  const parser = { parse: async url => {
-    calls.push(url)
-    return { url, name: url === imported.link.externalUrl ? imported.link.externalName : imported.name,
-      brand: 'Apple', attributes: {}, price: 49100, inStock: true, priceSource: 'PRODUCT_PAGE' }
-  }, searchProducts: async () => { throw new Error('unique saved index hint should be enough') } }
-  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma), {}, {})
-  await monitor.startPriceUpdate({ productIds: [imported.id] })
-  await monitor.tick()
-  await monitor.tick()
-  const status = await monitor.currentPriceUpdate()
-  assert.equal(status.pending, 1)
-  assert.equal(status.applied, 0)
-  const old = await prisma.competitorProduct.findUniqueOrThrow({ where: { id: imported.link.id } })
-  assert.equal(old.matchStatus, 'REVIEW_REQUIRED')
-  assert.equal(old.productId, null, 'disproved binding is detached, its history retained')
-  const replacement = await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl: correctUrl } })
-  assert.equal(replacement.productId, imported.id)
-  assert.equal(replacement.matchStatus, 'CONFIRMED')
-  assert.equal((await prisma.oneCPriceChange.findFirstOrThrow({ where: { productId: imported.id } })).sourceLinkId, replacement.id)
-  assert.deepEqual(calls, [imported.link.externalUrl, correctUrl, correctUrl], 'replacement is reread fresh before queueing')
-  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: imported.id } })).price, 50000)
-})
-
-test('workflow leaves ambiguous or manual-review alternatives unqueued after disproving a legacy card', async () => {
-  const { product } = await fixture()
-  const imported = await product({ name: 'Смартфон Apple iPhone 15 256 Гб черный' }, {
-    externalName: 'Смартфон Apple iPhone 15 128 Гб черный б/у',
-  })
-  const exactName = imported.name
-  const candidates = [exactName, exactName + ' (E-Sim)'].map((name, i) => ({
-    url: 'https://05.ru/cat/test/p/ambiguous-' + i + '-' + randomUUID() + '/',
-    name, brand: 'Apple', attributes: {}, price: 49100, inStock: true, priceSource: 'PRODUCT_PAGE',
-  }))
-  for (const result of candidates) await prisma.competitorCatalogEntry.create({ data: {
-    externalUrl: result.url, title: result.name, model: 'iphone 15', storage: '256', color: 'black',
-  } })
-  const parser = { parse: async url => candidates.find(result => result.url === url) || {
-    url, name: imported.link.externalName, attributes: {}, price: 49100, inStock: true, priceSource: 'PRODUCT_PAGE',
-  } }
-  const monitor = new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma), {}, {})
-  await monitor.startPriceUpdate({ productIds: [imported.id] })
-  await monitor.tick()
-  await monitor.tick()
-  const status = await monitor.currentPriceUpdate()
-  assert.equal(status.queued, 0)
-  assert.equal(status.skipped, 1)
-  assert.equal(status.state, 'PARTIAL')
+test('permission removal and stale prices between click and queue are revalidated atomically', async () => {
+  const { product, workflow } = await fixture()
+  const revoked = await product(), stale = await product()
+  const operation = await workflow.start([revoked.id, stale.id])
+  assert.equal(operation.ready, 2)
+  await prisma.product.update({ where: { id: revoked.id }, data: { priceSyncEnabled: false } })
+  await prisma.competitorProduct.update({ where: { id: stale.link.id }, data: { lastSuccessAt: new Date(0) } })
+  await workflow.advance()
+  assert.equal((await workflow.current()).skipped, 2)
   assert.equal(await prisma.oneCPriceChange.count(), 0)
-  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: imported.link.id } })).productId, imported.id, 'ambiguous discovery does not remove even the old binding')
-  assert.equal(await prisma.competitorProduct.count({ where: { productId: imported.id, matchStatus: 'CONFIRMED' } }), 0)
+})
+
+test('selected forbidden or conflicting items never parse, grant scope or discover a replacement', async () => {
+  const { product, monitor } = await fixture()
+  const forbidden = await product({ priceSyncEnabled: false })
+  const conflict = await product({}, { externalName: 'Смартфон Apple iPhone 15 256 Гб черный б/у' })
+  process.env.ONE_C_BASE_KIND = 'PRODUCTION'
+  try { await assert.rejects(() => monitor.startPriceUpdate({ productIds: [forbidden.id] }), /отключена/) }
+  finally { process.env.ONE_C_BASE_KIND = 'TEST' }
+  await monitor.startPriceUpdate({ productIds: [forbidden.id, conflict.id] })
+  await monitor.priceUpdate.advance()
+  const status = await monitor.currentPriceUpdate()
+  assert.equal(status.skipped, 2)
+  assert.equal(status.queued, 0)
+  assert.equal(await prisma.monitorJob.count({ where: { kind: 'MATCH_1C' } }), 0)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: forbidden.id } })).priceSyncEnabled, false)
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: conflict.link.id } })).productId, conflict.id)
 })

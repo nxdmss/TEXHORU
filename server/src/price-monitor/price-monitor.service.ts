@@ -192,13 +192,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     private readonly mvideo: MvideoParser,
     private readonly dns: DnsParser,
   ) {
-    this.priceUpdate = new PriceUpdateWorkflow(prisma,
-      db => this.bulkPriceSnapshot(db),
-      async productId => {
-        const product = await this.prisma.product.findUnique({ where: { id: productId } })
-        if (!product?.oneCId || product.status !== 'ACTIVE') return false
-        return this.refreshKnownMatch(product, '05ru', this.fiveRu)
-      })
+    this.priceUpdate = new PriceUpdateWorkflow(prisma, db => this.bulkPriceSnapshot(db))
   }
 
   startPriceUpdate(dto: PriceUpdateDto) { return this.priceUpdate.start(dto.productIds) }
@@ -867,7 +861,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
    * Preview is read-only. The returned token binds the exact verified
    * observations and original site prices to the user's single confirmation.
    */
-  private async bulkPriceSnapshot(db: PrismaService | Prisma.TransactionClient, categoryPath = '') {
+  private async bulkPriceSnapshot(db: PrismaService | Prisma.TransactionClient, categoryPath = '', includeAll = false) {
     const path = categoryPath.trim()
     // Include every saved 05.ru price change, not only rows already eligible for 1C.
     // The preview is read-only: it never creates OneCPriceChange records.
@@ -911,14 +905,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const history = link.history[0]
       const product = link.product
       const competitorPrice = link.latestPrice ?? history?.price ?? null
-      if (competitorPrice === null) continue
-      const newPrice = competitorPrice - 100
+      if (competitorPrice === null && !includeAll) continue
+      const newPrice = (competitorPrice ?? 0) - 100
       // A price difference against TEXHORU matters even if 05.ru has never changed.
       // Unmapped cards have no site retail price: show only actual 05.ru movements.
       const differsFromSite = !!product && newPrice !== product.price
       const changedOn05 = history?.oldPrice !== null && history?.oldPrice !== undefined
         && history.oldPrice !== history.price
-      if (!differsFromSite && !(changedOn05 && !product)) continue
+      if (!includeAll && !differsFromSite && !(changedOn05 && !product)) continue
       const reasons: string[] = []
       const addReason = (reason: string) => { if (!reasons.includes(reason)) reasons.push(reason) }
 
@@ -967,7 +961,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         costPrice: product?.costPrice ?? null,
         oldPrice: product?.price ?? null,
         previousCompetitorPrice: history?.oldPrice ?? null,
-        competitorPrice,
+        competitorPrice: competitorPrice ?? 0,
         newPrice,
         lastSuccessAt: link.lastSuccessAt?.toISOString() ?? null,
         externalUrl: link.externalUrl,
@@ -1020,6 +1014,32 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       oneCQueued: available.length, items: rows, diagnostics,
     }
   }
+
+  async priceReadiness() {
+    // Database-only classification. Opening this screen never starts a parser.
+    const [snapshot, products, pending, checking] = await Promise.all([
+      this.bulkPriceSnapshot(this.prisma, '', true),
+      this.prisma.product.findMany({ where: { oneCId: { not: null }, status: 'ACTIVE' }, include: { category: true }, orderBy: { id: 'asc' } }),
+      this.prisma.oneCPriceChange.findMany({ where: { status: 'PENDING' } }),
+      this.prisma.monitorJob.count({ where: { kind: 'RECHECK', status: { in: ['QUEUED', 'RUNNING'] } } }),
+    ])
+    const rows = new Map(snapshot.items.map(row => [row.productId, row]))
+    const messages = new Map(pending.map(row => [row.productId, row]))
+    const items = products.map(product => {
+      const row = rows.get(product.id)
+      const message = messages.get(product.id)
+      const reason = !product.priceSyncEnabled ? 'Не разрешён обмен с 1С'
+        : !row ? 'Нет привязки к 05.ru' : row.blockedReasons.join('; ') || null
+      return { productId: product.id, name: product.name, categoryPath: product.category.name,
+        authorized: product.priceSyncEnabled, oldPrice: message?.oldPrice ?? product.price,
+        newPrice: message?.newPrice ?? (row && row.newPrice > 0 ? row.newPrice : null),
+        status: message ? 'PENDING' as const : !reason ? 'READY' as const : 'BLOCKED' as const,
+        reason: message ? message.lastError : reason }
+    })
+    return { items, authorized: products.filter(product => product.priceSyncEnabled).length, checking: checking > 0 }
+  }
+
+  checkAllowedPrices() { return this.checkAll({ authorizedOnly: true }) }
 
   async previewBulkPrices(dto: BulkPriceScopeDto) {
     return this.bulkPriceSnapshot(this.prisma, dto.categoryPath)
@@ -1219,7 +1239,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const links = await this.prisma.competitorProduct.findMany({
         where: {
           source: { key: sourceKey }, matchStatus: 'CONFIRMED',
-          product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
+          product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE, ...(dto?.authorizedOnly ? { priceSyncEnabled: true } : {}) } },
         },
         select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
       })

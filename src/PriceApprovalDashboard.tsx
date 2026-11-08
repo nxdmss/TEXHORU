@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiProduct, type OneCPriceSyncStatus, type PriceUpdateOperation } from './api'
+import { api, type ApiProduct, type OneCPriceSyncStatus, type PriceReadiness, type PriceUpdateOperation } from './api'
+import { TestPriceScope } from './TestPriceScope'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import './price-approval.css'
 
@@ -8,6 +9,17 @@ const terminal = new Set(['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'])
 const itemLabels: Record<string, string> = {
   CHECKING: 'Проверяем', READY: 'Подготовлено', PENDING: 'Ожидает 1С',
   APPLIED: 'Обновлено', SKIPPED: 'Без изменения', FAILED: 'Нужна проверка',
+}
+function shortReason(reason: string) {
+  if (reason.includes('не совпадает')) return 'Не совпадают характеристики'
+  if (reason.includes('Не разрешён')) return 'Не разрешён обмен с 1С'
+  if (reason.includes('Нет привязки')) return 'Нет привязки к 05.ru'
+  if (reason.includes('не подтверждено')) return 'Нужно подтвердить привязку или наличие'
+  if (reason.includes('устарела') || reason.includes('свежая')) return 'Нужна свежая проверка цены'
+  if (reason.includes('уже совпадает')) return 'Цена уже актуальна'
+  if (reason.includes('остатка')) return 'Нет свободного остатка'
+  if (reason.includes('Нет актуальной цены')) return 'Нет цены 05.ru'
+  return reason.split('; ')[0]
 }
 function operationLabel(operation: PriceUpdateOperation) {
   switch (operation.state) {
@@ -23,7 +35,11 @@ function operationLabel(operation: PriceUpdateOperation) {
 }
 
 export function PriceApprovalDashboard({ products }: { products: ApiProduct[] }) {
-  const [inventory, setInventory] = useState(products)
+  const inventory = products
+  const [readiness, setReadiness] = useState<PriceReadiness | null>(null)
+  const [group, setGroup] = useState<'READY' | 'PENDING' | 'BLOCKED'>('READY')
+  const [listOpen, setListOpen] = useState(false)
+  const [notice, setNotice] = useState('')
   const [operation, setOperation] = useState<PriceUpdateOperation | null>(null)
   const [sync, setSync] = useState<OneCPriceSyncStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -41,13 +57,12 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
   const requestVersion = useRef(0)
   const mounted = useRef(true)
   const active = !!operation && !terminal.has(operation.state)
-  useEffect(() => setInventory(products), [products])
 
   const load = useCallback(async () => {
     const version = ++requestVersion.current
-    const [current, exchange] = await Promise.all([api.priceUpdateCurrent(), api.priceSyncStatus()])
+    const [current, exchange, availability] = await Promise.all([api.priceUpdateCurrent(), api.priceSyncStatus(), api.priceReadiness()])
     if (!mounted.current || version !== requestVersion.current) return
-    setOperation(current); setSync(exchange); setUnavailable(false); setLoading(false)
+    setOperation(current); setSync(exchange); setReadiness(availability); setUnavailable(false); setLoading(false)
   }, [])
   useEffect(() => {
     mounted.current = true
@@ -59,46 +74,52 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
       if (document.hidden || polling.current || busy) return
       polling.current = true
       void load().catch(() => { if (mounted.current) setUnavailable(true) }).finally(() => { polling.current = false })
-    }, active ? 5000 : 15000)
+    }, active || readiness?.checking ? 5000 : 15000)
     return () => window.clearInterval(timer)
-  }, [active, busy, load])
+  }, [active, busy, load, readiness?.checking])
 
-  const eligible = useMemo(() => inventory.filter(p => p.oneCId && p.status === 'ACTIVE'), [inventory])
+  const items = readiness?.items || []
+  const eligible = items.filter(item => item.status === 'READY')
   const categories = useMemo(() => {
     const paths = new Set<string>()
-    for (const p of eligible) {
-      const parts = p.category.name.split(' / ')
+    for (const p of readiness?.items || []) {
+      const parts = p.categoryPath.split(' / ')
       parts.forEach((_, i) => paths.add(parts.slice(0, i + 1).join(' / ')))
     }
     return [...paths].sort((a, b) => a.localeCompare(b, 'ru'))
-  }, [eligible])
-  const filterProducts = (path: string, query: string) => eligible.filter(p =>
-    (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
-    && (p.name + ' ' + p.sku).toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru')))
-  const visible = filterProducts(category, search)
-  const chosen = mode === 'all' ? eligible : eligible.filter(p => selected.includes(p.id))
+  }, [readiness])
+  const visible = items.filter(p => p.status === group
+    && (!category || p.categoryPath === category || p.categoryPath.startsWith(category + ' / '))
+    && p.name.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))
+  const chosen = mode === 'all' ? eligible : eligible.filter(p => selected.includes(p.productId))
   const visibleResults = operation?.items.filter(item => resultFilter === 'ALL' || item.status === resultFilter) || []
   const agent = sync?.agent
   const connection = unavailable ? 'Связь с сайтом прервана' : !agent || !agent.online
     ? 'Ожидаем связь с компьютером 1С' : agent.state === 'error'
     ? 'Агент на связи: есть ошибка' : 'Компьютер 1С на связи'
-  const locked = loading || busy || active
+  const locked = loading || busy || active || !!readiness?.checking
 
-  function filterSelection(path: string, query: string) {
-    setCategory(path); setSearch(query); setLimit(40); setMode('selected')
-    setSelected(filterProducts(path, query).map(p => p.id))
-  }
   function toggleProduct(id: number, checked: boolean) {
-    const current = mode === 'all' ? eligible.map(p => p.id) : selected
+    const current = mode === 'all' ? eligible.map(p => p.productId) : selected
     setMode('selected')
     setSelected(checked ? [...new Set([...current, id])] : current.filter(value => value !== id))
+  }
+  async function checkPrices() {
+    if (locked) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api.checkAllowedPrices()
+      setNotice(`Проверяем сохранённые карточки: ${result.queued}. Остальной каталог не сканируется.`)
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось проверить цены') }
+    finally { setBusy(false) }
   }
   async function start() {
     if (locked || !chosen.length || !sync?.testPriceSyncEnabled) return
     requestVersion.current++
     setBusy(true); setError('')
     try {
-      const current = await api.startPriceUpdate(mode === 'all' ? undefined : chosen.map(p => p.id))
+      const current = await api.startPriceUpdate(chosen.map(p => p.productId))
       setOperation(current); setResultFilter('ALL')
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось начать обновление') }
     finally { setBusy(false) }
@@ -114,13 +135,13 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
 
   return <section className="pu-root">
     <header className="pu-heading">
-      <div><h2>Цены</h2><p>Проверка 05.ru → обновление в TEST 1С → подтверждение на сайте.</p></div>
+      <div><h2>Цены</h2><p>Обновляем только разрешённые товары с проверенной ценой 05.ru.</p></div>
       <div className="pu-main-action">
         <button type="button" className="pu-primary" onClick={() => void start()}
           disabled={locked || !chosen.length || !sync?.testPriceSyncEnabled}>
-          {busy ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? 'Обновить все цены' : `Обновить выбранные (${chosen.length})`}
+          {busy ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? `Обновить готовые (${chosen.length})` : `Обновить выбранные (${chosen.length})`}
         </button>
-        <span>{mode === 'all' ? `Все товары из 1С · ${eligible.length}` : `Выбрано ${chosen.length} из ${eligible.length}`}</span>
+        <span>{`Разрешено для 1С: ${readiness?.authorized ?? 0} из ${items.length}`}</span>
       </div>
     </header>
 
@@ -132,7 +153,17 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
     {loading && <p className="pu-note">Загружаем сведения…</p>}
     {sync && !sync.testPriceSyncEnabled && <p className="pu-error" role="alert">Обновление цен в TEST 1С выключено на сервере.</p>}
     {error && <p className="pu-error" role="alert">{error}</p>}
-    {!loading && !eligible.length && <p className="pu-note">Сначала загрузи товары из тестовой 1С.</p>}
+    {notice && <p className="pu-note" role="status">{notice}</p>}
+    <div className="pu-groups" aria-label="Группы товаров">
+      {([['READY', 'Готовы к обновлению'], ['PENDING', 'Ждут 1С'], ['BLOCKED', 'Нельзя обновить']] as const).map(([key, label]) =>
+        <button type="button" key={key} className={group === key ? 'is-current' : ''} aria-pressed={group === key}
+          onClick={() => { setGroup(key); setListOpen(true); setLimit(40) }}>
+          <b>{items.filter(item => item.status === key).length}</b><span>{label}</span>
+        </button>)}
+    </div>
+    <div className="pu-check-action"><button type="button" disabled={locked || !readiness?.authorized}
+      onClick={() => void checkPrices()}>{readiness?.checking ? 'Проверяем цены…' : 'Проверить цены разрешённых'}</button>
+      <small>Только сохранённые карточки. Без поиска по каталогу.</small></div>
 
     {operation && <section className="pu-status" aria-label="Ход обновления">
       <div className="pu-status-line"><strong>{operationLabel(operation)}</strong>
@@ -168,36 +199,40 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
       </details>
     </section>}
 
-    <details className="pu-selection">
-      <summary>Выбрать товары <span>{mode === 'all' ? 'Все' : chosen.length}</span></summary>
+    <details className="pu-selection" open={listOpen} onToggle={e => setListOpen(e.currentTarget.open)}>
+      <summary>{group === 'READY' ? 'Выбрать товары' : group === 'PENDING' ? 'Товары в очереди 1С' : 'Причины пропуска'} <span>{visible.length}</span></summary>
       <div className="pu-selection-tools">
-        <select aria-label="Раздел товаров" value={category} onChange={e => filterSelection(e.target.value, search)} disabled={locked}>
+        <select aria-label="Раздел товаров" value={category} onChange={e => { setCategory(e.target.value); setLimit(40) }}>
           <option value="">Все разделы</option>{categories.map(path => <option key={path} value={path}>{path}</option>)}
         </select>
-        <input aria-label="Поиск товаров для обновления" placeholder="Название или артикул" value={search} disabled={locked}
-          onChange={e => filterSelection(category, e.target.value)} />
+        <input aria-label="Поиск товаров для обновления" placeholder="Название товара" value={search}
+          onChange={e => { setSearch(e.target.value); setLimit(40) }} />
       </div>
-      <div className="pu-select-actions">
-        <button type="button" disabled={locked} onClick={() => { setMode('all'); setCategory(''); setSearch('') }}>Все товары</button>
-        <button type="button" disabled={locked || !visible.length} onClick={() => { setMode('selected'); setSelected(visible.map(p => p.id)) }}>Выбрать найденные ({visible.length})</button>
+      {group === 'READY' && <div className="pu-select-actions">
+        <button type="button" disabled={locked} onClick={() => { setMode('all'); setCategory(''); setSearch('') }}>Все готовые</button>
+        <button type="button" disabled={locked || !visible.length} onClick={() => { setMode('selected'); setSelected(visible.map(p => p.productId)) }}>Выбрать найденные ({visible.length})</button>
         <button type="button" disabled={locked} onClick={() => { setMode('selected'); setSelected([]) }}>Снять выбор</button>
-      </div>
-      <div className="pu-product-list">{visible.slice(0, limit).map(p => <label key={p.id}>
-        <input type="checkbox" aria-label={'Обновить товар: ' + p.name}
-          checked={mode === 'all' || selected.includes(p.id)} disabled={locked}
-          onChange={e => toggleProduct(p.id, e.target.checked)} />
-        <span><strong>{p.name}</strong><small>{p.category.name}</small></span><b>{rub(p.price)}</b>
+      </div>}
+      <div className="pu-product-list">{visible.slice(0, limit).map(p => <label key={p.productId}>
+        {group === 'READY' && <input type="checkbox" aria-label={'Обновить товар: ' + p.name}
+          checked={mode === 'all' || selected.includes(p.productId)} disabled={locked}
+          onChange={e => toggleProduct(p.productId, e.target.checked)} />}
+        <span><strong>{p.name}</strong><small>{p.categoryPath}</small>
+          {p.reason && <span className="pu-short-reason" title={p.reason}>{shortReason(p.reason)}</span>}</span>
+        <b>{rub(p.oldPrice)}{p.newPrice !== null && p.newPrice !== p.oldPrice && <> → {rub(p.newPrice)}</>}</b>
       </label>)}</div>
-      {!visible.length && <p className="pu-note">Товары не найдены.</p>}
+      {!visible.length && <p className="pu-note">{group === 'READY' ? 'Готовых товаров нет. Проверь цены разрешённых или открой причины пропуска.' : 'Товаров в этой группе нет.'}</p>}
       {visible.length > limit && <button type="button" className="pu-more" onClick={() => setLimit(value => value + 40)}>Показать ещё {Math.min(40, visible.length - limit)}</button>}
     </details>
+
+    <TestPriceScope products={inventory} scope={sync?.scope || []} enabled={!!sync?.testPriceSyncEnabled && !locked} path={category} onChanged={load} />
 
     <details className="pu-advanced" onToggle={e => setToolsOpen(e.currentTarget.open)}>
       <summary>Связи с 05.ru и дополнительные проверки</summary>
       {toolsOpen && <PriceMonitorPanel products={inventory} initialPath={category} />}
     </details>
     <details className="pu-rule"><summary>Как обновляются цены</summary>
-      <p>Для подтверждённых совпадений используем свежую цену 05.ru минус 100 ₽. Другая память, цвет или состояние требуют проверки. В TEST ограничение изменения 10% временно отключено. Цена сайта меняется после подтверждения 1С.</p>
+      <p>Кнопка обновляет все готовые товары или только выбранные. Разрешения не меняются автоматически. Для подтверждённых совпадений используем свежую цену 05.ru минус 100 ₽. Другая память, цвет или состояние требуют проверки. В TEST ограничение изменения 10% временно отключено. Цена сайта меняется после подтверждения 1С.</p>
     </details>
   </section>
 }
