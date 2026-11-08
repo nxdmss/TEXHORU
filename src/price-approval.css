@@ -192,3 +192,15 @@
 @media (prefers-reduced-motion: reduce) {
   .pa-action { transition: none; }
 }
+
+.pa-scope { padding: 16px; border: 1px solid var(--pa-border); border-radius: 12px; background: #fff; }
+.pa-scope > summary { font-weight: 700; cursor: pointer; }
+.pa-scope p, .pa-source-name { font-size: 13px; line-height: 1.5; color: #555; }
+.pa-scope-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.pa-scope-list { display: grid; gap: 8px; max-height: 340px; overflow-y: auto; margin: 12px 0; }
+.pa-scope-list label { display: flex; align-items: center; gap: 10px; padding: 9px; border-bottom: 1px solid #eee; }
+.pa-scope-list input { width: 18px; height: 18px; flex-shrink: 0; }
+.pa-scope-list small { display: block; color: #357047; }
+.pa-empty button { display: block; margin: 12px auto 0; }
+
+.pa-state-pending { background: #edf4ff; color: #24588d; }

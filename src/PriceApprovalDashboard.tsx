@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiProduct, type MonitorJob, type OneCPriceSyncStatus, type PriceApprovalPreview } from './api'
+import { TestPriceScope } from './TestPriceScope'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import './price-approval.css'
 
@@ -30,8 +31,11 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [path, setPath] = useState('')
+  const specialist = useRef<HTMLDetailsElement>(null)
+  const currentPath = useRef(path)
+  currentPath.current = path
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<'ALL' | 'READY' | 'BLOCKED'>('ALL')
+  const [view, setView] = useState<'ALL' | 'READY' | 'BLOCKED' | 'WAITING'>('ALL')
   const [selected, setSelected] = useState<string[]>([])
   const lastToken = useRef<string | null>(null)
   const polling = useRef(false)
@@ -40,9 +44,10 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
 
   const load = useCallback(async (includeProducts = false) => {
     const [proposal, tasks, sync, settings, stock] = await Promise.all([
-      api.monitorBulkPreview(''), api.monitorJobs(), api.priceSyncStatus(),
+      api.monitorBulkPreview(path), api.monitorJobs(), api.priceSyncStatus(),
       api.monitorSettings('05ru'), includeProducts ? api.adminProducts() : Promise.resolve(null),
     ])
+    if (path !== currentPath.current) return
     if (proposal.token !== lastToken.current) {
       lastToken.current = proposal.token
       setSelected([])
@@ -53,10 +58,12 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
     setInterval(settings.intervalMinutes)
     if (stock) setInventory(stock)
     setLoading(false)
-  }, [])
+  }, [path])
 
   useEffect(() => {
     let active = true
+    setLoading(true)
+    setPreview(null)
     void load(true).catch(e => {
       if (active) {
         setError(e instanceof Error ? e.message : 'Не удалось загрузить цены')
@@ -71,6 +78,10 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
     return () => { active = false; window.clearInterval(timer) }
   }, [load, busy])
 
+  function openLinks() {
+    if (specialist.current) { specialist.current.open = true; specialist.current.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+  }
+
   // A new filter starts a fresh, explicit selection.
   useEffect(() => setSelected([]), [path, search, view])
 
@@ -82,7 +93,7 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
     && (!search.trim() || item.productName.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))),
   [preview, path, search])
   const visibleOffers = useMemo(() => offers.filter(item =>
-    view === 'ALL' || (view === 'READY' ? item.canSend : !item.canSend)), [offers, view])
+    view === 'ALL' || (view === 'READY' ? item.canSend : view === 'WAITING' ? item.awaitingOneC : !item.canSend && !item.awaitingOneC)), [offers, view])
   const selectableOffers = useMemo(() => visibleOffers.filter(item => item.canSend), [visibleOffers])
   const groupedOffers = useMemo(() => {
     const categories = new Map<string, typeof visibleOffers>()
@@ -93,11 +104,11 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
   const running = jobs.find(job => job.status === 'QUEUED' || job.status === 'RUNNING')
   const selectedVisible = selected.filter(id => selectableOffers.some(item => item.id === id))
   const allVisibleSelected = selectableOffers.length > 0 && selectedVisible.length === selectableOffers.length
-  const pending = exchange.changes.filter(change => change.status === 'PENDING').length
-  const failed = exchange.changes.filter(change => change.status === 'CONFLICT' || change.status === 'FAILED').length
+  const pending = exchange.summary?.pending ?? exchange.changes.filter(change => change.status === 'PENDING').length
+  const failed = exchange.summary?.needsAttention ?? exchange.changes.filter(change => change.error || change.status === 'CONFLICT' || change.status === 'FAILED').length
   const totalChanges = preview?.items.length ?? 0
   const readyChanges = preview?.items.filter(item => item.canSend).length ?? 0
-  const blockedChanges = totalChanges - readyChanges
+  const blockedChanges = preview?.items.filter(item => !item.canSend && !item.awaitingOneC).length ?? 0
 
   function toggleAll() {
     const visibleIds = selectableOffers.map(item => item.id)
@@ -133,7 +144,7 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
     setNotice('')
     try {
       const result = await api.monitorBulkApply({
-        categoryPath: '', token: preview.token, ids: chosen.map(item => item.id),
+        categoryPath: path, token: preview.token, ids: chosen.map(item => item.id),
         acceptUnknownCost: false, acceptLargeChange: false,
       })
       setNotice('В очереди 1С: ' + result.oneCQueued + '. Цены на сайте обновятся после подтверждения агента.')
@@ -184,12 +195,16 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
 
     {running && <div className="pa-message">Проверка цен выполняется…</div>}
     {loading && <div className="pa-message">Загрузка…</div>}
+    <TestPriceScope products={inventory} scope={exchange.scope} enabled={exchange.testPriceSyncEnabled === true}
+      path={path} onChanged={() => load(true)} />
     {preview && (preview.diagnostics.unlinkedCount > 0 || preview.diagnostics.uncheckedCount > 0) && <details className="pa-diagnostics">
       <summary>
         Нужна привязка к 05.ru: {preview.diagnostics.unlinkedCount} товаров; не удалось получить цену: {preview.diagnostics.uncheckedCount}
       </summary>
+      <p>{path ? 'Диагностика только раздела «' + path + '».' : 'Диагностика всего каталога.'}</p>
       <p>Новые товары нужно один раз связать с правильными карточками 05.ru.
-        Открой «Связи с 05.ru» ниже и выбери «Найти карточки товаров».</p>
+        Для другого объёма памяти, цвета или состояния нужна другая карточка.</p>
+      <button type="button" className="pa-action pa-secondary" onClick={openLinks}>Открыть связи с 05.ru</button>
       {preview.diagnostics.unlinked.length > 0 && <div>
         <strong>Нет привязки к 05.ru</strong>
         <ul>{preview.diagnostics.unlinked.map(item => <li key={item.productId}>{item.productName}</li>)}</ul>
@@ -221,6 +236,7 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
               <option value="ALL">Все</option>
               <option value="READY">Можно отправить</option>
               <option value="BLOCKED">Требуют проверки</option>
+              <option value="WAITING">Ожидают 1С</option>
             </select>
           </label>
         </div>
@@ -262,15 +278,17 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
             <div className="pa-offer-body">
               <div className="pa-offer-title">
                 <strong>{item.productName}</strong>
-                <span className={item.canSend ? 'pa-state pa-state-ready' : 'pa-state pa-state-issue'}>
-                  {item.canSend ? 'Можно отправить' : 'Нужна проверка'}
+                <span className={item.awaitingOneC ? 'pa-state pa-state-pending' : item.canSend ? 'pa-state pa-state-ready' : 'pa-state pa-state-issue'}>
+                  {item.awaitingOneC ? 'Ожидает 1С' : item.canSend ? 'Можно отправить' : 'Нужна проверка'}
                 </span>
               </div>
               <div className="pa-prices">
                 <span>Цена 05.ru <b>{rub(item.competitorPrice)}</b></span>
                 <span>Наша цена <b>{item.oldPrice === null ? '—' : rub(item.oldPrice)}</b></span>
-                <span className="pa-price-new">Предлагаем <b>{rub(item.newPrice)}</b></span>
+                <span className="pa-price-new">{item.matchVerified ? <>Предлагаем <b>{rub(item.newPrice)}</b></> : <>Предложение <b>Сначала проверь привязку</b></>}</span>
               </div>
+              <p className="pa-source-name">На 05.ru: {item.externalName}</p>
+              {!item.matchVerified && <button type="button" className="pa-action pa-secondary" onClick={e => { e.preventDefault(); openLinks() }}>Исправить привязку</button>}
               {!item.canSend && <p className="pa-blocked-reason">{item.blockedReasons.join('. ')}.</p>}
               <div className="pa-offer-meta">
                 Проверено: {dateLabel(item.lastSuccessAt)}
@@ -282,8 +300,10 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
           </label>)}
         </div>)}
         {!visibleOffers.length && !loading && <div className="pa-empty">
-          {offers.length ? 'В выбранной группе предложений нет. Попробуй «Все».'
-            : search || path ? 'Товары по этому запросу не найдены.' : 'Пока нет отличий. Проверь цены или связи с 05.ru.'}
+          {offers.length ? 'В этом разделе нет предложений с выбранным статусом. Остальные товары показаны с причинами блокировки.'
+            : preview?.diagnostics.unlinkedCount ? 'Сначала найди правильные карточки 05.ru для товаров этого раздела.' : 'В этом разделе пока нет отличий цен.'}
+          {offers.length > 0 && view !== 'ALL' && <button type="button" onClick={() => setView('ALL')}>Показать все предложения раздела</button>}
+          {preview?.diagnostics.unlinkedCount ? <button type="button" onClick={openLinks}>Найти карточки 05.ru</button> : null}
         </div>}
       </div>
 
@@ -297,14 +317,14 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
       </div>}
     </section>
 
-    <details className="pa-specialist">
+    <details className="pa-specialist" ref={specialist}>
       <summary>Связи с 05.ru и расписание проверки</summary>
       <label className="pa-schedule-toggle">
         <input type="checkbox" checked={interval === 1440} disabled={Boolean(busy)}
           onChange={e => void toggleSchedule(e.target.checked)}/>
         Автоматически проверять цены каждый день в 06:00 по Москве
       </label>
-      <PriceMonitorPanel products={inventory}/>
+      <PriceMonitorPanel products={inventory} initialPath={path}/>
     </details>
   </section>
 }

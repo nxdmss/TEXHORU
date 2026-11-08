@@ -37,6 +37,8 @@ export class IntegrationsController {
   @Post('integrations/1c/price-sync/receipts') @UseGuards(OneCGuard) priceReceipts(@Body() dto: PriceSyncReceiptsDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.receipts(dto) }
   @Post('integrations/1c/agent/heartbeat') @UseGuards(OneCGuard)
   heartbeat(@Body() dto: OneCAgentHeartbeatDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.heartbeat(dto) }
+  @Post('admin/integrations/1c/price-sync/scope/add') @UseGuards(AuthGuard, AdminGuard)
+  addPriceScope(@Body() dto: PriceSyncScopeDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.addScope(dto) }
   @Get('admin/integrations/1c/price-sync') @UseGuards(AuthGuard, AdminGuard)
   async priceSyncDashboard() {
     return {

@@ -35,6 +35,36 @@ export class OneCPriceSyncService {
     })
   }
 
+  /** Add explicitly selected TEST products without removing the existing scope or its pending work. */
+  async addScope(dto: PriceSyncScopeDto) {
+    try {
+      return await this.prisma.$transaction(async tx => {
+        const active = await tx.product.findMany({ where: { oneCId: { in: dto.oneCIds }, status: 'ACTIVE' } })
+        if (active.length !== dto.oneCIds.length || active.some(p => p.price < 1 || p.price > 5_000_000)) {
+          throw new BadRequestException('Выбери загруженные из 1С активные товары с допустимой ценой')
+        }
+        const additions = active.filter(p => !p.priceSyncEnabled)
+        const existing = await tx.product.count({ where: { priceSyncEnabled: true } })
+        if (existing + additions.length > 30) {
+          throw new BadRequestException(`В TEST разрешено до 30 товаров. Сейчас включено ${existing}, свободно ${Math.max(0, 30 - existing)}.`)
+        }
+        if (additions.length) {
+          await tx.product.updateMany({ where: { id: { in: additions.map(p => p.id) } }, data: { priceSyncEnabled: true } })
+          await tx.auditLog.create({ data: { action: 'ADD_TEST_PRICE_SCOPE', entity: 'Product',
+            details: { productIds: additions.map(p => p.id), oneCIds: additions.map(p => p.oneCId) } } })
+          await tx.syncLog.create({ data: { direction: 'TO_1C', entity: 'PRICE_SYNC_SCOPE', status: 'SUCCESS',
+            message: `Для TEST-обмена дополнительно разрешено товаров: ${additions.length}. Цены не изменялись.` } })
+        }
+        return { ok: true, added: additions.length, count: existing + additions.length }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException('Список разрешённых товаров изменился. Обнови сведения и повтори выбор.')
+      }
+      throw error
+    }
+  }
+
   /** Small, read-only lookup for a single approved TEST candidate: avoids pulling the whole public catalog into 1C. */
   async productByOneCId(oneCId: string) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(oneCId)) {

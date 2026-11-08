@@ -1203,6 +1203,7 @@ test('HTTP routes reject missing credentials and invalid input; admin and 1C rou
     for (let n = 0; n < 50; n++) { try { if ((await fetch(base+'/health')).ok) { ready = true; break } } catch {} await new Promise(r => setTimeout(r,100)) }
     assert(ready, log.slice(-1500))
     assert.equal((await fetch(base+'/admin/price-monitor')).status,401)
+    assert.equal((await fetch(base+'/admin/integrations/1c/price-sync/scope/add',{method:'POST',headers:{'content-type':'application/json','x-1c-key':key},body:JSON.stringify({oneCIds:[randomUUID()]})})).status,401)
     assert.equal((await fetch(base+'/integrations/1c/price-monitor/pending')).status,401)
     const login = await fetch(base+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'monitor-http@test.local',password:'LocalTestPassword123!'})})
     assert.equal(login.status,201)
@@ -3173,4 +3174,40 @@ test('TEST 1C catalog upload can grant price scope automatically, never writing 
     if (previousFlag === undefined) delete process.env.ONE_C_TEST_AUTO_PRICE_SCOPE
     else process.env.ONE_C_TEST_AUTO_PRICE_SCOPE = previousFlag
   }
+})
+
+
+test('Price preview scopes diagnostics to the selected section and blocks wrong storage, colour and used candidates', async () => {
+  const id = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Scope test ' + id + ' / Apple', slug: 'apple-' + id } })
+  const other = await prisma.category.create({ data: { name: 'Scope test ' + id + ' / Accessories', slug: 'accessories-' + id } })
+  const source = await prisma.competitorSource.upsert({ where: { key: '05ru' }, update: {}, create: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' } })
+  const monitor = new PriceMonitorService(prisma, {}, new MonitorExchangeService(prisma))
+  const cases = [
+    ['Apple iPhone 15 256GB Black', 'Apple iPhone 15 128GB Black б/у'],
+    ['Apple iPhone 16 256GB White', 'Apple iPhone 16 128GB Pink б/у'],
+    ['Apple iPhone 16e 128GB Black', 'Apple iPhone 16e 256GB Black б/у'],
+    ['Apple iPhone 16 128GB Green', 'Apple iPhone 16 128GB Green'],
+  ]
+  for (const [ours, theirs] of cases) {
+    const p = await prisma.product.create({ data: { name: ours, brand: 'Apple', sku: randomUUID(), slug: randomUUID(), categoryId: category.id, oneCId: randomUUID(), price: 60000, stockQty: 1, priceSyncEnabled: true } })
+    await prisma.competitorProduct.create({ data: { sourceId: source.id, productId: p.id, externalName: theirs, externalUrl: 'https://05.ru/cat/test/p/' + randomUUID() + '/',
+      attributes: {}, matchStatus: 'CONFIRMED', latestPrice: 59990, lastSuccessAt: new Date(), inStock: true,
+      confirmedProductFingerprint: fingerprint(p), confirmedFingerprint: fingerprint({ name: theirs, attributes: {} }) } })
+  }
+  for (const cat of [category, other]) await prisma.product.create({ data: { name: 'Not linked ' + cat.name, sku: randomUUID(), slug: randomUUID(), oneCId: randomUUID(), categoryId: cat.id, brand: 'Test', price: 1000 } })
+  const preview = await monitor.previewBulkPrices({ categoryPath: category.name })
+  assert.equal(preview.diagnostics.unlinkedCount, 1)
+  assert.equal(preview.diagnostics.unlinked[0].categoryPath, category.name)
+  assert.equal(preview.items.length, 4)
+  assert.equal(preview.items.filter(row => row.canSend).length, 1)
+  for (const row of preview.items.filter(row => row.externalName.includes('б/у'))) {
+    assert.equal(row.canSend, false)
+    assert.equal(row.matchVerified, false)
+    assert(row.externalName.includes('б/у'))
+    assert(row.blockedReasons.some(reason => reason.includes('не совпадает')))
+  }
+  await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() } })
+  await assert.rejects(() => monitor.applyBulkPrices({ categoryPath: category.name, token: preview.token, ids: [preview.items.find(row => !row.matchVerified).id], acceptUnknownCost: false, acceptLargeChange: false }), /заблокированные или устаревшие/)
+  assert.equal(await prisma.oneCPriceChange.count({ where: { product: { categoryId: category.id } } }), 0)
 })
