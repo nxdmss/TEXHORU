@@ -82,6 +82,8 @@ try {
         Remove-Item -LiteralPath $RetryPath -Force -ErrorAction SilentlyContinue
         return
     }
+    # Only a nonempty queue needs to open the EPF; idle polling stays cheap.
+    Assert-AgentEpf ([string]$config.EpfPath)
     Send-Heartbeat 'processing'
 
     # The key is written only for the short lifetime of this 1C run.

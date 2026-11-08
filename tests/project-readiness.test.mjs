@@ -35,20 +35,8 @@ test('У карточек цен нет обходной кнопки массо
   assert.doesNotMatch(links, /Применить цены 05\.ru к товарам/)
 })
 
-test('Цены отправляются из экрана выбора, с подтверждением и списком товаров', () => {
-  const approval = read('src/PriceApprovalDashboard.tsx')
-  assert.match(approval, /async function sendSelected\(\)/)
-  assert.match(approval, /window\.confirm/)
-  assert.match(approval, /ids:\s*chosen\.map\(item => item\.id\)/)
-  assert.match(approval, /await api\.monitorBulkApply\(/)
-})
-
-test('В интерфейсе понятно, что данные 05.ru не отправляются сами', () => {
-  const approval = read('src/PriceApprovalDashboard.tsx')
-  assert.match(approval, /Отправить выбранные в 1С/)
-  assert.match(approval, /после ответа 1С/)
-  assert.match(approval, /Связи с 05\.ru/)
-})
+// All/selected price-update behaviour is exercised by tests/price-demo.browser.mjs
+// and the backend workflow suite, rather than assertions about function names.
 
 test('Windows agent is scheduled, skips an empty queue and accepts TEST only', () => {
   const installer = read('onec/agent/Install-TEXHORUAgent.ps1')

@@ -1,0 +1,275 @@
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
+import { PrismaService } from '../prisma/prisma.service'
+import { OneCPriceSyncService } from '../integrations/price-sync.service'
+
+const CURRENT_ID = 'test-price-update-current'
+const ACTIVE = ['CHECKING', 'QUEUING', 'WAITING']
+const SCOPE_REASON = 'Товар не включён в разрешённую область обмена с 1С'
+const UNCHANGED = 'Цена уже актуальна'
+type ItemState = 'CHECKING' | 'READY' | 'PENDING' | 'APPLIED' | 'SKIPPED' | 'FAILED'
+type UpdateItem = {
+  productId: number; name: string; categoryPath: string; status: ItemState
+  reason: string | null; oldPrice: number; newPrice: number | null
+  messageId: string | null; linkId: string | null
+}
+type Context = { id: string; childId: string | null; items: UpdateItem[]; readySince?: string }
+type SnapshotRow = {
+  id: string; productId: number | null; oldPrice: number | null; newPrice: number
+  blockedReasons: string[]; lastSuccessAt: string | null
+}
+type Snapshot = { items: SnapshotRow[] }
+type Job = { id: string; status: string; visitedUrls: Prisma.JsonValue; createdAt: Date; finishedAt: Date | null; lastError: string | null }
+const json = (value: Context) => value as unknown as Prisma.InputJsonValue
+
+/** Durable coordinator for the explicit “update prices” button. The existing
+ * matching worker does discovery; this row stores the user's fixed selection,
+ * verified candidates and stable 1C message IDs across server restarts. */
+export class PriceUpdateWorkflow {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly snapshot: (db: PrismaService | Prisma.TransactionClient) => Promise<Snapshot>,
+    private readonly refresh: (productId: number) => Promise<boolean>,
+  ) {}
+
+  private enabled() {
+    return process.env.ONE_C_BASE_KIND === 'TEST' && process.env.ONE_C_TEST_PRICE_SYNC_ENABLED === 'true'
+  }
+  private assertEnabled() {
+    if (!this.enabled()) throw new ForbiddenException('Обратная передача цен отключена: включи обмен только с TEST 1С')
+  }
+  private context(job: Job): Context { return job.visitedUrls as unknown as Context }
+
+  private async reconcile(ctx: Context, db: PrismaService | Prisma.TransactionClient = this.prisma) {
+    const ids = ctx.items.flatMap(item => item.messageId ? [item.messageId] : [])
+    if (!ids.length) return
+    const changes = await db.oneCPriceChange.findMany({ where: { id: { in: ids } } })
+    const byId = new Map(changes.map(change => [change.id, change]))
+    for (const item of ctx.items) {
+      if (!item.messageId) continue
+      const change = byId.get(item.messageId)
+      if (change?.status === 'DELIVERED') { item.status = 'APPLIED'; item.reason = null }
+      else if (change?.status === 'PENDING') { item.status = 'PENDING'; item.reason = change.lastError }
+      else { item.status = 'FAILED'; item.reason = change?.lastError || 'Передача цены отменена или потеряна' }
+    }
+  }
+
+  private present(job: Job, ctx: Context) {
+    const count = (status: ItemState) => ctx.items.filter(item => item.status === status).length
+    return {
+      id: ctx.id, state: job.status, total: ctx.items.length,
+      checked: ctx.items.length - count('CHECKING'), ready: count('READY'),
+      queued: ctx.items.filter(item => item.messageId).length, pending: count('PENDING'),
+      applied: count('APPLIED'), failed: count('FAILED'), skipped: count('SKIPPED'),
+      items: ctx.items, createdAt: job.createdAt.toISOString(),
+      finishedAt: job.finishedAt?.toISOString() || null, error: job.lastError,
+    }
+  }
+
+  async current() {
+    const job = await this.prisma.monitorJob.findUnique({ where: { id: CURRENT_ID } })
+    if (!job) return null
+    const ctx = this.context(job)
+    await this.reconcile(ctx)
+    const result = this.present(job, ctx)
+    const ownIds = new Set(ctx.items.map(item => item.messageId))
+    const outside = (await this.prisma.oneCPriceChange.findMany({ where: { status: 'PENDING' }, select: { id: true, lastError: true } }))
+      .filter(change => !ownIds.has(change.id))
+    const oldError = outside.find(change => change.lastError)?.lastError
+    return { ...result, waitingExternal: outside.length,
+      error: oldError && ACTIVE.includes(job.status) ? 'Предыдущий обмен с 1С ещё не завершён: ' + oldError : result.error }
+  }
+
+  async start(productIds?: number[]) {
+    this.assertEnabled()
+    if (productIds && (!productIds.length || productIds.length > 5000
+      || new Set(productIds).size !== productIds.length
+      || productIds.some(id => !Number.isSafeInteger(id) || id < 1))) {
+      throw new BadRequestException('Выбери от 1 до 5000 разных товаров')
+    }
+    try {
+      return await this.prisma.$transaction(async tx => {
+        const old = await tx.monitorJob.findUnique({ where: { id: CURRENT_ID } })
+        if (old && ACTIVE.includes(old.status)) {
+          const ctx = this.context(old)
+          await this.reconcile(ctx, tx)
+          return this.present(old, ctx)
+        }
+        const products = await tx.product.findMany({
+          where: { oneCId: { not: null }, status: 'ACTIVE', ...(productIds ? { id: { in: productIds } } : {}) },
+          include: { category: true }, orderBy: { id: 'asc' }, take: 5001,
+        })
+        if (!products.length) throw new BadRequestException('Сначала загрузи товары из 1С')
+        if (products.length > 5000) throw new BadRequestException('Выбери раздел или не больше 5000 товаров')
+        if (productIds && products.length !== productIds.length) throw new BadRequestException('Некоторые выбранные товары неактивны или не загружены из 1С')
+        const pending = await tx.oneCPriceChange.findMany({ where: { status: 'PENDING', productId: { in: products.map(p => p.id) } } })
+        const pendingByProduct = new Map(pending.map(change => [change.productId, change]))
+        // An “all” click does not repeatedly search known missing accessories.
+        // Explicit selection is also an explicit retry of those products.
+        const negatives = productIds ? [] : await tx.productMatchOutcome.findMany({ where: {
+          sourceKey: '05ru', status: 'NO_MATCH', checkedAt: { gte: new Date(Date.now() - 24 * 3600_000) },
+        } })
+        const negativeByProduct = new Map(negatives.map(outcome => [outcome.productId, outcome.reason]))
+        const items: UpdateItem[] = products.map(product => {
+          const pending = pendingByProduct.get(product.id)
+          const reason = product.price < 1 || product.price > 5_000_000 ? 'Недопустимая текущая цена'
+            : product.stockQty <= product.reservedQty ? 'Нет свободного остатка товара'
+            : negativeByProduct.has(product.id) ? negativeByProduct.get(product.id) || 'Совпадение на 05.ru не найдено; выбери товар для повторной проверки' : null
+          return { productId: product.id, name: product.name, categoryPath: product.category.name,
+            status: pending ? 'PENDING' : reason ? 'SKIPPED' : 'CHECKING', reason: pending?.lastError || reason,
+            oldPrice: pending?.oldPrice ?? product.price, newPrice: pending?.newPrice ?? null,
+            messageId: pending?.id || null, linkId: pending?.sourceLinkId || null }
+        })
+        const confirmedLinks = await tx.competitorProduct.findMany({
+          where: { source: { key: '05ru' }, matchStatus: 'CONFIRMED', productId: { in: products.map(p => p.id) } },
+          select: { productId: true },
+        })
+        const confirmedIds = new Set(confirmedLinks.map(link => link.productId))
+        // Show useful progress quickly: recheck saved exact cards first, then
+        // discover phones, then other products using the bounded matcher.
+        const ids = items.filter(item => item.status === 'CHECKING').sort((a, b) =>
+          Number(confirmedIds.has(b.productId)) - Number(confirmedIds.has(a.productId))
+          || Number(/смартфон|smartphone/i.test(b.name + ' ' + b.categoryPath)) - Number(/смартфон|smartphone/i.test(a.name + ' ' + a.categoryPath))
+          || a.productId - b.productId).map(item => item.productId)
+        const id = randomUUID()
+        const child = ids.length ? await tx.monitorJob.create({ data: {
+          kind: 'MATCH_1C', sourceKey: '05ru', perPage: Math.min(40, ids.length),
+          pendingUrls: ids.map(id => 'product:' + id), visitedUrls: ['PRICE_UPDATE:' + id],
+        } }) : null
+        const ctx: Context = { id, childId: child?.id || null, items }
+        const now = new Date()
+        const job = await tx.monitorJob.upsert({ where: { id: CURRENT_ID },
+          create: { id: CURRENT_ID, kind: 'PRICE_UPDATE', sourceKey: '05ru', status: 'CHECKING', visitedUrls: json(ctx), perPage: items.length },
+          update: { status: 'CHECKING', visitedUrls: json(ctx), perPage: items.length, processed: 0, errors: 0,
+            createdAt: now, finishedAt: null, leaseUntil: null, lastError: null },
+        })
+        return this.present(job, ctx)
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
+    } catch (error) {
+      // A simultaneous duplicate button press must not create another run.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code)) {
+        const current = await this.current()
+        if (current && ACTIVE.includes(current.state)) return current
+      }
+      throw error
+    }
+  }
+
+  async cancel(id: string) {
+    return this.prisma.$transaction(async tx => {
+      const job = await tx.monitorJob.findUnique({ where: { id: CURRENT_ID } })
+      if (!job || this.context(job).id !== id) throw new NotFoundException('Обновление не найдено')
+      const ctx = this.context(job)
+      await this.reconcile(ctx, tx)
+      if (ACTIVE.includes(job.status)) {
+        for (const item of ctx.items) if (item.status === 'CHECKING' || item.status === 'READY') {
+          item.status = 'SKIPPED'; item.reason = 'Остановлено пользователем'
+        }
+        if (ctx.childId) await tx.monitorJob.updateMany({ where: { id: ctx.childId, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() } })
+        const stopped = await tx.monitorJob.update({ where: { id: CURRENT_ID }, data: { status: 'CANCELLED', visitedUrls: json(ctx), finishedAt: new Date(), leaseUntil: null } })
+        return this.present(stopped, ctx)
+      }
+      return this.present(job, ctx)
+    })
+  }
+
+  /** Called by the existing single worker before its next matching card.
+   * A database lease also prevents overlapping coordinators after a restart. */
+  async advance() {
+    if (!this.enabled()) return
+    const lease = new Date(Date.now() + 180000)
+    const claimed = await this.prisma.monitorJob.updateMany({
+      where: { id: CURRENT_ID, status: { in: ACTIVE }, OR: [{ leaseUntil: null }, { leaseUntil: { lt: new Date() } }] },
+      data: { leaseUntil: lease },
+    })
+    if (!claimed.count) return
+    try {
+      const job = await this.prisma.monitorJob.findUniqueOrThrow({ where: { id: CURRENT_ID } })
+      const ctx = this.context(job)
+      await this.reconcile(ctx)
+      const child = ctx.childId ? await this.prisma.monitorJob.findUnique({ where: { id: ctx.childId } }) : null
+      const waiting = new Set(Array.isArray(child?.pendingUrls) ? child.pendingUrls : [])
+      const checked = ctx.items.filter(item => item.status === 'CHECKING' && !waiting.has('product:' + item.productId))
+      if (child && ['FAILED', 'CANCELLED'].includes(child.status)) {
+        for (const item of ctx.items) if (item.status === 'CHECKING') {
+          item.status = 'FAILED'; item.reason = child.lastError || 'Проверка остановлена; повтори обновление'
+        }
+      } else if (checked.length) {
+        // Bounded: one final real-card verification per worker turn, never a
+        // full-catalog crawl in an HTTP request or one long transaction.
+        const item = checked[0]
+        try {
+          const confirmed = await this.refresh(item.productId)
+          const snapshot = confirmed ? await this.snapshot(this.prisma) : null
+          const row = snapshot?.items.find(row => row.productId === item.productId)
+          if (!confirmed) {
+            const outcome = await this.prisma.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId: item.productId, sourceKey: '05ru' } } })
+            item.status = outcome?.status === 'RETRYABLE' ? 'FAILED' : 'SKIPPED'
+            item.reason = outcome?.reason || 'Нет точного подтверждённого совпадения с 05.ru'
+          } else if (!row) {
+            item.status = 'SKIPPED'; item.reason = UNCHANGED
+          } else {
+            const reasons = row.blockedReasons.filter(reason => reason !== SCOPE_REASON)
+            item.oldPrice = row.oldPrice ?? item.oldPrice; item.newPrice = row.newPrice; item.linkId = row.id
+            item.status = reasons.length ? 'SKIPPED' : 'READY'; item.reason = reasons.join('; ') || null
+          }
+        } catch (error) { item.status = 'FAILED'; item.reason = error instanceof Error ? error.message : 'Не удалось проверить цену' }
+      }
+
+      // Scope is read once by each 1C session. Rotate it only after EVERY old
+      // pending message has drained, including messages outside this operation.
+      if (ctx.items.some(item => item.status === 'READY') && !ctx.readySince) ctx.readySince = new Date().toISOString()
+      const mayStage = ctx.items.filter(item => item.status === 'READY').length >= 30
+        || !ctx.items.some(item => item.status === 'CHECKING')
+        || !!ctx.readySince && Date.now() - Date.parse(ctx.readySince) >= 30000
+      await this.prisma.$transaction(async tx => {
+        const active = await tx.monitorJob.findFirst({ where: { id: CURRENT_ID, status: { in: ACTIVE }, leaseUntil: lease } })
+        if (!active) return // cancellation or a newer lease won
+        const agent = await tx.syncLog.findUnique({ where: { id: 'onec-agent-status' } })
+        const agentState = agent?.payload as { state?: string } | null
+        const agentStillRunning = agentState?.state === 'processing' && !!agent && Date.now() - agent.createdAt.getTime() < 5 * 60000
+        if (mayStage && !agentStillRunning && !await tx.oneCPriceChange.count({ where: { status: 'PENDING' } })) {
+          const candidates = ctx.items.filter(item => item.status === 'READY').slice(0, 30)
+          if (candidates.length) {
+            const snapshot = await this.snapshot(tx)
+            const rows = new Map(snapshot.items.flatMap(row => row.productId === null ? [] : [[row.productId, row] as const]))
+            const safe = candidates.filter(item => {
+              const row = rows.get(item.productId)
+              const reasons = row?.blockedReasons.filter(reason => reason !== SCOPE_REASON) || []
+              if (!row || reasons.length) { item.status = 'SKIPPED'; item.reason = row ? reasons.join('; ') : UNCHANGED; return false }
+              item.oldPrice = row.oldPrice ?? item.oldPrice; item.newPrice = row.newPrice; item.linkId = row.id
+              return true
+            })
+            if (safe.length) {
+              const ids = safe.map(item => item.productId)
+              await tx.product.updateMany({ where: { priceSyncEnabled: true, id: { notIn: ids } }, data: { priceSyncEnabled: false } })
+              await tx.product.updateMany({ where: { id: { in: ids } }, data: { priceSyncEnabled: true } })
+              for (const item of safe) {
+                const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } })
+                const message = await OneCPriceSyncService.queue(tx, product, item.newPrice!, item.linkId)
+                if (!message) throw new Error('Не удалось подготовить область обмена с TEST')
+                item.messageId = message.id; item.status = 'PENDING'; item.reason = null
+              }
+              await tx.auditLog.create({ data: { action: 'QUEUE_TEST_PRICE_UPDATE', entity: 'PriceUpdate', entityId: ctx.id,
+                details: { productIds: ids, queued: safe.length, limit: 30, source: '05ru', sitePublished: false } } })
+              delete ctx.readySince
+            }
+          }
+        }
+        const checking = ctx.items.some(item => item.status === 'CHECKING')
+        const pending = ctx.items.some(item => item.status === 'PENDING')
+        const ready = ctx.items.some(item => item.status === 'READY')
+        const problems = ctx.items.some(item => item.status === 'FAILED' || item.status === 'SKIPPED' && item.reason !== UNCHANGED)
+        const state = checking ? 'CHECKING' : pending || ready ? 'WAITING' : problems ? 'PARTIAL' : 'COMPLETED'
+        await tx.monitorJob.updateMany({ where: { id: CURRENT_ID, status: { in: ACTIVE }, leaseUntil: lease },
+          data: { status: state, visitedUrls: json(ctx), processed: ctx.items.filter(item => item.status !== 'CHECKING').length,
+            errors: ctx.items.filter(item => item.status === 'FAILED').length,
+            finishedAt: ACTIVE.includes(state) ? null : new Date(), lastError: null },
+        })
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 })
+    } finally {
+      await this.prisma.monitorJob.updateMany({ where: { id: CURRENT_ID, leaseUntil: lease }, data: { leaseUntil: null } })
+    }
+  }
+}

@@ -1203,11 +1203,14 @@ test('HTTP routes reject missing credentials and invalid input; admin and 1C rou
     for (let n = 0; n < 50; n++) { try { if ((await fetch(base+'/health')).ok) { ready = true; break } } catch {} await new Promise(r => setTimeout(r,100)) }
     assert(ready, log.slice(-1500))
     assert.equal((await fetch(base+'/admin/price-monitor')).status,401)
+    assert.equal((await fetch(base+'/admin/price-monitor/price-update',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).status,401)
     assert.equal((await fetch(base+'/admin/integrations/1c/price-sync/scope/add',{method:'POST',headers:{'content-type':'application/json','x-1c-key':key},body:JSON.stringify({oneCIds:[randomUUID()]})})).status,401)
     assert.equal((await fetch(base+'/integrations/1c/price-monitor/pending')).status,401)
     const login = await fetch(base+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'monitor-http@test.local',password:'LocalTestPassword123!'})})
     assert.equal(login.status,201)
     const cookie = login.headers.get('set-cookie').split(';')[0]
+    assert.equal((await fetch(base+'/admin/price-monitor/price-update',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({productIds:[]})})).status,400)
+    assert.equal((await fetch(base+'/admin/price-monitor/price-update',{method:'POST',headers:{cookie,'content-type':'application/json'},body:'{}'})).status,403)
     for (const path of ['/admin/price-monitor','/admin/price-monitor/jobs','/admin/price-monitor/deliveries','/admin/price-monitor/settings','/admin/price-monitor/export-1c']) assert.equal((await fetch(base+path,{headers:{cookie}})).status,200,path)
     assert.equal((await fetch(base+'/integrations/1c/price-monitor/pending',{headers:{'x-1c-key':key}})).status,200)
     assert.equal((await fetch(base+'/integrations/1c/agent/heartbeat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state: 'idle' }) })).status, 401)
