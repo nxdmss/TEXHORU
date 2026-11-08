@@ -225,10 +225,10 @@ export function PriceApprovalDashboard({ products }: { products: ApiProduct[] })
       {visible.length > limit && <button type="button" className="pu-more" onClick={() => setLimit(value => value + 40)}>Показать ещё {Math.min(40, visible.length - limit)}</button>}
     </details>
 
-    <TestPriceScope products={inventory} scope={sync?.scope || []} enabled={!!sync?.testPriceSyncEnabled && !locked} path={category} onChanged={load} />
-
     <details className="pu-advanced" onToggle={e => setToolsOpen(e.currentTarget.open)}>
-      <summary>Связи с 05.ru и дополнительные проверки</summary>
+      <summary>Настройки и привязки</summary>
+      {toolsOpen && sync && <TestPriceScope products={inventory} scope={sync.scope} enabled={!!sync.testPriceSyncEnabled}
+        disabled={locked} path={category} onChanged={load} />}
       {toolsOpen && <PriceMonitorPanel products={inventory} initialPath={category} />}
     </details>
     <details className="pu-rule"><summary>Как обновляются цены</summary>

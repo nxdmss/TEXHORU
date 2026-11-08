@@ -96,6 +96,7 @@ try {
   assert.equal(await page.locator('.pu-selection').getAttribute('open'), null)
   assert.equal(await page.locator('.pu-advanced').getAttribute('open'), null)
   assert.equal(await page.locator('.pu-advanced .price-monitor').count(), 0)
+  assert.equal(await page.locator('.pa-scope').count(), 0, 'technical permissions must not be mounted on the default screen')
   assert.equal(hiddenToolRequests, 0)
   await page.getByRole('button', { name: '2 Нельзя обновить', exact: true }).click()
   await page.getByText('Не совпадают характеристики', { exact: true }).waitFor()
@@ -115,6 +116,11 @@ try {
     items: operation.items.map(item => ({ ...item, status: 'PENDING', newPrice: 64890, messageId: 'fixture-receipt' })) }
   await page.getByText('Ожидаем подтверждения 1С: 1', { exact: true }).waitFor({ timeout: 12000 })
   assert.equal(await page.locator('.pu-counts').innerText(), '0 обновлено\n1 ждут 1С')
+  await page.locator('.pu-advanced > summary').click()
+  await page.locator('.pa-scope > summary').click()
+  assert.equal(await page.locator('.pa-scope [role=alert]').count(), 0, 'busy workflow does not mean TEST is disabled')
+  assert(await page.getByLabel('Найти товар для TEST').isDisabled())
+  await page.locator('.pu-advanced > summary').click()
   operation = { ...operation, state: 'COMPLETED', pending: 0, applied: 1, finishedAt: new Date().toISOString(),
     items: operation.items.map(item => ({ ...item, status: 'APPLIED' })) }
   await page.getByText('Обновление завершено', { exact: true }).waitFor({ timeout: 12000 })
