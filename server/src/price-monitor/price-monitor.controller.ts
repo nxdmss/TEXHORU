@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, Res, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
 import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto, PriceUpdateDto } from './price-monitor.dto'
@@ -27,7 +27,11 @@ export class PriceMonitorController {
   @Post('bulk-price-reject') rejectBulkPrices(@Body() dto: BulkApplyPricesDto) { return this.monitor.rejectBulkPrices(dto) }
 
   @Post('price-update') startPriceUpdate(@Body() dto: PriceUpdateDto) { return this.monitor.startPriceUpdate(dto) }
-  @Get('price-update/current') currentPriceUpdate() { return this.monitor.currentPriceUpdate() }
+  @Get('price-update/current') async currentPriceUpdate(@Res() response: { json: (value: unknown) => unknown }) {
+    // Nest sends an empty body for a bare null. Explicit JSON preserves the
+    // operation|null contract, including the first run and existing browser tabs.
+    return response.json(await this.monitor.currentPriceUpdate())
+  }
   @Post('price-update/:id/cancel') cancelPriceUpdate(@Param('id') id: string) { return this.monitor.cancelPriceUpdate(id) }
 
   @Get('jobs') jobs() { return this.monitor.jobs() }

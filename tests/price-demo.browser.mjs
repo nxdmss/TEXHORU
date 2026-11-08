@@ -68,7 +68,10 @@ try {
   const all = await prisma.product.findMany({ include: { category: true } })
   await context.route(/\/api\/admin\/price-monitor\/price-update(?:\/current|\/[^/]+\/cancel)?$/, async route => {
     const request = route.request()
-    if (request.method() === 'GET') { await route.fulfill({ json: operation }); return }
+    if (request.method() === 'GET') {
+      if (!operation) { await route.continue(); return } // Exercise the real first-run JSON contract.
+      await route.fulfill({ json: operation }); return
+    }
     if (request.url().endsWith('/cancel')) {
       operation = { ...operation, state: 'CANCELLED', finishedAt: new Date().toISOString(),
         items: operation.items.map(item => ({ ...item, status: 'SKIPPED', reason: 'Остановлено пользователем' })) }
