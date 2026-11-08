@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, type ApiProduct, type OneCPriceSyncStatus } from './api'
 
-export function TestPriceScope({ products, scope, enabled, path, onChanged }: {
-  products: ApiProduct[]; scope: OneCPriceSyncStatus['scope']; enabled: boolean;
+export function TestPriceScope({ products, scope, enabled, disabled = false, path, onChanged }: {
+  products: ApiProduct[]; scope: OneCPriceSyncStatus['scope']; enabled: boolean; disabled?: boolean;
   path: string; onChanged: () => Promise<unknown>;
 }) {
   const [selected, setSelected] = useState<string[]>([])
@@ -20,7 +20,7 @@ export function TestPriceScope({ products, scope, enabled, path, onChanged }: {
   const chosen = available.filter(p => selected.includes(p.oneCId!) && !approved.has(p.oneCId!))
   const eligible = visible.filter(p => !approved.has(p.oneCId!))
   async function add() {
-    if (!chosen.length || chosen.length > free || busy || !enabled) return
+    if (!chosen.length || chosen.length > free || busy || disabled || !enabled) return
     if (!window.confirm('Разрешить передачу цен для ' + chosen.length + ' товаров в TEST 1С?\n\n'
       + chosen.map(p => p.name).join('\n') + '\n\nЭто только допуск. Цены отправляются отдельно после выбора предложений.')) return
     setBusy(true); setError(''); setNotice('')
@@ -37,25 +37,25 @@ export function TestPriceScope({ products, scope, enabled, path, onChanged }: {
     <p>Разреши выбранные товары из каталога 1С. Уже разрешённые сохранятся. Затем отдельно выбери цены для отправки.</p>
     {!enabled && <p role="alert">Передача цен в TEST выключена на сервере. Добавление товаров сейчас недоступно.</p>}
     <p>{path ? 'Раздел: ' + path : 'Все разделы'} · Свободных мест: {free}</p>
-    <input className="pa-search" aria-label="Найти товар для TEST" placeholder="Название или артикул" value={search}
+    <input className="pa-search" aria-label="Найти товар для TEST" placeholder="Название или артикул" value={search} disabled={busy || disabled || !enabled}
       onChange={e => { setSearch(e.target.value); setLimit(40) }} />
     <div className="pa-scope-actions">
-      <button className="pa-action pa-secondary" type="button" disabled={busy || !enabled || !eligible.length || eligible.length > free}
+      <button className="pa-action pa-secondary" type="button" disabled={busy || disabled || !enabled || !eligible.length || eligible.length > free}
         onClick={() => setSelected(eligible.map(p => p.oneCId!))}>Выбрать найденные ({eligible.length})</button>
-      <button className="pa-action pa-secondary" type="button" disabled={busy || !selected.length} onClick={() => setSelected([])}>Снять выбор</button>
+      <button className="pa-action pa-secondary" type="button" disabled={busy || disabled || !selected.length} onClick={() => setSelected([])}>Снять выбор</button>
     </div>
     {eligible.length > free && <p>Найдено больше товаров, чем свободных мест. Уточни поиск или отметь нужные вручную.</p>}
     <div className="pa-scope-list">
       {visible.slice(0, limit).map(p => <label key={p.id}>
         <input type="checkbox" checked={approved.has(p.oneCId!) || selected.includes(p.oneCId!)}
-          disabled={busy || !enabled || approved.has(p.oneCId!) || (chosen.length >= free && !selected.includes(p.oneCId!))}
+          disabled={busy || disabled || !enabled || approved.has(p.oneCId!) || (chosen.length >= free && !selected.includes(p.oneCId!))}
           onChange={e => setSelected(ids => e.target.checked ? [...ids, p.oneCId!] : ids.filter(id => id !== p.oneCId))}/>
         <span>{p.name}{approved.has(p.oneCId!) && <small>Уже разрешён</small>}</span>
       </label>)}
       {!visible.length && <p>Товары из 1С по этому запросу не найдены.</p>}
     </div>
-    {visible.length > limit && <button className="pa-action pa-secondary" type="button" onClick={() => setLimit(n => n + 40)}>Показать ещё</button>}
-    <button className="pa-action pa-primary" type="button" disabled={busy || !enabled || !chosen.length || chosen.length > free} onClick={() => void add()}>
+    {visible.length > limit && <button className="pa-action pa-secondary" type="button" disabled={busy || disabled} onClick={() => setLimit(n => n + 40)}>Показать ещё</button>}
+    <button className="pa-action pa-primary" type="button" disabled={busy || disabled || !enabled || !chosen.length || chosen.length > free} onClick={() => void add()}>
       {busy ? 'Сохраняем…' : 'Разрешить выбранные для TEST (' + chosen.length + ')'}
     </button>
     {error && <p className="pa-error" role="alert">{error}</p>}
