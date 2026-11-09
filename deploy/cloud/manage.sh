@@ -12,6 +12,35 @@ case "${1:-status}" in
   credentials)
     echo 'Локальные секреты сервера. Не отправляй этот вывод в чат или GitHub.'
     awk -F= '/^(ADMIN_EMAIL|ADMIN_PASSWORD|ONE_C_API_KEY)=/' /etc/texhoru/app.env ;;
+  set-admin-password)
+    exec 9>/var/lock/texhoru-deploy.lock
+    flock -n 9 || { echo 'Установка или обновление уже идёт.'; exit 1; }
+    email=${2:-$(sed -n 's/^ADMIN_EMAIL=//p' /etc/texhoru/app.env | tail -1)}
+    [[ $email =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$ ]] || { echo 'Укажи email: sudo texhoru set-admin-password EMAIL'; exit 1; }
+    email=${email,,}
+    read -r -s -p 'Новый пароль (от 16 символов): ' password; printf '\n'
+    read -r -s -p 'Повтори новый пароль: ' repeated; printf '\n'
+    [[ $password == "$repeated" ]] || { echo 'Пароли не совпадают. Ничего не изменено.'; exit 1; }
+    [[ ${#password} -ge 16 ]] || { echo 'Нужно не меньше 16 символов. Ничего не изменено.'; exit 1; }
+    umask 077
+    temporary=$(mktemp /etc/texhoru/.password-XXXXXX)
+    trap 'rm -f "$temporary"; unset password repeated' EXIT
+    while IFS= read -r line || [[ -n $line ]]; do
+      case "$line" in
+        ADMIN_PASSWORD=*) ;;
+        ADMIN_EMAIL=*) ;;
+        *) printf '%s\n' "$line" ;;
+      esac
+    done < /etc/texhoru/app.env > "$temporary"
+    printf 'ADMIN_EMAIL=%s\nADMIN_PASSWORD=%s\n' "$email" "$password" >> "$temporary"
+    # Works with an already installed image: no rebuild or site downtime.
+    printf '%s\0%s' "$email" "$password" | "${compose[@]}" exec -T app node -e "$(cat deploy/cloud/set-admin-password.cjs)"
+    if ! mv -f "$temporary" /etc/texhoru/app.env; then
+      echo 'Пароль в базе уже изменён, но файл настроек не сохранён. Новый пароль действует; проверь права и свободное место.'
+      exit 1
+    fi
+    unset password repeated
+    echo 'Готово. Выйди из кабинета и войди новым паролем. Сайт перезапускать не нужно.' ;;
   import-data)
     source=$(realpath -e "${2:?Укажи папку cloud-transfer}")
     [[ -f $source/manifest.json && -f $source/database.db ]] || { echo 'Не найдена папка переноса.'; exit 1; }
@@ -39,5 +68,5 @@ case "${1:-status}" in
     # never container volumes or database files, is eligible here.
     docker builder prune --force --filter until=24h --keep-storage 1GB || echo 'Очистка кэша сборки отложена.'
     echo 'Обновлено. Проверить: sudo texhoru status' ;;
-  *) echo 'Команды: status | logs | start | stop | restart | update | credentials | import-data ПАПКА'; exit 1 ;;
+  *) echo 'Команды: status | logs | start | stop | restart | update | credentials | set-admin-password [EMAIL] | import-data ПАПКА'; exit 1 ;;
 esac

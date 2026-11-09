@@ -12,6 +12,8 @@ const { MediaService } = require('../dist/media/media.service')
 const { PriceMonitorService } = require('../dist/price-monitor/price-monitor.service')
 const { MonitorExchangeService } = require('../dist/price-monitor/monitor-exchange.service')
 const { fingerprint } = require('../dist/price-monitor/product-matching')
+const { setAdminPassword } = require('../../deploy/cloud/set-admin-password.cjs')
+const bcrypt = require('bcryptjs')
 let db, database
 before(async () => {
   database = resolve(__dirname, '../prisma/monitor-test-maintenance-' + randomUUID() + '.db')
@@ -129,4 +131,21 @@ test('cloud schedule checks only permitted saved cards, at most two concurrently
     if (oldScope === undefined) delete process.env.MONITOR_SCHEDULE_AUTHORIZED_ONLY; else process.env.MONITOR_SCHEDULE_AUTHORIZED_ONLY = oldScope
     if (oldConcurrency === undefined) delete process.env.MONITOR_RECHECK_CONCURRENCY; else process.env.MONITOR_RECHECK_CONCURRENCY = oldConcurrency
   }
+})
+
+test('operator password change hashes only the chosen active administrator and refuses customer/short/oversized passwords', async () => {
+  const admin = await db.user.create({ data: { email: 'admin-password@test.local', name: 'Admin', role: 'DIRECTOR', passwordHash: await bcrypt.hash('original-password-12345', 4) } })
+  const customer = await db.user.create({ data: { email: 'customer-password@test.local', name: 'Customer', role: 'CUSTOMER', passwordHash: 'unchanged' } })
+  const password = 'new password with $quotes#123456'
+  await setAdminPassword(db, bcrypt.hash, admin.email.toUpperCase(), password)
+  const updated = await db.user.findUniqueOrThrow({ where: { id: admin.id } })
+  assert(await bcrypt.compare(password, updated.passwordHash))
+  assert(!(await bcrypt.compare('original-password-12345', updated.passwordHash)))
+  assert.equal(updated.role, 'DIRECTOR')
+  for (const bad of ['short', 'я'.repeat(40), 'valid-length-but\nnewline']) {
+    await assert.rejects(() => setAdminPassword(db, bcrypt.hash, admin.email, bad), /16/)
+  }
+  await assert.rejects(() => setAdminPassword(db, bcrypt.hash, customer.email, password), /не найден/)
+  assert.equal((await db.user.findUniqueOrThrow({ where: { id: customer.id } })).passwordHash, 'unchanged')
+  assert.equal((await db.user.findUniqueOrThrow({ where: { id: admin.id } })).passwordHash, updated.passwordHash)
 })

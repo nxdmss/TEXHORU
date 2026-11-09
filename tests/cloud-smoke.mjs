@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, copyFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, copyFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import https from 'node:https'
@@ -130,6 +130,12 @@ try {
   login = await request('/api/auth/login', { method: 'POST', body: { email, password } })
   assert.equal(login.status, 201, 'existing administrator password is never reset at startup')
   assert.equal((await request('/api/auth/login', { method: 'POST', body: { email, password: different } })).status, 401)
+  const changedPassword = randomUUID()
+  execFileSync('docker', ['--host=unix:///var/run/docker.sock', 'exec', '-i', app, 'node', '-e', readFileSync('deploy/cloud/set-admin-password.cjs', 'utf8')], {
+    env, input: email + '\0' + changedPassword, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  assert.equal((await request('/api/auth/login', { method: 'POST', body: { email, password: changedPassword } })).status, 201, 'operator command must work in an existing image without a rebuild')
+  assert.equal((await request('/api/auth/login', { method: 'POST', body: { email, password } })).status, 401)
   console.log('PASS: production image, verified Caddy TLS, secure login, 1C API authentication/import, persistent catalog/uploads, non-resetting admin and Chromium. No live 1C or 05.ru exercised.')
 } finally {
   agent?.destroy()
