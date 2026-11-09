@@ -30,10 +30,10 @@ try {
   prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } })
   const category = await prisma.category.create({ data: { name: 'Смартфоны', slug: 'smartphones' } })
   const accessories = await prisma.category.create({ data: { name: 'Аксессуары', slug: 'accessories' } })
-  const names = ['Смартфон Apple iPhone 16 128 Гб черный', 'Смартфон Samsung Galaxy S25 256 Гб серебристый', 'Смартфон Xiaomi 15 256 Гб зеленый', 'Смартфон Apple iPhone 15 256 Гб белый', 'Смартфон Samsung Galaxy A56 128 Гб черный']
+  const names = ['Смартфон Apple iPhone 16 128 Гб черный', 'Смартфон Samsung Galaxy S25 256 Гб серебристый', 'Смартфон Xiaomi 15 256 Гб зеленый', 'Смартфон Apple iPhone 16 256 Гб белый', 'Смартфон Samsung Galaxy A56 128 Гб черный', 'Смартфон Apple iPhone 16 Pro Max 256 Гб белый']
   const products = []
   for (let i = 0; i < names.length; i++) products.push(await prisma.product.create({ data: {
-    categoryId: category.id, name: names[i], brand: names[i].split(' ')[1], image: '/products/phone-alt.svg',
+    categoryId: category.id, name: names[i], brand: names[i].split(' ')[1], image: [0, 3, 5].includes(i) ? '/test-photo-' + i + '.svg' : '/products/phone-alt.svg',
     oneCId: randomUUID(), price: i ? 49900 + i * 5000 : 58900, sku: randomUUID(), slug: randomUUID(),
     stockQty: i ? 8 : 2, shortSpec: '128 ГБ · AMOLED · USB-C', warranty: '12 месяцев', deliveryNote: 'Самовывоз и доставка',
     description: 'Смартфон для работы, фотографий и повседневных задач.', specs: [{ label: 'Память', value: '128 ГБ' }],
@@ -65,6 +65,13 @@ try {
   let lastPage, lastContext
   for (const width of [1440, 768, 390, 320]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', timezoneId: 'Europe/Moscow' })
+    await context.route('**/test-photo-*.svg', route => {
+      const padded = route.request().url().endsWith('-3.svg')
+      const wide = route.request().url().endsWith('-5.svg')
+      const [w, h, x, y, bw, bh] = padded ? [800, 800, 400, 500, 80, 160]
+        : wide ? [600, 900, 50, 50, 300, 600] : [400, 600, 100, 80, 160, 320]
+      return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="10" fill="#a1b3bb"/></svg>` })
+    })
     const page = await context.newPage()
     const errors = []; page.on('pageerror', e => errors.push(e.message))
     // Corrupt saved baskets must not crash the storefront.
@@ -85,7 +92,40 @@ try {
     assert(await page.locator('.app-shell').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'phone catalog overflows at ' + width)
     await page.getByRole('button', { name: /^Apple/ }).click()
     await page.waitForURL('**/catalog/smartphones/apple')
-    assert.equal(await page.locator('.product-card').count(), 2)
+    assert.equal(await page.locator('.product-card').count(), 3)
+    // Different file sizes, transparent padding and off-centre subjects must not alter model scale.
+    const geometry = []
+    for (const id of [products[0].id, products[3].id, products[5].id]) {
+      const shot = page.locator(`[data-product-id="${id}"] .product-shot`)
+      await shot.scrollIntoViewIfNeeded()
+      await shot.locator('img').evaluate(img => img.complete ? undefined : new Promise(done => img.addEventListener('load', done, { once: true })))
+      await page.waitForFunction(id => {
+        const el = document.querySelector(`[data-product-id="${id}"] .product-shot`)
+        return el?.getAttribute('data-normalized') === 'true' && el.style.getPropertyValue('--shot-width')
+      }, id)
+      geometry.push(await shot.evaluate(frame => {
+        const img = frame.querySelector('img'), box = frame.getBoundingClientRect(), photo = img.getBoundingClientRect()
+        const canvas = document.createElement('canvas'); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0)
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+        let l = canvas.width, r = -1, t = canvas.height, b = -1
+        for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) if (pixels[(y * canvas.width + x) * 4 + 3] >= 128) {
+          l = Math.min(l, x); r = Math.max(r, x); t = Math.min(t, y); b = Math.max(b, y)
+        }
+        const width = (r-l+1) / canvas.width * photo.width, height = (b-t+1) / canvas.height * photo.height
+        return { scale: height / box.height, ratio: width / height,
+          centre: (photo.x + l/canvas.width*photo.width + width/2 - box.x) / box.width,
+          top: photo.y + t/canvas.height*photo.height - box.y, bottom: photo.y + (b+1)/canvas.height*photo.height - box.y - box.height }
+      }))
+    }
+    assert(Math.abs(geometry[0].scale - geometry[1].scale) < .02, 'same iPhone size despite resolution and transparent margins')
+    assert(geometry[2].scale > geometry[0].scale * 1.08, 'Pro Max is visibly larger than regular iPhone')
+    for (const g of geometry) {
+      assert(Math.abs(g.ratio - .5) < .005, 'product is never stretched')
+      assert(Math.abs(g.centre - .5) < .015, 'visible subject is centred')
+      assert(g.top >= -1 && g.bottom <= 1, 'visible product is not clipped')
+    }
+    await screenshot(page, 'store-normalized-photos-' + width)
     await page.locator('.header .brand-button').click()
     await page.waitForURL(url + '/')
     const photo = await card.locator('img').getAttribute('src')
@@ -173,7 +213,7 @@ try {
   await lastPage.getByRole('button', { name: 'Цены', exact: true }).click()
   await lastPage.locator('.pu-heading').getByRole('heading', { name: 'Цены', exact: true }).waitFor()
   await screenshot(lastPage, 'admin-prices-brand-1440')
-  console.log('PASS: desktop/mobile catalog, shared images and totals, basket persistence/removal, stock limits, keyboard focus, honest payment options, empty checkout and real isolated order reservation.')
+  console.log('PASS: desktop/mobile catalog, transparent-margin normalization and physical iPhone scale, shared images and totals, basket persistence/removal, stock limits, keyboard focus, honest payment options, empty checkout and real isolated order reservation.')
 } finally {
   await browser?.close()
   if (child && child.exitCode === null) { child.kill(); await once(child, 'exit') }

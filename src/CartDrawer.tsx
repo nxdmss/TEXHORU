@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { CartLine, Product } from './types'
 import { Icon } from './Icon'
-import { cartLimit, formatMoney, productImage } from './store-utils'
+import { ProductImage } from './ProductImage'
+import { cartLimit, formatMoney } from './store-utils'
 
 export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, onRemove, onCheckout }: {
   cart: CartLine[]; online: boolean; onClose: () => void; onOpenProduct: (product: Product) => void;
@@ -41,7 +42,7 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
         {!cart.length ? <div className="cart-empty"><Icon name="cart" /><h3>Здесь будут ваши покупки</h3><p>Выберите товары в каталоге и добавьте их в корзину.</p><button onClick={onClose}>Продолжить покупки <Icon name="arrow" /></button></div>
           : cart.map(({ product, quantity }) => <article className="cart-line" key={product.id}>
             <button className="cart-line__image" aria-label={'Открыть ' + product.name} onClick={() => onOpenProduct(product)}>
-              <img src={productImage(product)} alt="" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /></button>
+              <ProductImage name={product.name} image={product.image} alt="" /></button>
             <div className="cart-line-copy"><span className="cart-line-brand">{product.brand}</span>
               <button className="cart-line__title" onClick={() => onOpenProduct(product)}>{product.name}</button>
               <span className="cart-unit-price">{formatMoney(product.price)} / шт.</span>

@@ -1,6 +1,7 @@
 import { Icon } from './Icon'
 import { CartDrawer } from './CartDrawer'
-import { cartLimit, productImage, restoreCart } from './store-utils'
+import { ProductImage } from './ProductImage'
+import { cartLimit, restoreCart } from './store-utils'
 import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
 import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
@@ -9,7 +10,7 @@ import { AdminIcon } from './AdminIcon'
 import { AdminCategoryTree } from './AdminCategoryTree'
 import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSmartphone } from './SmartphoneJourney'
 import { flushSync } from 'react-dom'
-import { storefrontPath, featuredProducts, featuredPhoneImage, browseLabel } from './catalog-navigation'
+import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 
@@ -61,7 +62,7 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen }: {
 }) {
   return <article className="product-card" data-product-id={product.id}>
     <button className="product-open" onClick={() => onOpen(product)} aria-label={`Открыть ${product.name}`}>
-      <div className="product-media"><img src={productImage(product)} alt={product.name} loading="lazy" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /></div>
+      <div className="product-media"><ProductImage name={product.name} image={product.image} /></div>
       <div className="product-card__copy">
         <span className="product-card__brand">{product.brand}</span>
         <div className="product-card__title-row">
@@ -124,7 +125,7 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
         <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Создаём заказ…' : `Оформить заказ · ${money.format(total)} ₽`}</button>
         {form.paymentMethod === 'ONLINE' && <p className="checkout-note">Оплата откроется на защищённой странице. Данные карты не сохраняются в магазине.</p>}
       </form>
-      <aside className="checkout-summary"><p className="eyebrow">Ваш выбор</p><details className="checkout-order-items" open><summary>Состав заказа · {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</summary>{cart.map((item) => <div className="checkout-item" key={item.product.id}><img src={productImage(item.product)} alt="" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /><div><strong>{item.product.name}</strong><span>{item.quantity} × {money.format(item.product.price)} ₽</span></div></div>)}</details><div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small></aside>
+      <aside className="checkout-summary"><p className="eyebrow">Ваш выбор</p><details className="checkout-order-items" open><summary>Состав заказа · {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</summary>{cart.map((item) => <div className="checkout-item" key={item.product.id}><span className="checkout-item__image"><ProductImage name={item.product.name} image={item.product.image} alt="" /></span><div><strong>{item.product.name}</strong><span>{item.quantity} × {money.format(item.product.price)} ₽</span></div></div>)}</details><div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small></aside>
     </div>
   </section>
 }
@@ -333,12 +334,12 @@ function ProductEditor({
               <input ref={fileInputRef} className="admin-image-upload__input" type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(e) => uploadImage(e.target.files?.[0])} />
               <button type="button" className="admin-image-upload__button" onClick={() => fileInputRef.current?.click()} disabled={uploadingImage}>{uploadingImage ? 'Загружаем…' : 'Выбрать фото с компьютера'}</button>
               <div className="admin-image-upload__drop" onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('is-over') }} onDragLeave={(e) => e.currentTarget.classList.remove('is-over')} onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('is-over'); uploadImage(e.dataTransfer.files?.[0]) }}>
-                <strong>Перетащи фото сюда</strong><span>JPG, PNG, WEBP или AVIF · до 8 МБ</span>
+                <strong>Перетащи фото сюда</strong><span>Без фона: PNG / WEBP · до 8 МБ</span>
               </div>
               {value.image && <div className="admin-image-upload__status"><span>Сохранено:</span><code>{value.image}</code></div>}
               {imageError && <div className="form-error">{imageError}</div>}
             </div>
-            <label className="admin-field admin-field--wide"><span>Или URL изображения</span><input value={value.image} onChange={(e) => update('image', e.target.value)} placeholder="https://..." /><small>После загрузки файла адрес заполнится автоматически.</small></label>
+            <label className="admin-field admin-field--wide"><span>Или URL изображения</span><input value={value.image} onChange={(e) => update('image', e.target.value)} placeholder="https://..." /><small>Прозрачные поля и масштаб выравниваются автоматически.</small></label>
             <label className="admin-field admin-field--wide"><span>Короткие характеристики</span><input value={value.shortSpec} onChange={(e) => update('shortSpec', e.target.value)} placeholder="6.3″ · 256 GB · 5G · Titanium" /></label>
             <label className="admin-field admin-field--wide"><span>Описание</span><textarea value={value.description} onChange={(e) => update('description', e.target.value)} placeholder="Коротко и понятно опиши товар для страницы товара." /></label>
           </div>
@@ -364,7 +365,7 @@ function ProductEditor({
           <div className="admin-editor__preview-sticky">
             <span className="admin-preview-label">Предпросмотр карточки</span>
             <article className="admin-live-card">
-              <div className="admin-live-card__media">{value.badge && <span className="badge">{value.badge}</span>}<img src={value.image || '/products/phone.svg'} alt="" onError={(e) => { e.currentTarget.src = '/products/phone.svg' }} /></div>
+              <div className="admin-live-card__media">{value.badge && <span className="badge">{value.badge}</span>}<ProductImage name={value.name} image={value.image} alt="" /></div>
               <div className="admin-live-card__copy"><span>{value.brand || 'Бренд'} · {selectedCategory}</span><h3>{value.name || 'Название товара'}</h3><p>{value.shortSpec || 'Короткие характеристики товара'}</p><div><strong>{money.format(previewPrice)} ₽</strong>{previewOldPrice > 0 && <del>{money.format(previewOldPrice)} ₽</del>}</div></div>
             </article>
             <div className="admin-preview-note"><strong>Так карточка читается покупателем.</strong><span>Полное описание и характеристики будут на отдельной странице товара.</span></div>
@@ -768,7 +769,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           <div className="admin-product-group__head"><div><h3>{browseLabel(adminPath.split(' / ').at(-1) || group.category.name.split(' / ').at(-1) || '')}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
           {group.items.length ? <div className="admin-product-grid">{group.items.slice(0, Math.max(0, adminLimit - productGroups.slice(0, productGroups.indexOf(group)).reduce((n, g) => n + g.items.length, 0))).map((item) => <article className={item.status === 'ARCHIVED' ? 'admin-product-tile is-archived' : 'admin-product-tile'} key={item.id}>
             <button className="admin-product-tile__main" onClick={() => openEditProduct(item)}>
-              <div className="admin-product-tile__image"><img src={/iphone\s*\d+/i.test(item.name) ? featuredPhoneImage(item.name,item.image) : (item.image || '/products/phone.svg')} alt="" onError={(e) => { e.currentTarget.src = '/products/phone.svg' }} />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
+              <div className="admin-product-tile__image"><ProductImage name={item.name} image={item.image} alt="" />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
               <div className="admin-product-tile__copy"><small>{item.brand} · {item.sku}</small><strong>{item.name}</strong><div><b>{money.format(item.price)} ₽</b><span>{item.stockQty} шт.</span></div></div>
             </button>
             <div className="admin-product-tile__actions">
@@ -1175,7 +1176,7 @@ function App() {
     </section>
   </>
 
-  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={productImage(product)} alt={product.name} onError={e => { e.currentTarget.src='/products/phone.svg' }} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} />)}</div></div>}</section> }
+  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} />)}</div></div>}</section> }
 
   const renderAccountPage = () => <section className="account-page">
     <div className="account-page__top">
