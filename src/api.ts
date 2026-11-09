@@ -152,7 +152,8 @@ export type TrackedOrder = {
 
 const stockLabel = (value: ApiProduct['stockState']): Product['stock'] => {
   if (value === 'LOW') return 'Мало'
-  if (value === 'PREORDER' || value === 'OUT_OF_STOCK') return 'Под заказ'
+  if (value === 'PREORDER') return 'Под заказ'
+  if (value === 'OUT_OF_STOCK') return 'Нет в наличии'
   return 'В наличии'
 }
 
