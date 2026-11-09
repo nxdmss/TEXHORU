@@ -11,54 +11,57 @@ export function TestPriceScope({ products, scope, enabled, disabled = false, pat
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  useEffect(() => { setSelected([]); setSearch(''); setLimit(40); setNotice(''); setError('') }, [path])
+  const [category, setCategory] = useState(path)
+  const [showApproved, setShowApproved] = useState(false)
+  useEffect(() => { setCategory(path); setSelected([]); setSearch(''); setLimit(40); setNotice(''); setError('') }, [path])
   const approved = useMemo(() => new Set(scope.map(p => p.oneCId)), [scope])
   const free = Math.max(0, 30 - scope.length)
   const available = products.filter(p => p.oneCId && p.status === 'ACTIVE' && p.price > 0 && p.price <= 5_000_000
-    && (!path || p.category.name === path || p.category.name.startsWith(path + ' / ')))
-  const visible = available.filter(p => (p.name + ' ' + p.sku).toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))
-  const chosen = available.filter(p => selected.includes(p.oneCId!) && !approved.has(p.oneCId!))
+    && (!category || p.category.name === category || p.category.name.startsWith(category + ' / ')))
+  const visible = available.filter(p => (showApproved ? approved.has(p.oneCId!) : !approved.has(p.oneCId!))
+    && (p.name + ' ' + p.sku).toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))
+  const chosen = products.filter(p => selected.includes(p.oneCId!) && !approved.has(p.oneCId!))
+  const categories = [...new Set(products.filter(p => p.oneCId).map(p => p.category.name))].sort((a, b) => a.localeCompare(b, 'ru'))
   const eligible = visible.filter(p => !approved.has(p.oneCId!))
   async function add() {
     if (!chosen.length || chosen.length > free || busy || disabled || !enabled) return
-    if (!window.confirm('Разрешить передачу цен для ' + chosen.length + ' товаров в TEST 1С?\n\n'
-      + chosen.map(p => p.name).join('\n') + '\n\nЭто только допуск. Цены отправляются отдельно после выбора предложений.')) return
     setBusy(true); setError(''); setNotice('')
     try {
       const result = await api.addTestPriceScope(chosen.map(p => p.oneCId!))
       setSelected([])
-      setNotice(`Добавлено в TEST: ${result.added}. Всего разрешено ${result.count} из 30. Теперь проверь доступные предложения ниже.`)
+      setNotice(`Добавлено: ${result.added}. Можно перейти к карточкам 05.ru.`)
       await onChanged()
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось разрешить товары для TEST') }
     finally { setBusy(false) }
   }
-  return <details className="pa-scope">
-    <summary>Товары для обмена с TEST 1С: {scope.length} из 30 — выбрать товары</summary>
-    <p>Разреши выбранные товары из каталога 1С. Уже разрешённые сохранятся. Затем отдельно выбери цены для отправки.</p>
+  return <section className="pa-scope" aria-label="Допуск товаров к обмену">
+    <div className="pa-scope-heading"><div><h3>Каким товарам обновлять цены?</h3><p>Отметь товары из TEST. Сами цены отправишь отдельно.</p></div><span>{scope.length} / 30</span></div>
     {!enabled && <p role="alert">Передача цен в TEST выключена на сервере. Добавление товаров сейчас недоступно.</p>}
-    <p>{path ? 'Раздел: ' + path : 'Все разделы'} · Свободных мест: {free}</p>
-    <input className="pa-search" aria-label="Найти товар для TEST" placeholder="Название или артикул" value={search} disabled={busy || disabled || !enabled}
+    <div className="pa-scope-filters"><input className="pa-search" aria-label="Найти товар для TEST" placeholder="Название или артикул" value={search} disabled={busy || disabled || !enabled}
       onChange={e => { setSearch(e.target.value); setLimit(40) }} />
+    <select aria-label="Раздел для допуска к обмену" value={category} onChange={e => { setCategory(e.target.value); setLimit(40) }}><option value="">Все разделы</option>{categories.map(p => <option key={p}>{p}</option>)}</select></div>
+    <div className="pa-scope-tabs"><button type="button" aria-pressed={!showApproved} onClick={() => { setShowApproved(false); setLimit(40) }}>Доступны для выбора</button><button type="button" aria-pressed={showApproved} onClick={() => { setShowApproved(true); setLimit(40) }}>Уже разрешены · {scope.length}</button><span>Свободно: {free}</span></div>
     <div className="pa-scope-actions">
       <button className="pa-action pa-secondary" type="button" disabled={busy || disabled || !enabled || !eligible.length || eligible.length > free}
         onClick={() => setSelected(eligible.map(p => p.oneCId!))}>Выбрать найденные ({eligible.length})</button>
       <button className="pa-action pa-secondary" type="button" disabled={busy || disabled || !selected.length} onClick={() => setSelected([])}>Снять выбор</button>
     </div>
-    {eligible.length > free && <p>Найдено больше товаров, чем свободных мест. Уточни поиск или отметь нужные вручную.</p>}
+    {free === 0 && !showApproved && <p className="pa-scope-hint">Лимит TEST: 30 товаров. Новые допуски сейчас недоступны.</p>}
+    {free > 0 && eligible.length > free && <p className="pa-scope-hint">Выбери вручную до {free} товаров.</p>}
     <div className="pa-scope-list">
       {visible.slice(0, limit).map(p => <label key={p.id}>
         <input type="checkbox" checked={approved.has(p.oneCId!) || selected.includes(p.oneCId!)}
           disabled={busy || disabled || !enabled || approved.has(p.oneCId!) || (chosen.length >= free && !selected.includes(p.oneCId!))}
           onChange={e => setSelected(ids => e.target.checked ? [...ids, p.oneCId!] : ids.filter(id => id !== p.oneCId))}/>
-        <span>{p.name}{approved.has(p.oneCId!) && <small>Уже разрешён</small>}</span>
+        <span>{p.name}<small>{p.category.name.split(' / ').at(-1)}</small></span>
       </label>)}
-      {!visible.length && <p>Товары из 1С по этому запросу не найдены.</p>}
+      {!visible.length && <p>Нет товаров по этому запросу.</p>}
     </div>
     {visible.length > limit && <button className="pa-action pa-secondary" type="button" disabled={busy || disabled} onClick={() => setLimit(n => n + 40)}>Показать ещё</button>}
     <button className="pa-action pa-primary" type="button" disabled={busy || disabled || !enabled || !chosen.length || chosen.length > free} onClick={() => void add()}>
-      {busy ? 'Сохраняем…' : 'Разрешить выбранные для TEST (' + chosen.length + ')'}
+      {busy ? 'Сохраняем…' : 'Разрешить обмен (' + chosen.length + ')'}
     </button>
     {error && <p className="pa-error" role="alert">{error}</p>}
     {notice && <p className="pa-message" role="status">{notice}</p>}
-  </details>
+  </section>
 }

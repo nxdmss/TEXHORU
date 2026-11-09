@@ -252,9 +252,9 @@ export const api = {
     return request<MonitorJob>('/admin/price-monitor/match/' + productId + '/retry', { method: 'POST' })
   },
   monitorSources() { return request<MonitorSource[]>('/admin/price-monitor/sources') },
-  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false, sourceKey: string = '05ru') {
+  monitorAutoFindOneC(categoryPath: string, maxItems: number, indexCatalog = false, onlyInStockSmartphones = false, onlyUnlinked = false, sourceKey: string = '05ru', onlyAllowed = false) {
     return request<AutoFindResult>('/admin/price-monitor/auto-find-1c',
-      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones, onlyUnlinked, sourceKey }) })
+      { method: 'POST', body: JSON.stringify({ categoryPath, maxItems, indexCatalog, onlyInStockSmartphones, onlyUnlinked, sourceKey, onlyAllowed }) })
   },
   monitorScan(url: string, maxPages: number) { return request<MonitorJob>('/admin/price-monitor/scan', { method: 'POST', body: JSON.stringify({ url, maxPages }) }) },
   monitorCheckAll(sourceKey: string = '05ru') { return request<CheckAllResult>('/admin/price-monitor/check-all', { method: 'POST', body: JSON.stringify({ sourceKey }) }) },

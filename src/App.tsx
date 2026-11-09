@@ -2,6 +2,7 @@ import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
 import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { PriceApprovalDashboard } from './PriceApprovalDashboard'
+import { AdminIcon } from './AdminIcon'
 import { AdminCategoryTree } from './AdminCategoryTree'
 import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSmartphone } from './SmartphoneJourney'
 import { flushSync } from 'react-dom'
@@ -372,6 +373,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [checkingSession, setCheckingSession] = useState(true)
   const [tab, setTab] = useState<AdminTab>('overview')
+  const [priceSetup, setPriceSetup] = useState(false)
+  const [navigationOpen, setNavigationOpen] = useState(false)
   const [email, setEmail] = useState('director@texhoru.local')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -667,35 +670,46 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const unread = notifications.filter((item) => !item.isRead).length
   const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Обмен с 1С', audit: 'Журнал' }
   const navigationGroups: Array<{ label: string; tabs: AdminTab[] }> = [
-    { label: 'Магазин', tabs: ['overview', 'products', 'content', 'orders', 'notifications'] },
-    { label: 'Цены и учёт', tabs: ['prices', 'sync'] },
+    { label: 'Рабочий стол', tabs: ['overview', 'prices', 'sync'] },
+    { label: 'Магазин', tabs: ['products', 'orders', 'notifications', 'content'] },
   ]
-  return <section className="admin-shell">
-    <div className="admin-top"><div><p className="eyebrow">TEXHORU</p><h1>Управление магазином</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : 'Сайт на связи'}</span><button onClick={() => load()}>Обновить данные</button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти</button></div></div>
-    <nav className="admin-tabs" aria-label="Разделы управления магазином">
+  const connectProducts = () => { setPriceSetup(true); setTab('prices') }
+  return <section className="admin-shell admin-control">
+    <aside className={'admin-sidebar' + (navigationOpen ? ' is-open' : '')}>
+    <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><span>Т<span>↗</span></span><div>TEXHORU<small>Пульт управления</small></div></button>
+    <button type="button" className="admin-mobile-toggle" aria-expanded={navigationOpen} aria-controls="admin-navigation" onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'} />Разделы</button>
+    <nav id="admin-navigation" className="admin-tabs" aria-label="Разделы управления магазином">
       {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
         <span>{section.label}</span>
         <div>{section.tabs.map(item => <button type="button" aria-current={tab === item ? 'page' : undefined}
-          className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{tabNames[item]}</button>)}</div>
+          className={tab === item ? 'active' : ''} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false) }} key={item}><AdminIcon name={item} /><span>{tabNames[item]}</span>{item === 'notifications' && unread > 0 && <small>{unread}</small>}</button>)}</div>
       </div>)}
       <details className="admin-tabs-extra" open={tab === 'audit'}>
         <summary>Ещё</summary>
-        <button type="button" className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}>Журнал действий</button>
+        <button type="button" className={tab === 'audit' ? 'active' : ''} onClick={() => { setTab('audit'); setNavigationOpen(false) }}><AdminIcon name="audit" />Журнал действий</button>
       </details>
     </nav>
+    <div className="admin-sidebar-bottom"><button onClick={onBack}>Открыть магазин <AdminIcon name="arrow" /></button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти из аккаунта</button></div>
+    </aside>
+    <div className="admin-workspace">
+    <div className="admin-top"><div><p className="eyebrow">Управление / {tabNames[tab]}</p><h1>{tab === 'overview' ? 'Рабочий стол' : tabNames[tab]}</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : loading ? 'Синхронизация…' : 'Сайт на связи'}</span><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
     {error && <div className="admin-error">{error}</div>}
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
     {loading && <div className="admin-loading">Загрузка…</div>}
     {tab === 'overview' && <>
       <div className="admin-overview-heading">
-        <h2>Состояние магазина</h2>
-        <p>Главное на сегодня. Остальные цифры можно открыть ниже.</p>
+        <span className="admin-section-kicker">Быстрый старт</span><h2>Что делаем сегодня?</h2>
+      </div>
+      <div className="admin-quests">
+        <button className="admin-quest admin-quest-primary" onClick={() => { setPriceSetup(false); setTab('prices') }}><span className="admin-quest-top"><AdminIcon name="prices" /><small>01 / Цены</small></span><strong>Обновить<br/>цены</strong><span className="admin-quest-footer">05.ru → 1С → сайт <AdminIcon name="arrow" /></span></button>
+        <button className="admin-quest" onClick={connectProducts}><span className="admin-quest-top"><AdminIcon name="plus" /><small>02 / Подключение</small></span><strong>Новые<br/>товары</strong><span className="admin-quest-footer">Три простых шага <AdminIcon name="arrow" /></span></button>
+        <button className="admin-quest" onClick={() => setTab('products')}><span className="admin-quest-top"><AdminIcon name="products" /><small>03 / Каталог</small></span><strong>Управлять<br/>товарами</strong><span className="admin-quest-footer">Разделы и карточки <AdminIcon name="arrow" /></span></button>
       </div>
       <div className="admin-metrics admin-metrics-main">
-        <article><span>Товаров на сайте</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || (p.price > 0 && p.stockQty > (p.reservedQty || 0)))).length}</strong></article>
-        <article><span>Получено из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong></article>
-        <article><span>Заказов</span><strong>{orders.length}</strong></article>
-        <article><span>Новых сообщений</span><strong>{unread}</strong></article>
+        <article><span>На витрине</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || (p.price > 0 && p.stockQty > (p.reservedQty || 0)))).length}</strong><AdminIcon name="products" /></article>
+        <article><span>Из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong><AdminIcon name="sync" /></article>
+        <article><span>Заказов</span><strong>{orders.length}</strong><AdminIcon name="orders" /></article>
+        <article><span>Новых сообщений</span><strong>{unread}</strong><AdminIcon name="notifications" /></article>
       </div>
       <details className="admin-overview-more">
         <summary>Дополнительные сведения</summary>
@@ -710,16 +724,17 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </>}
 
     {tab === 'products' && <div className="admin-products-v2">
-      <aside className="admin-category-panel">
+      <details className="admin-category-panel">
+        <summary>Разделы каталога</summary>
         <div className="admin-category-panel__head"><div><span>Каталог</span><strong>Группы товаров</strong></div><button className="admin-category-add" onClick={() => setCategoryCreating((value) => !value)}>+ Группа</button></div>
         {categoryCreating && <form className="admin-category-create" onSubmit={createCategory}><input autoFocus required placeholder="Название группы" value={categoryDraft.name} onChange={(e) => setCategoryDraft({ name: e.target.value, slug: slugifyProduct(e.target.value) })} /><input required placeholder="slug" value={categoryDraft.slug} onChange={(e) => setCategoryDraft({ ...categoryDraft, slug: slugifyProduct(e.target.value) })} /><div><button type="button" onClick={() => setCategoryCreating(false)}>Отмена</button><button>Создать</button></div></form>}
         <AdminCategoryTree categoryNames={apiCategories.filter(c => c.isActive !== false).map(c => c.name)}
           productCategoryNames={adminCategoryItems} selectedPath={adminPath}
           onSelect={value => { setAdminCategory('ALL'); setAdminSection(value ? categorySelection(value) : ''); setProductSearch('') }} />
-      </aside>
+      </details>
 
       <div className="admin-catalog-workspace" key={adminPath || 'all'}>
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={() => openCreateProduct()}>+ Добавить товар</button></div></div>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={connectProducts}>Подключить из 1С</button><button onClick={() => openCreateProduct()}>+ Вручную</button></div></div>
         {adminPath && <nav className="admin-category-context" aria-label="Путь категории">
           <button type="button" onClick={() => {setAdminSection('');setProductSearch('')}}>Все разделы</button>
           {categorySegments(adminPath).map((part,index,parts) => <span key={index}><span aria-hidden="true">/</span>
@@ -738,7 +753,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         {!productSearch.trim() && adminFolders.length > 0 &&
           <div className="admin-folder-cards">{adminFolders.map(child =>
             <button key={child.path} className="admin-folder-card" onClick={() => { setAdminCategory('ALL'); setAdminSection(categorySelection(child.path)) }}>
-              <b>▣ {browseLabel(child.title)}</b>
+              <b><AdminIcon name="products" />{browseLabel(child.title)}</b>
               <span>{products.filter(p => (showDuplicateRows || !p.duplicateOf) && (storefrontPath(p.category?.name || '', p.name) === child.path || storefrontPath(p.category?.name || '', p.name).startsWith(child.path + ' / '))).length} товаров</span>
             </button>)}
           </div>}
@@ -821,7 +836,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
         </form>
       </div>}
     </div>}
-    {tab === 'prices' && <PriceApprovalDashboard products={products} />}
+    {tab === 'prices' && <PriceApprovalDashboard products={products} initialSetup={priceSetup} onInventoryRefresh={load} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
     {tab === 'sync' && <section className="admin-sync">
@@ -897,6 +912,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </section>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
+    </div>
   </section>
 }
 
@@ -1184,7 +1200,7 @@ function App() {
     </>}
     {menuChildren.map(node => <button key={node.path} onClick={() => node.children.length ? setMenuPath(node.path) : jumpToStoreSection(categorySelection(node.path))}><span>{node.title} · {node.count}</span><Icon name="arrow" /></button>)}
   </nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
-  <main id="top">{content}</main><footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>
+  <main id="top">{content}</main>{!isAdminPage && <footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>}
   {cartOpen && <div className="overlay" onMouseDown={(event) => { if (event.currentTarget === event.target) setCartOpen(false) }}><aside className="drawer"><div className="drawer-head"><div><p className="eyebrow">Заказ</p><h2>Корзина ({cartCount})</h2></div><button className="icon-button" onClick={() => setCartOpen(false)}><Icon name="close" /></button></div><div className="drawer-body cart-lines">{cart.length === 0 ? <div className="cart-empty">Корзина пока пуста.</div> : cart.map((item) => <div className="cart-line" key={item.product.id}><button className="cart-line__image" onClick={() => { setCartOpen(false); openProduct(item.product) }}><img src={item.product.image} alt={item.product.name} /></button><div className="cart-line-copy"><button className="cart-line__title" onClick={() => { setCartOpen(false); openProduct(item.product) }}>{item.product.name}</button><span>{item.product.shortSpec}</span><b>{money.format(item.product.price)} ₽</b><div className="qty"><button onClick={() => changeQuantity(item.product.id, -1)}><Icon name="minus" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.product.id, 1)}><Icon name="plus" /></button></div></div></div>)}</div><div className="drawer-bottom"><div className="total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><button className="checkout" disabled={!cart.length} onClick={() => { setCartOpen(false); navigate('/checkout') }}>Перейти к оформлению</button><small>{apiOnline ? 'Цена и остаток будут перепроверены сервером.' : 'Для создания заказа запустите backend.'}</small></div></aside></div>}
   </div>
 }
