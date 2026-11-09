@@ -5,14 +5,15 @@ import { PrismaService } from '../prisma/prisma.service'
 import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 import { OneCPriceSyncService } from './price-sync.service'
 import { phoneVariantKey } from '../products/phone-uniqueness'
+import { automaticTestCatalogScope } from './test-catalog-policy'
 
 @Injectable()
 export class IntegrationsService {
   constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService) {}
 
-  // Auto-scope is opt-in for a trusted TEST 1C catalog push only.
-  // It grants eligibility for manual price proposals, never queues price changes.
-  async importCatalog(dto: OneCCatalogDto, options: { autoApproveTestPriceScope?: boolean } = {}) {
+  // Import grants eligibility in an enabled TEST deployment, never queues prices.
+  async importCatalog(dto: OneCCatalogDto) {
+    const automaticScope = automaticTestCatalogScope()
     try {
       return await this.prisma.$transaction(async tx => {
         if (new Set(dto.categories.map(c => c.oneCId)).size !== dto.categories.length || new Set(dto.products.map(p => p.oneCId)).size !== dto.products.length) throw new BadRequestException('Повторяющиеся идентификаторы в пакете 1С')
@@ -67,7 +68,7 @@ export class IntegrationsService {
         }
         let skippedDuplicates = 0
         const duplicateExamples: string[] = []
-        const importedProductIds: number[] = []
+        let newlyEnabled = 0
 
         for (const item of dto.products) {
           const categoryId = categoryIdByIncomingOneCId.get(item.categoryOneCId)
@@ -125,7 +126,7 @@ export class IntegrationsService {
           const stockState: StockState = item.stockQty <= 0 ? StockState.OUT_OF_STOCK : item.stockQty <= 3 ? StockState.LOW : StockState.IN_STOCK
           // The site may have just approved a new price that has not reached 1C yet.
           // Do not undo it when the 1C poll pushes the previous catalog snapshot.
-          const incomingPrice = existing?.priceSyncEnabled
+          const incomingPrice = existing && (existing.priceSyncEnabled || automaticScope)
             ? await OneCPriceSyncService.incomingPrice(tx, existing.id, existing.price, item.price)
             : item.price
           const productData = {
@@ -144,13 +145,14 @@ export class IntegrationsService {
             stockQty: item.stockQty,
             stockState,
             status: 'ACTIVE' as const,
+            ...(automaticScope ? { priceSyncEnabled: true } : {}),
           }
 
           const updated = existing
             ? await tx.product.update({ where: { id: existing.id }, data: productData })
             : await tx.product.create({ data: productData })
           if (variantKey) occupiedVariants.set(variantKey, { oneCId: updated.oneCId, id: updated.id })
-          if (updated.oneCId && updated.price > 0 && updated.price <= 5_000_000) importedProductIds.push(updated.id)
+          if (automaticScope && !existing?.priceSyncEnabled) newlyEnabled++
 
           const crossedLowStock = item.stockQty <= 3 && (!existing || existing.stockQty > 3)
           if (crossedLowStock) {
@@ -162,30 +164,12 @@ export class IntegrationsService {
         }
 
         let autoPriceScope: { enabled: number; newlyEnabled: number; skippedByLimit: number } | null = null
-        if (options.autoApproveTestPriceScope) {
-          // This is an additive, bounded TEST-only grant. A 50-item upload must
-          // not bypass the same 30-product pilot limit as the manual scope API.
-          // Never revoke older grants on partial batch imports.
-          const alreadyEnabled = await tx.product.findMany({
-            where: { priceSyncEnabled: true }, select: { id: true },
-          })
-          const enabledIds = new Set(alreadyEnabled.map(product => product.id))
-          const newIds = [...new Set(importedProductIds)].filter(id => !enabledIds.has(id))
-          const slots = Math.max(0, 30 - enabledIds.size)
-          const grantIds = newIds.slice(0, slots)
-          const newlyEnabled = grantIds.length
-            ? (await tx.product.updateMany({
-                where: { id: { in: grantIds }, priceSyncEnabled: false },
-                data: { priceSyncEnabled: true },
-              })).count : 0
-          autoPriceScope = {
-            enabled: enabledIds.size + newlyEnabled,
-            newlyEnabled,
-            skippedByLimit: newIds.length - newlyEnabled,
-          }
-          await tx.syncLog.create({ data: {
+        if (automaticScope) {
+          autoPriceScope = { enabled: await tx.product.count({ where: { oneCId: { not: null }, status: 'ACTIVE', priceSyncEnabled: true } }),
+            newlyEnabled, skippedByLimit: 0 }
+          if (newlyEnabled) await tx.syncLog.create({ data: {
             direction: 'FROM_1C', entity: 'PRICE_SYNC_SCOPE', status: 'SUCCESS',
-            message: `TEST: автоматический допуск после импорта; добавлено: ${newlyEnabled}; всего: ${autoPriceScope.enabled}/30; лимит: ${autoPriceScope.skippedByLimit}. Записи цен не создавались.`,
+            message: `TEST: автоматически подключено товаров: ${newlyEnabled}. Цены не изменялись.`,
           } })
         }
 

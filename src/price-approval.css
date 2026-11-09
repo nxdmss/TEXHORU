@@ -72,5 +72,4 @@
 .pu-check-action button { border: 1px solid var(--pu-border); background: #fff; padding: 9px 12px; border-radius: 7px; font-size: 12px; }
 .pu-check-action small { color: var(--pu-muted); font-size: 11px; }
 .pu-product-list .pu-short-reason { display: block; margin-top: 5px; font-size: 12px; color: #8c653e; }
-.pu-root .pa-scope { border: 1px solid var(--pu-border); border-radius: 10px; padding: 16px 19px; }
 @media(max-width: 650px) { .pu-groups { gap: 7px; }.pu-groups button { padding: 12px 9px; }.pu-groups span { font-size: 11px; }.pu-product-list label { flex-wrap: wrap; }.pu-product-list label > span { min-width: 180px; }.pu-product-list b { white-space: normal; } }

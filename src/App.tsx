@@ -708,7 +708,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </div>
       <div className="admin-quests">
         <button className="admin-quest admin-quest-primary" onClick={() => { setPriceSetup(false); setTab('prices') }}><span className="admin-quest-top"><AdminIcon name="prices" /><small>01 / Цены</small></span><strong>Обновить<br/>цены</strong><span className="admin-quest-footer">05.ru → 1С → сайт <AdminIcon name="arrow" /></span></button>
-        <button className="admin-quest" onClick={connectProducts}><span className="admin-quest-top"><AdminIcon name="plus" /><small>02 / Подключение</small></span><strong>Новые<br/>товары</strong><span className="admin-quest-footer">Три простых шага <AdminIcon name="arrow" /></span></button>
+        <button className="admin-quest" onClick={connectProducts}><span className="admin-quest-top"><AdminIcon name="plus" /><small>02 / Связи</small></span><strong>Связи<br/>с 05.ru</strong><span className="admin-quest-footer">Найти совпадения <AdminIcon name="arrow" /></span></button>
         <button className="admin-quest" onClick={() => setTab('products')}><span className="admin-quest-top"><AdminIcon name="products" /><small>03 / Каталог</small></span><strong>Управлять<br/>товарами</strong><span className="admin-quest-footer">Разделы и карточки <AdminIcon name="arrow" /></span></button>
       </div>
       <div className="admin-metrics admin-metrics-main">
@@ -740,7 +740,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </details>
 
       <div className="admin-catalog-workspace" key={adminPath || 'all'}>
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={connectProducts}>Подключить из 1С</button><button onClick={() => openCreateProduct()}>+ Вручную</button></div></div>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={connectProducts}>Связи с 05.ru</button><button onClick={() => openCreateProduct()}>+ Вручную</button></div></div>
         {adminPath && <nav className="admin-category-context" aria-label="Путь категории">
           <button type="button" onClick={() => {setAdminSection('');setProductSearch('')}}>Все разделы</button>
           {categorySegments(adminPath).map((part,index,parts) => <span key={index}><span aria-hidden="true">/</span>
@@ -898,9 +898,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           </details>
           <details>
             <summary>Допуск после загрузки каталога</summary>
-            <p>{priceSync.testAutoScopeOnCatalogImport ? 'Автоматический допуск включён для TEST, до 30 товаров.'
+            <p>{priceSync.testAutoScopeOnCatalogImport ? 'Все товары из TEST 1С подключаются автоматически.'
               : 'Автоматический допуск при загрузке каталога выключен.'}</p>
-            <p>Настройки TEST-сервера подготавливает программист.</p>
           </details>
           <details>
             <summary>Журнал связи ({logs.length})</summary>

@@ -25,6 +25,8 @@ export class ScanFiveRuDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) maxPages?: number
 }
 export class AutoFindOneCSectionDto {
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5000) @IsInt({ each: true }) @Min(1, { each: true })
+  productIds?: number[]
   @IsOptional() @IsIn(['05ru', 'all']) sourceKey?: string
   // Empty string means all imported 1C products; otherwise an exact category
   // hierarchy path, including every nested subcategory.

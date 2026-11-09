@@ -7,7 +7,7 @@ test('reverse retail-price exchange requires an explicit TEST server switch', as
   const sync = {
     addScope: async dto => { calls.push('scope-add'); return { ok: true, added: dto.oneCIds.length } },
     configureScope: async dto => { calls.push('scope-write'); return { ok: true, count: dto.oneCIds.length } },
-    scope: async () => { calls.push('scope-read'); return [] },
+    scopeForAgent: async () => { calls.push('scope-read'); return [] },
     productByOneCId: async id => { calls.push('product-read'); return { oneCId: id } },
     pending: async () => { calls.push('pending-read'); return { schemaVersion: 1, items: [] } },
     heartbeat: async dto => { calls.push('heartbeat'); return { ok: true } },

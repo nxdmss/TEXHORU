@@ -59,7 +59,7 @@ test('real HTTP returns JSON for both no current price update and a saved operat
     const readiness = await (await fetch(readinessUrl, { headers: { cookie } })).json()
     assert.equal(readiness.items.length, 1)
     assert.equal(readiness.items[0].status, 'BLOCKED')
-    assert.equal(readiness.items[0].reason, 'Не разрешён обмен с 1С')
+    assert.equal(readiness.items[0].reason, 'Нет привязки к 05.ru')
     const started = await fetch(base + '/admin/price-monitor/price-update', { method: 'POST',
       headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ productIds: [product.id] }) })
     assert.equal(started.status, 201)

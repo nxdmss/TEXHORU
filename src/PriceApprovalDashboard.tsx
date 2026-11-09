@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiProduct, type OneCPriceSyncStatus, type PriceReadiness, type PriceUpdateOperation } from './api'
-import { TestPriceScope } from './TestPriceScope'
 import { PriceMonitorPanel } from './PriceMonitorPanel'
 import { AdminIcon } from './AdminIcon'
 import './price-approval.css'
@@ -67,10 +66,9 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
   const [limit, setLimit] = useState(40)
   const [resultFilter, setResultFilter] = useState('ALL')
   const [toolsOpen, setToolsOpen] = useState(initialSetup)
-  const [setupStep, setSetupStep] = useState<'catalog' | 'scope' | 'links'>('catalog')
   const toolsRef = useRef<HTMLDetailsElement>(null)
   useEffect(() => {
-    if (initialSetup) { setToolsOpen(true); setSetupStep('catalog'); toolsRef.current?.scrollIntoView({ block: 'start' }) }
+    if (initialSetup) { setToolsOpen(true); toolsRef.current?.scrollIntoView({ block: 'start' }) }
   }, [initialSetup])
   const polling = useRef(false)
   const requestVersion = useRef(0)
@@ -159,13 +157,13 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
 
   return <section className="pu-root">
     <header className="pu-heading">
-      <div><span className="admin-section-kicker">05.ru → 1С → сайт</span><h2>Цены под контролем</h2><p>Выбери готовые. Остальное сделает агент.</p></div>
+      <div><span className="admin-section-kicker">05.ru → 1С → сайт</span><h2>Цены</h2></div>
       <div className="pu-main-action">
         <button type="button" className="pu-primary" onClick={() => void start()}
           disabled={locked || !chosen.length || !sync?.testPriceSyncEnabled}>
-          {busy && !checkStarting ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? `Обновить готовые (${chosen.length})` : `Обновить выбранные (${chosen.length})`}
+          {busy && !checkStarting ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? `Обновить все (${chosen.length})` : `Обновить выбранные (${chosen.length})`}
         </button>
-        <span>Сайт обновится после подтверждения 1С</span>
+        <span>После подтверждения 1С</span>
       </div>
     </header>
 
@@ -179,19 +177,19 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
     {error && <p className="pu-error" role="alert">{error}</p>}
     {notice && <p className="pu-note" role="status">{notice}</p>}
     <div className="pu-groups" aria-label="Группы товаров">
-      {([['READY', 'Готовы к обновлению'], ['PENDING', 'Ждут 1С'], ['BLOCKED', 'Нельзя обновить']] as const).map(([key, label]) =>
+      {([['READY', 'Готовы'], ['PENDING', 'Ждут 1С'], ['BLOCKED', 'Нужна проверка']] as const).map(([key, label]) =>
         <button type="button" key={key} className={group === key ? 'is-current' : ''} aria-pressed={group === key}
           onClick={() => { setGroup(key); setListOpen(true); setLimit(40) }}>
           <b>{items.filter(item => item.status === key).length}</b><span>{label}</span><AdminIcon name={key === 'READY' ? 'prices' : key === 'PENDING' ? 'sync' : 'audit'} />
         </button>)}
     </div>
     <div className="pu-check-action"><button type="button" disabled={locked || !readiness?.authorized}
-      onClick={() => void checkPrices()}>{checkStarting || readiness?.checking ? 'Проверяем цены…' : 'Проверить цены разрешённых'}</button>
-      <small>{readiness?.authorized ?? 0} товаров · только разрешённые</small>
+      onClick={() => void checkPrices()}>{checkStarting || readiness?.checking ? 'Проверяем цены…' : 'Проверить цены'}</button>
+      <small>Из 1С: {readiness?.authorized ?? 0}</small>
       <button className="pu-connect-button" type="button" onClick={() => {
-        setToolsOpen(true); setSetupStep('catalog')
+        setToolsOpen(true)
         toolsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }}><AdminIcon name="plus" />Подключить товары</button></div>
+      }}><AdminIcon name="plus" />Связи с 05.ru</button></div>
 
     {priceCheck && <section className={'pu-price-check' + (checkWarning ? ' has-warning' : '')} aria-label="Результат проверки цен 05.ru">
       <div className="pu-status-line"><strong role="status">{priceCheck.status === 'QUEUED' ? 'Проверка цен в очереди'
@@ -204,14 +202,14 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       {checkActive && <progress aria-label="Проверка карточек 05.ru" max={Math.max(1, priceCheck.perPage)} value={priceCheck.processed} />}
       <div className="pu-check-counts"><span>Обработано: <b>{priceCheck.processed} из {priceCheck.perPage}</b></span>
         {priceCheck.errors > 0 && <span>Ошибок: <b>{priceCheck.errors}</b></span>}
-        {!checkActive && <><span>Готовы к обновлению: <b>{eligible.length}</b></span>
+        {!checkActive && <><span>Готовы: <b>{eligible.length}</b></span>
           {currentPrices > 0 && <span>Цена уже актуальна: <b>{currentPrices}</b></span>}</>}
       </div>
       {priceCheck.lastError && <><p className="pu-check-error">{checkError(priceCheck.lastError)}</p>
         <details className="pu-check-details"><summary>Причина и подробности</summary><pre>{priceCheck.lastError}</pre></details></>}
       {!checkActive && !checkWarning && <p className="pu-check-hint">{eligible.length ? 'Можно отправить готовые цены в 1С.'
-        : currentPrices > 0 ? 'Актуальные цены повторно отправлять не нужно. Остальные причины — в группе «Нельзя обновить».'
-        : 'Готовых изменений нет. Открой «Нельзя обновить», чтобы увидеть причины.'}</p>}
+        : currentPrices > 0 ? 'Актуальные цены повторно отправлять не нужно. Остальные причины — в группе «Нужна проверка».'
+        : 'Готовых изменений нет. Открой «Нужна проверка», чтобы увидеть причины.'}</p>}
       {unavailable && <p className="pu-check-error">Не удалось получить свежий результат. Проверяем связь с сайтом.</p>}
     </section>}
 
@@ -271,46 +269,28 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
           {p.reason && <span className="pu-short-reason" title={p.reason}>{shortReason(p.reason)}</span>}</span>
         <b>{rub(p.oldPrice)}{p.newPrice !== null && p.newPrice !== p.oldPrice && <> → {rub(p.newPrice)}</>}</b>
       </label>)}</div>
-      {!visible.length && <p className="pu-note">{group === 'READY' ? 'Готовых товаров нет. Проверь цены разрешённых или открой причины пропуска.' : 'Товаров в этой группе нет.'}</p>}
+      {!visible.length && <p className="pu-note">{group === 'READY' ? 'Готовых товаров нет. Проверь цены или открой причины.' : 'Товаров в этой группе нет.'}</p>}
       {visible.length > limit && <button type="button" className="pu-more" onClick={() => setLimit(value => value + 40)}>Показать ещё {Math.min(40, visible.length - limit)}</button>}
     </details>
 
     <details className="pu-advanced" ref={toolsRef} open={toolsOpen} onToggle={e => setToolsOpen(e.currentTarget.open)}>
-      <summary>Подключение товаров <span>1С · допуск · 05.ru</span></summary>
+      <summary>Связи с 05.ru</summary>
       {toolsOpen && <div className="pu-setup">
-        <nav className="pu-steps" aria-label="Шаги подключения товаров">
-          {([['catalog', 'Товары из 1С'], ['scope', 'Допуск к обмену'], ['links', 'Карточки 05.ru']] as const).map(([key, title], i) =>
-            <button type="button" key={key} aria-current={setupStep === key ? 'step' : undefined}
-              onClick={() => setSetupStep(key)}><b>{String(i + 1).padStart(2, '0')}</b><span>{title}</span></button>)}
-        </nav>
-        {setupStep === 'catalog' && <section className="pu-import-guide" aria-label="Добавление товаров из 1С">
-          <div className="pu-import-icon"><AdminIcon name="products" /></div>
-          <h3>Новые товары? Начни в 1С.</h3>
-          <p>В обработке выгрузки TEST выбери нужную группу и отправь каталог на этот сайт. Повторная выгрузка обновит существующие товары.</p>
-          <div className="pu-import-address"><span>Адрес сайта</span><code>{window.location.hostname}</code></div>
-          <details><summary>Где указать адрес и ключ?</summary><p>В обработке выгрузки каталога укажи этот хост вместо старого ngrok и ключ обмена с облачным сервером. В некоторых версиях обработки хост задан в модуле формы. Агент цен получает задания, а каталог отправляется отдельной выгрузкой.</p></details>
-          <div className="pu-import-actions"><button type="button" disabled={loading || busy} onClick={async () => {
+        <PriceMonitorPanel products={inventory} initialPath={category} />
+        <details className="pu-import-help"><summary>Добавить товары из 1С</summary>
+          <p>Выгрузи нужную группу из TEST на этот сайт. Все товары подключатся автоматически.</p>
+          <div className="pu-import-address"><span>Адрес</span><code>{window.location.hostname}</code></div>
+          <button type="button" disabled={loading || busy} onClick={async () => {
             setBusy(true); setError('')
-            try { await onInventoryRefresh(); await load(); setNotice('Каталог обновлён. Выбери товары для обмена.'); setSetupStep('scope') }
+            try { await onInventoryRefresh(); await load(); setNotice('Список товаров обновлён.') }
             catch (e) { setError(e instanceof Error ? e.message : 'Не удалось обновить каталог') }
             finally { setBusy(false) }
-          }}>Я выгрузил — обновить каталог <AdminIcon name="refresh" /></button>
-          <button type="button" onClick={() => setSetupStep('scope')}>Товары уже на сайте <AdminIcon name="arrow" /></button></div>
-          <small>В каталоге из 1С: {inventory.filter(p => p.oneCId).length}</small>
-        </section>}
-        {setupStep === 'scope' && sync && <>
-          <TestPriceScope products={inventory} scope={sync.scope} enabled={!!sync.testPriceSyncEnabled}
-            disabled={locked} path={category} onChanged={load} />
-          <div className="pu-step-next"><button type="button" onClick={() => setSetupStep('links')}>Далее: карточки 05.ru <AdminIcon name="arrow" /></button></div>
-        </>}
-        {setupStep === 'links' && <>
-          <PriceMonitorPanel products={inventory} initialPath={category} />
-          <div className="pu-step-next"><button type="button" onClick={() => { setToolsOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Готово — к обновлению цен <AdminIcon name="arrow" /></button></div>
-        </>}
+          }}>Обновить список</button>
+        </details>
       </div>}
     </details>
     <details className="pu-rule"><summary>Как обновляются цены</summary>
-      <p>Кнопка обновляет все готовые товары или только выбранные. Разрешения не меняются автоматически. Для подтверждённых совпадений используем свежую цену 05.ru минус 100 ₽. Другая память, цвет или состояние требуют проверки. В TEST ограничение изменения 10% временно отключено. Цена сайта меняется после подтверждения 1С.</p>
+      <p>Все товары из TEST 1С подключены автоматически. Цена — 05.ru минус 100 ₽. Сайт обновляется после ответа 1С.</p>
     </details>
   </section>
 }

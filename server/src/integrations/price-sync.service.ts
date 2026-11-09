@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnApplicationBootstrap } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { OneCAgentHeartbeatDto, PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
+import { automaticTestCatalogScope } from './test-catalog-policy'
 
 /**
  * Restricted, pull-based retail price exchange.
@@ -9,21 +10,32 @@ import { OneCAgentHeartbeatDto, PriceSyncReceiptsDto, PriceSyncScopeDto } from '
  * site-originated changes. No updates to 1C happen from the web server itself.
  */
 @Injectable()
-export class OneCPriceSyncService {
+export class OneCPriceSyncService implements OnApplicationBootstrap {
   constructor(private readonly prisma: PrismaService) {}
+
+  async onApplicationBootstrap() {
+    if (!automaticTestCatalogScope()) return
+    await this.prisma.$transaction(async tx => {
+      const added = await tx.product.updateMany({
+        where: { oneCId: { not: null }, status: 'ACTIVE', priceSyncEnabled: false }, data: { priceSyncEnabled: true },
+      })
+      if (added.count) await tx.syncLog.create({ data: { direction: 'FROM_1C', entity: 'PRICE_SYNC_SCOPE', status: 'SUCCESS',
+        message: `Товары TEST подключены автоматически: ${added.count}. Цены не изменялись.` } })
+    })
+  }
 
   async configureScope(dto: PriceSyncScopeDto) {
     return this.prisma.$transaction(async tx => {
       const active = await tx.product.findMany({ where: { oneCId: { in: dto.oneCIds }, status: 'ACTIVE' } })
       if (active.length !== dto.oneCIds.length) throw new BadRequestException('Некоторые товары ещё не загружены из 1С или скрыты')
-      // Explicitly approved product GUIDs only. The pilot can cover different
-      // categories, but never changes products that 1C did not opt into.
+      // Legacy processors may configure one session explicitly. An automatic
+      // TEST catalog keeps other imported GUIDs eligible.
       if (active.some(p => !p.oneCId || p.price < 1 || p.price > 5_000_000)) {
         throw new BadRequestException('Каждый выбранный товар должен иметь GUID 1С и допустимую розничную цену')
       }
       const pending = await tx.oneCPriceChange.count({ where: { status: 'PENDING' } })
       if (pending) throw new ConflictException('Есть незавершённая передача цены в 1С. Сначала выполни обмен')
-      await tx.product.updateMany({ where: { priceSyncEnabled: true }, data: { priceSyncEnabled: false } })
+      if (!automaticTestCatalogScope()) await tx.product.updateMany({ where: { priceSyncEnabled: true }, data: { priceSyncEnabled: false } })
       const updated = await tx.product.updateMany({
         where: { id: { in: active.map(p => p.id) } }, data: { priceSyncEnabled: true },
       })
@@ -45,7 +57,7 @@ export class OneCPriceSyncService {
         }
         const additions = active.filter(p => !p.priceSyncEnabled)
         const existing = await tx.product.count({ where: { priceSyncEnabled: true } })
-        if (existing + additions.length > 30) {
+        if (!automaticTestCatalogScope() && existing + additions.length > 30) {
           throw new BadRequestException(`В TEST разрешено до 30 товаров. Сейчас включено ${existing}, свободно ${Math.max(0, 30 - existing)}.`)
         }
         if (additions.length) {
@@ -85,6 +97,17 @@ export class OneCPriceSyncService {
     })
   }
 
+  /** Older EPF builds accept at most 30 GUIDs per session. Match the pending FIFO window. */
+  async scopeForAgent() {
+    const rows = await this.prisma.oneCPriceChange.findMany({
+      where: { status: 'PENDING' }, include: { product: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 30,
+    })
+    const products = new Map(rows.filter(row => row.product.priceSyncEnabled && row.product.status === 'ACTIVE')
+      .map(row => [row.product.id, row.product]))
+    return [...products.values()].map(p => ({ id: p.id, oneCId: p.oneCId, name: p.name, price: p.price, stockQty: p.stockQty }))
+  }
+
   /** An unacknowledged 1C price must not be blindly overwritten by an older catalog snapshot. */
   static async incomingPrice(tx: Prisma.TransactionClient, productId: number, currentSitePrice: number, incomingPrice: number) {
     const pending = await tx.oneCPriceChange.findFirst({
@@ -110,12 +133,12 @@ export class OneCPriceSyncService {
 
   async pending() {
     const rows = await this.prisma.oneCPriceChange.findMany({
-      where: { status: 'PENDING' }, include: { product: true }, orderBy: { createdAt: 'asc' }, take: 10,
+      where: { status: 'PENDING' }, include: { product: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 10,
     })
     const items = []
     for (const row of rows) {
       const expectedSitePrice = row.sourceLinkId ? row.oldPrice : row.newPrice
-      if (!row.product.priceSyncEnabled || row.product.oneCId !== row.oneCId || row.product.price !== expectedSitePrice) {
+      if (!row.product.priceSyncEnabled || row.product.status !== 'ACTIVE' || row.product.oneCId !== row.oneCId || row.product.price !== expectedSitePrice) {
         await this.prisma.oneCPriceChange.updateMany({ where: { id: row.id, status: 'PENDING' },
           data: { status: 'CANCELLED', lastError: 'Товар больше не входит в пилот или цена сайта изменилась' },
         })
