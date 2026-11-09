@@ -75,7 +75,7 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen }: {
     <span className="product-card__stock">{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
     <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
       onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
-      <Icon name="cart" /><span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span>
+      <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'Добавить в корзину'}</span>
     </button>
   </article>
 }
