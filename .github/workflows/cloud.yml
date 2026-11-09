@@ -1,10 +1,10 @@
 name: Cloud deployment
 on:
   pull_request:
-    paths: ['deploy/**', 'server/**', 'src/**', 'public/**', 'package*.json', 'scripts/export-cloud-data.mjs', '.dockerignore', '.github/workflows/cloud.yml', 'tests/cloud-*.mjs']
+    paths: ['deploy/**', 'server/**', 'src/**', 'public/**', 'package*.json', 'scripts/export-cloud-*.mjs', '.dockerignore', '.github/workflows/cloud.yml', 'tests/cloud-*.mjs']
   push:
     branches: [main]
-    paths: ['deploy/**', 'server/**', 'src/**', 'public/**', 'package*.json', 'scripts/export-cloud-data.mjs', '.dockerignore', '.github/workflows/cloud.yml', 'tests/cloud-*.mjs']
+    paths: ['deploy/**', 'server/**', 'src/**', 'public/**', 'package*.json', 'scripts/export-cloud-*.mjs', '.dockerignore', '.github/workflows/cloud.yml', 'tests/cloud-*.mjs']
 jobs:
   cloud-smoke:
     runs-on: ubuntu-latest
