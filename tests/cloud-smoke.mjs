@@ -136,6 +136,32 @@ try {
   })
   assert.equal((await request('/api/auth/login', { method: 'POST', body: { email, password: changedPassword } })).status, 201, 'operator command must work in an existing image without a rebuild')
   assert.equal((await request('/api/auth/login', { method: 'POST', body: { email, password } })).status, 401)
+  // Run the host-supplied catalog helper in the existing non-root production image.
+  // Use separate /tmp target data; the running site's database is read-only here.
+  docker('exec', app, 'node', '-e', readFileSync('deploy/cloud/catalog-transfer.cjs', 'utf8') + `
+    ;(async()=>{
+      const assert=require('node:assert/strict');
+      const {spawnSync}=require('node:child_process');
+      const {PrismaClient}=require('@prisma/client');
+      const folder='/tmp/catalog-smoke'; fs.mkdirSync(folder,{recursive:true});
+      const source=new DatabaseSync('/data/texhoru.db',{readOnly:true});
+      const payload=exportCatalogRows(source);source.close();
+      fs.writeFileSync(folder+'/catalog.json',JSON.stringify(payload));
+      fs.writeFileSync(folder+'/manifest.json',JSON.stringify({format:payload.format,sha256:sha256(folder+'/catalog.json')}));
+      fs.cpSync('/uploads',folder+'/uploads',{recursive:true});
+      const file='/tmp/catalog-target.db';
+      const push=spawnSync(process.execPath,[require.resolve('prisma/build/index.js'),'db','push','--schema=/app/server/prisma/schema.local.prisma','--skip-generate'],{env:{...process.env,DATABASE_URL:'file:'+file},encoding:'utf8'});
+      if(push.status!==0)throw Error(push.stdout+push.stderr);
+      const target=new PrismaClient({datasources:{db:{url:'file:'+file}}});
+      await target.user.create({data:{email:'preserved@example.org',name:'Preserved',role:'DIRECTOR',passwordHash:'cloud-password-unchanged'}});
+      await target.$disconnect();
+      const result=importCatalog(folder,file,'/tmp/catalog-target-uploads');
+      assert.equal(result.products,1);
+      const check=new DatabaseSync(file,{readOnly:true});
+      assert.equal(check.prepare('SELECT passwordHash FROM User').get().passwordHash,'cloud-password-unchanged');
+      assert.equal(check.prepare('SELECT COUNT(*) n FROM OneCPriceChange').get().n,0);check.close();
+    })().catch(e=>{console.error(e.message);process.exitCode=1})
+  `)
   console.log('PASS: production image, verified Caddy TLS, secure login, 1C API authentication/import, persistent catalog/uploads, non-resetting admin and Chromium. No live 1C or 05.ru exercised.')
 } finally {
   agent?.destroy()

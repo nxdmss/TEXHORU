@@ -41,6 +41,18 @@ case "${1:-status}" in
     fi
     unset password repeated
     echo 'Готово. Выйди из кабинета и войди новым паролем. Сайт перезапускать не нужно.' ;;
+  import-catalog)
+    source=$(realpath -e "${2:?Укажи папку catalog-transfer}")
+    [[ -f $source/manifest.json && -f $source/catalog.json ]] || { echo 'Папка каталога не найдена.'; exit 1; }
+    exec 9>/var/lock/texhoru-deploy.lock
+    flock -n 9 || { echo 'Установка или обновление уже идёт.'; exit 1; }
+    "${compose[@]}" stop app
+    trap '"${compose[@]}" up -d --wait --wait-timeout 180' EXIT
+    code=$(cat deploy/cloud/catalog-transfer.cjs)
+    code+=$'\ntry { console.log("Catalog imported:", importCatalog("/transfer", "/data/texhoru.db", "/uploads")) } catch (e) { console.error(e.message); process.exitCode=1 }'
+    "${compose[@]}" run --rm --no-deps --entrypoint=node --volume "$source:/transfer:ro" app -e "$code"
+    chown -R 1000:1000 /var/lib/texhoru/uploads
+    echo 'Товары и привязки перенесены. Облачные пользователи, пароль и ключ 1С сохранены.' ;;
   import-data)
     source=$(realpath -e "${2:?Укажи папку cloud-transfer}")
     [[ -f $source/manifest.json && -f $source/database.db ]] || { echo 'Не найдена папка переноса.'; exit 1; }
@@ -48,7 +60,7 @@ case "${1:-status}" in
     flock -n 9 || { echo 'Установка или обновление уже идёт.'; exit 1; }
     "${compose[@]}" stop app
     trap '"${compose[@]}" up -d --wait --wait-timeout 180' EXIT
-    "${compose[@]}" run --rm --no-deps --user=0 --entrypoint=node --volume "$source:/transfer:ro" app /app/deploy/cloud/import.mjs
+    "${compose[@]}" run --rm --no-deps --entrypoint=node --volume "$source:/transfer:ro" app /app/deploy/cloud/import.mjs
     chown -R 1000:1000 /var/lib/texhoru/uploads
     echo 'Перенос завершён. Исходная папка оставлена у владельца; автоматических бэкапов нет.' ;;
   update)
@@ -68,5 +80,5 @@ case "${1:-status}" in
     # never container volumes or database files, is eligible here.
     docker builder prune --force --filter until=24h --keep-storage 1GB || echo 'Очистка кэша сборки отложена.'
     echo 'Обновлено. Проверить: sudo texhoru status' ;;
-  *) echo 'Команды: status | logs | start | stop | restart | update | credentials | set-admin-password [EMAIL] | import-data ПАПКА'; exit 1 ;;
+  *) echo 'Команды: status | logs | start | stop | restart | update | credentials | set-admin-password [EMAIL] | import-catalog ПАПКА | import-data ПАПКА'; exit 1 ;;
 esac

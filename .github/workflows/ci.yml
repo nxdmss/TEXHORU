@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./tests/agent-cloud-endpoint.test.ps1
-      - run: node --test tests/catalog-groups.test.mjs tests/demo-launcher.test.mjs tests/cloud-transfer.test.mjs
+      - run: node --test tests/catalog-groups.test.mjs tests/demo-launcher.test.mjs tests/cloud-transfer.test.mjs tests/cloud-catalog-transfer.test.mjs
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor
