@@ -2164,12 +2164,12 @@ test('Business price-list import links 1C products safely, never claims 05.ru ve
   ] }), /05.ru/)
 })
 
-test('05.ru parser uses headless installed Edge on Windows or Playwright Chromium elsewhere', async () => {
+test('05.ru parser launches the headless shell even when the full Chromium executable path is absent', async () => {
   const parser = new FiveRuParser()
   const oldPath = chromium.executablePath
   const oldLaunch = chromium.launch
   let options
-  chromium.executablePath = () => process.execPath
+  chromium.executablePath = () => '/missing/full-chromium/chrome'
   chromium.launch = async launchOptions => {
     options = launchOptions
     return { close: async () => {} }
@@ -2194,8 +2194,8 @@ test('Missing browser reports a clear error without downloading Chromium', async
   chromium.executablePath = () => 'Z:\\missing\\playwright\\chromium.exe'
   chromium.launch = async options => { launches.push(options); throw new Error('Browser unavailable') }
   try {
-    await assert.rejects(() => parser.browser(), /Не найден браузер для фонового парсера/)
-    assert.equal(launches.length, process.platform === 'win32' ? 1 : 0)
+    await assert.rejects(() => parser.browser(), /Не удалось запустить браузер фонового парсера 05.ru/)
+    assert.equal(launches.length, process.platform === 'win32' ? 2 : 1)
     if (process.platform === 'win32') assert.equal(launches[0].channel, 'msedge')
   } finally {
     chromium.executablePath = oldPath

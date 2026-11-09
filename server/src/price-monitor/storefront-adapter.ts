@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException, Injectable, OnModuleDestroy } from '@nestjs/common'
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
-import { existsSync } from 'node:fs'
+import type { Browser, BrowserContext, Page } from 'playwright'
+import { launchParserBrowser } from './browser-runtime'
 import { identity, normalize, type Identity } from './product-matching'
 
 export type StoreKey = '05ru' | 'mvideo' | 'dns'
@@ -226,13 +226,7 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
   normalizeProductUrl(raw: string) { return normalizeRetailerProductUrl(raw, this.config) }
 
   private async browser() {
-    if (process.platform === 'win32') {
-      try { return await chromium.launch({ channel: 'msedge', headless: true }) } catch {}
-    }
-    if (!existsSync(chromium.executablePath())) {
-      throw new Error('Не найден браузер фонового парсера. Установи Microsoft Edge или выполни установку TEXHORU.')
-    }
-    return chromium.launch({ headless: true })
+    return launchParserBrowser(this.name)
   }
 
   private async withBrowser<T>(operation: (browser: Browser) => Promise<T>): Promise<T> {

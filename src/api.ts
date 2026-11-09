@@ -114,6 +114,8 @@ export type PriceApprovalPreview = {
 }
 export type PriceReadiness = {
   authorized: number; checking: boolean;
+  priceCheck?: { id: string; status: string; perPage: number; processed: number; errors: number;
+    lastError: string | null; createdAt: string; finishedAt: string | null } | null;
   items: Array<{ productId: number; name: string; categoryPath: string; authorized: boolean;
     oldPrice: number; newPrice: number | null; status: 'READY' | 'PENDING' | 'BLOCKED'; reason: string | null }>;
 }

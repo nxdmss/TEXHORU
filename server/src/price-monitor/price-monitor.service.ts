@@ -1017,12 +1017,24 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
 
   async priceReadiness() {
     // Database-only classification. Opening this screen never starts a parser.
-    const [snapshot, products, pending, checking] = await Promise.all([
+    const [snapshot, products, pending, activeCheck, lastCheck] = await Promise.all([
       this.bulkPriceSnapshot(this.prisma, '', true),
       this.prisma.product.findMany({ where: { oneCId: { not: null }, status: 'ACTIVE' }, include: { category: true }, orderBy: { id: 'asc' } }),
       this.prisma.oneCPriceChange.findMany({ where: { status: 'PENDING' } }),
-      this.prisma.monitorJob.count({ where: { kind: 'RECHECK', status: { in: ['QUEUED', 'RUNNING'] } } }),
+      this.prisma.monitorJob.findFirst({
+        where: { kind: 'RECHECK', status: { in: ['QUEUED', 'RUNNING'] }, OR: [{ sourceKey: '05ru' }, { sourceKey: null }] },
+        orderBy: [{ status: 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, status: true, perPage: true, processed: true, errors: true,
+          lastError: true, createdAt: true, finishedAt: true },
+      }),
+      this.prisma.monitorJob.findFirst({
+        where: { kind: 'RECHECK', OR: [{ sourceKey: '05ru' }, { sourceKey: null }] },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, status: true, perPage: true, processed: true, errors: true,
+          lastError: true, createdAt: true, finishedAt: true },
+      }),
     ])
+    const priceCheck = activeCheck || lastCheck
     const rows = new Map(snapshot.items.map(row => [row.productId, row]))
     const messages = new Map(pending.map(row => [row.productId, row]))
     const items = products.map(product => {
@@ -1036,7 +1048,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         status: message ? 'PENDING' as const : !reason ? 'READY' as const : 'BLOCKED' as const,
         reason: message ? message.lastError : reason }
     })
-    return { items, authorized: products.filter(product => product.priceSyncEnabled).length, checking: checking > 0 }
+    return { items, authorized: products.filter(product => product.priceSyncEnabled).length,
+      checking: !!activeCheck, priceCheck }
   }
 
   checkAllowedPrices() { return this.checkAll({ authorizedOnly: true }) }
@@ -1327,7 +1340,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(message)) {
           blocked = true
           deferred.push(url)
-          problems.push(url + ': сайт ограничил запросы, задача остановлена')
+          problems.push(url + ': сайт ограничил запросы, задача остановлена (' + message.slice(0, 300) + ')')
           continue
         }
         await this.prisma.competitorProduct.updateMany({

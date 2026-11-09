@@ -202,8 +202,63 @@ try {
       }
     }
   }
+  // A check can fail before the first five-second poll; its result must remain visible.
+  let priceCheck = null, checkStarts = 0
+  await context.route('**/api/admin/price-monitor/price-readiness', async route => {
+    const response = await route.fetch()
+    const body = await response.json()
+    if (priceCheck?.status === 'COMPLETED') {
+      body.items = body.items.map(item => item.productId !== products[0].id ? item : {
+        ...item, status: 'BLOCKED', newPrice: checkStarts === 3 ? item.oldPrice : item.newPrice,
+        reason: checkStarts === 3 ? 'Предлагаемая цена уже совпадает с текущей ценой TEXHORU'
+          : 'Последняя проверка завершилась ошибкой: Цена на странице не найдена; Цена 05.ru устарела: нужна успешная проверка не старше 24 часов',
+      })
+    }
+    await route.fulfill({ json: { ...body, checking: !!priceCheck && ['QUEUED', 'RUNNING'].includes(priceCheck.status), priceCheck } })
+  })
+  await context.route('**/api/admin/price-monitor/check-allowed-prices', route => {
+    checkStarts++
+    priceCheck = { id: randomUUID(), status: [2, 4].includes(checkStarts) ? 'RUNNING' : checkStarts === 3 ? 'COMPLETED' : 'FAILED',
+      perPage: 2, processed: checkStarts === 3 ? 2 : 0, errors: 0,
+      createdAt: new Date().toISOString(), finishedAt: [2, 4].includes(checkStarts) ? null : new Date().toISOString(),
+      lastError: checkStarts === 1 ? 'https://05.ru/cat/test/p/0/: сайт ограничил запросы, задача остановлена (HTTP 403)' : null }
+    return route.fulfill({ json: { queued: 2 } })
+  })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole('button', { name: 'Цены', exact: true }).click()
+  await page.getByRole('button', { name: 'Проверить цены разрешённых', exact: true }).click()
+  const checkPanel = page.getByRole('region', { name: 'Результат проверки цен 05.ru', exact: true })
+  await checkPanel.getByText('Проверка цен остановлена', { exact: true }).waitFor()
+  await checkPanel.getByText('05.ru ограничил доступ к карточкам (HTTP 403).', { exact: true }).waitFor()
+  assert(await page.getByRole('button', { name: 'Проверить цены разрешённых', exact: true }).isEnabled())
+  assert.equal(await page.locator('.pu-advanced .mp-shell').count(), 0, 'failure must be visible without opening technical tools')
+  await page.reload()
+  await page.getByRole('button', { name: 'Цены', exact: true }).click()
+  await checkPanel.getByText('Проверка цен остановлена', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Проверить цены разрешённых', exact: true }).click()
+  await checkPanel.getByText('Проверяем цены 05.ru', { exact: true }).waitFor()
+  assert(await page.getByRole('button', { name: 'Проверяем цены…', exact: true }).isDisabled())
+  priceCheck = { ...priceCheck, status: 'COMPLETED', processed: 2, errors: 1,
+    lastError: 'https://05.ru/cat/test/p/0/: Цена на странице не найдена', finishedAt: new Date().toISOString() }
+  await checkPanel.getByText('Проверка завершена с замечаниями', { exact: true }).waitFor({ timeout: 12000 })
+  await page.getByRole('button', { name: /Нельзя обновить/ }).click()
+  await page.getByText('Ошибка проверки 05.ru', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Проверить цены разрешённых', exact: true }).click()
+  await checkPanel.getByText('Цены 05.ru проверены', { exact: true }).waitFor()
+  assert.match(await checkPanel.innerText(), /Цена уже актуальна: 1/)
+  await page.getByRole('button', { name: 'Проверить цены разрешённых', exact: true }).click()
+  priceCheck = { ...priceCheck, status: 'COMPLETED', processed: 2, errors: 2,
+    lastError: 'Не удалось проверить 05.ru: Не найден браузер для фонового парсера 05.ru. На Windows установи Microsoft Edge и перезапусти TEXHORU.',
+    finishedAt: new Date().toISOString() }
+  await checkPanel.getByText('Не удалось запустить браузер проверки на сервере.', { exact: true }).waitFor({ timeout: 20000 })
+  await page.setViewportSize({ width: 390, height: 844 })
+  assert(await page.locator('.pu-root').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'check result overflows on mobile')
+  if (process.env.SCREENSHOT_PATH) {
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.screenshot({ path: process.env.SCREENSHOT_PATH.replace('.png', '-check-result.png'), fullPage: true })
+  }
   assert.deepEqual(errors, [])
-  console.log('PASS: readiness groups, permitted-only updates, receipt-only success, cancellation, responsive admin navigation and three-step product setup with real scope grant. Matching tools load only when opened. Workflow HTTP responses are mocked; persistence is tested in backend suite.')
+  console.log('PASS: readiness groups, permitted-only updates, receipt-only success, product setup, visible fast recheck failure/reload, progress, per-card errors and unchanged prices. Workflow and recheck transitions are mocked; persistence is tested in backend suite.')
 
 } finally {
   await browser?.close()
