@@ -1137,7 +1137,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
   private async queueAutoFindForSource(dto: AutoFindOneCSectionDto, sourceKey: StoreKey, path: string, limit: number) {
     const imported = await this.prisma.product.findMany({
-      where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
+      where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 }, ...(dto.onlyAllowed ? { priceSyncEnabled: true } : {}) },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
     const scoped = imported.filter(p => p.stockQty > p.reservedQty

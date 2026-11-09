@@ -2827,6 +2827,24 @@ test('No-match classification requires completed, error-free discovery', () => {
   assert.equal(canDeclareNoMatch([{ ...complete, rejectedCards: ['HTTP 429'] }]), false)
 })
 
+test('Matching can search only explicitly permitted products; full catalog remains an explicit choice', async () => {
+  const seed = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Allowed matching ' + seed, slug: seed } })
+  const make = (priceSyncEnabled) => prisma.product.create({ data: {
+    name: 'Кабель Hoco X90 белый', brand: 'Hoco', oneCId: randomUUID(), slug: randomUUID(), sku: randomUUID(),
+    categoryId: category.id, price: 500, stockQty: 1, priceSyncEnabled,
+  } })
+  const allowed = await make(true), unapproved = await make(false)
+  const monitor = new PriceMonitorService(prisma, {}, new MonitorExchangeService(prisma))
+  const limited = await monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 30, onlyAllowed: true })
+  assert.deepEqual(limited.pendingUrls, ['product:' + allowed.id])
+  await monitor.cancelJob(limited.id)
+  const full = await monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 30, onlyAllowed: false })
+  assert.deepEqual(full.pendingUrls, ['product:' + allowed.id, 'product:' + unapproved.id])
+  await monitor.cancelJob(full.id)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: unapproved.id } })).priceSyncEnabled, false)
+})
+
 test('Negative matches are excluded from bulk and can be manually searched again', async () => {
   const id = randomUUID()
   const categoryPath = 'NO MATCH ' + id

@@ -72,6 +72,7 @@ function SourceEvidence({ item }: { item: PriceMonitorItem }) {
 
 export function PriceMonitorPanel({ products, initialPath }: { products: ApiProduct[]; initialPath?: string }) {
   const [stock, setStock] = useState<ApiProduct[]>(products)
+  const [onlyAllowed, setOnlyAllowed] = useState(true)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
   const [outcomes, setOutcomes] = useState<MatchOutcome[]>([])
@@ -122,7 +123,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     void refresh(true).catch(e => { if (mounted) setError(e.message) })
     let ticks = 0
     const timer = window.setInterval(() => {
-      if (polling.current) return
+      if (polling.current || document.hidden) return
       polling.current = true
       void refresh(++ticks % 3 === 0).catch(e => { if (mounted) setError(e.message) })
         .finally(() => { polling.current = false })
@@ -145,8 +146,9 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   const sourceName = '05.ru'
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
+    && (!onlyAllowed || product.priceSyncEnabled)
     && product.price > 0 && product.stockQty > (product.reservedQty || 0)
-  ), [stock])
+  ), [stock, onlyAllowed])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
   ), [phones, path])
@@ -202,7 +204,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   const belongsToSelectedSource = (job: MonitorJob) => job.sourceKey === sourceKey || (sourceKey === '05ru' && !job.sourceKey)
   const last = jobs.find(j => j.kind === 'MATCH_1C' && belongsToSelectedSource(j))
   const lastRecheck = jobs.find(j => j.kind === 'RECHECK' && belongsToSelectedSource(j))
-  const unlinked = items.filter(i => i.source.key === sourceKey && (!i.product?.oneCId || !phones.some(p => p.id === i.product?.id)))
+  const unlinked = onlyAllowed ? [] : items.filter(i => i.source.key === sourceKey && (!i.product?.oneCId || !phones.some(p => p.id === i.product?.id)))
   const level = pathSegments(path)
   // Searching filters tiles only; never widen a price-changing scope silently.
   const displayPath = path
@@ -210,10 +212,10 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
     await run('match', async () => {
-      const number = Math.min(5000, phones.length)
+      const number = Math.min(5000, scopedPhones.length)
       if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
       const needsCatalogIndex = number > 40
-      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru')
+      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru', onlyAllowed)
       setNotice((needsCatalogIndex
         ? '05.ru: общий индекс смартфонов и сопоставление с 1С. '
         : '05.ru: быстрый поиск без полного обхода каталога. ')
@@ -364,8 +366,13 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   }
 
   return <div className="mp-shell">
+    <div className="mp-scope-switch" aria-label="Область поиска карточек">
+      <button type="button" aria-pressed={onlyAllowed} disabled={Boolean(busy) || Boolean(active)} onClick={() => setOnlyAllowed(true)}>Для обмена</button>
+      <button type="button" aria-pressed={!onlyAllowed} disabled={Boolean(busy) || Boolean(active)} onClick={() => setOnlyAllowed(false)}>Весь каталог</button>
+      <span>{onlyAllowed ? 'Только разрешённые в 1С' : 'Все товары из 1С'}</span>
+    </div>
     <header className="mp-top">
-      <div><h2>Связи с 05.ru</h2><p>Найди для каждого товара правильную карточку магазина.</p></div>
+      <div><h2>Карточки 05.ru</h2><p>Модель, память, цвет и состояние должны совпадать.</p></div>
       <div className="mp-top-count"><b>{phones.length}</b><span>товаров из 1С</span></div>
     </header>
 
@@ -377,12 +384,11 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     </div>
 
     <div className="mp-toolbar">
-      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !phones.length}
+      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !scopedPhones.length}
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Ищем…' : 'Найти карточки товаров на 05.ru'}</button>
       <input aria-label="Найти товар" placeholder="Название товара…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <p className="mp-helper">Если товар уже связан, цены обновляются кнопкой «Проверить цены» выше.
-      Если связь неверная, открой карточку и исправь её. Это не меняет розничные цены.</p>
+    <details className="mp-helper"><summary>Как искать быстрее?</summary><p>Открой нужный раздел ниже перед поиском. Поиск связывает карточки и не меняет розничные цены. Для готовых связей используй проверку цен в основной панели.</p></details>
     {active && <div className="mp-progress" role="status">
       <span>{activeIsIndex
         ? (active.kind === 'INDEX_05RU_SMARTPHONES' ? 'Сбор каталога смартфонов 05.ru' : 'Сбор каталога 05.ru')

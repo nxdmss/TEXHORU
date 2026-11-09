@@ -33,6 +33,7 @@ export class AutoFindOneCSectionDto {
   @IsOptional() @IsBoolean() indexCatalog?: boolean
   @IsOptional() @IsBoolean() onlyInStockSmartphones?: boolean
   @IsOptional() @IsBoolean() onlyUnlinked?: boolean
+  @IsOptional() @IsBoolean() onlyAllowed?: boolean
 }
 
 // Site-only manual price update, guarded by current values and explicit risk acknowledgements.

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { categorySegments, categoryTree, childrenAtPath } from './onec-category-tree'
 import './AdminCategoryTree.css'
 import { browseLabel } from './catalog-navigation'
+import { AdminIcon } from './AdminIcon'
 
 type Props = {
   categoryNames: string[]
@@ -34,12 +35,12 @@ export function AdminCategoryTree({ categoryNames, productCategoryNames, selecte
     <div className="admin-tree-level" key={selectedPath || 'root'}>
       {folders.map(child => <button key={child.path} type="button" className="admin-tree-node"
         onClick={() => onSelect(child.path)}>
-        <span className="admin-tree-icon" aria-hidden="true">▣</span>
+        <span className="admin-tree-icon" aria-hidden="true"><AdminIcon name="products" /></span>
         <span className="admin-tree-label">{browseLabel(child.title)}</span>
         <span className="admin-tree-count">{count(child.path)}</span>
         <span className="admin-tree-arrow" aria-hidden="true">›</span>
       </button>)}
-      {!folders.length && <div className="admin-tree-leaf">{!total ? 'Каталог пока пуст. Загрузите реальную выгрузку 1С: группы и подгруппы появятся автоматически.' : 'В этой папке — товары. Выбери карточку справа.'}</div>}
+      {!folders.length && <div className="admin-tree-leaf">{!total ? 'Каталог пуст. Добавь товары через «Подключить из 1С».' : 'Товары — в карточках ниже.'}</div>}
     </div>
     {selectedPath && <button type="button" className="admin-tree-root" onClick={() => onSelect('')}>Все категории</button>}
   </nav>
