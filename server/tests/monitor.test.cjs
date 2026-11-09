@@ -2842,6 +2842,10 @@ test('Matching can search only explicitly permitted products; full catalog remai
   const full = await monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 30, onlyAllowed: false })
   assert.deepEqual(full.pendingUrls, ['product:' + allowed.id, 'product:' + unapproved.id])
   await monitor.cancelJob(full.id)
+  const selected = await monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 30, onlyAllowed: false, productIds: [unapproved.id] })
+  assert.deepEqual(selected.pendingUrls, ['product:' + unapproved.id], 'name filter sends explicit product IDs to the worker')
+  await monitor.cancelJob(selected.id)
+  await assert.rejects(() => monitor.autoFindOneCSection({ categoryPath: category.name, maxItems: 30, onlyAllowed: true, productIds: [unapproved.id] }), /Нет непривязанных товаров/, 'explicit IDs cannot bypass eligibility')
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: unapproved.id } })).priceSyncEnabled, false)
 })
 
@@ -3117,90 +3121,35 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: fresh[0].id } })).price, 70900)
 })
 
-test('TEST 1C catalog upload can grant price scope automatically, never writing prices or enabling admin JSON imports', async () => {
-  const importer = new IntegrationsService(prisma, {})
-  const sync = new OneCPriceSyncService(prisma)
-  const controller = new IntegrationsController(importer, sync)
-  const previousKind = process.env.ONE_C_BASE_KIND
-  const previousFlag = process.env.ONE_C_TEST_AUTO_PRICE_SCOPE
+test('all TEST imports are eligible by default, including admin files and batches larger than thirty', async () => {
+  const previousKind = process.env.ONE_C_BASE_KIND, previousEnabled = process.env.ONE_C_TEST_PRICE_SYNC_ENABLED
+  const previousLegacy = process.env.ONE_C_TEST_AUTO_PRICE_SCOPE
   const seed = randomUUID()
-  const category = { oneCId: 'AUTOSCOPE-CAT-' + seed,
-    name: 'TEST 1C автоматический допуск ' + seed, slug: 'test-onec-auto-' + seed }
-  const products = Array.from({ length: 5 }, (_, i) => ({
-    oneCId: randomUUID(), sku: 'AUTO-SCOPE-' + seed + '-' + i,
-    slug: 'auto-scope-' + seed + '-' + i, name: 'Тестовый товар автодопуска ' + i,
-    brand: 'Test', categoryOneCId: category.oneCId, price: 60000 + i * 100,
-    stockQty: 3, ...(i === 0 ? { costPrice: 45000 } : {}),
-  }))
-  const payload = { categories: [category], products }
-
+  const category = { oneCId: randomUUID(), name: 'Automatic TEST ' + seed, slug: seed }
+  const products = Array.from({ length: 45 }, (_, i) => ({ oneCId: randomUUID(), sku: seed + i,
+    slug: seed + '-' + i, name: 'TEST accessory ' + i, brand: 'Test', categoryOneCId: category.oneCId, price: i ? 1000 : 0, stockQty: 2 }))
+  const controller = new IntegrationsController(new IntegrationsService(prisma, {}), new OneCPriceSyncService(prisma))
   try {
-    // The server operator must deliberately opt in to a TEST 1C.
-    await prisma.product.updateMany({ where: { priceSyncEnabled: true }, data: { priceSyncEnabled: false } })
-    process.env.ONE_C_BASE_KIND = 'TEST'
-    process.env.ONE_C_TEST_AUTO_PRICE_SCOPE = 'false'
-    await controller.catalog(payload)
-    let scope = await sync.scope()
-    assert.equal(scope.length, 0, 'disabled mode must never grant a price scope')
-
-    process.env.ONE_C_TEST_AUTO_PRICE_SCOPE = 'true'
-    process.env.ONE_C_BASE_KIND = 'PRODUCTION'
-    await controller.catalog(payload)
-    scope = await sync.scope()
-    assert.equal(scope.length, 0, 'PRODUCTION 1C mode must never grant TEST price scope')
-
-    process.env.ONE_C_BASE_KIND = 'TEST'
-    await controller.manualCatalog(payload)
-    scope = await sync.scope()
-    assert.equal(scope.length, 0, 'admin JSON uploads must not inherit the 1C TEST auto-scope')
-
-    const imported = await controller.catalog(payload)
-    assert.equal(imported.autoPriceScope.enabled, 5)
-    assert.equal(imported.autoPriceScope.newlyEnabled, 5)
-    assert.equal(imported.autoPriceScope.skippedByLimit, 0)
-    assert.equal((await controller.priceSyncDashboard()).testAutoScopeOnCatalogImport, true)
-    scope = await sync.scope()
-    assert.deepEqual(new Set(scope.map(row => row.oneCId)), new Set(products.map(row => row.oneCId)))
-    assert.equal(await prisma.oneCPriceChange.count({
-      where: { product: { oneCId: { in: products.map(row => row.oneCId) } } },
-    }), 0, 'auto-grant must never enqueue a retail price update')
-
-    // Repeated and partial uploads preserve prior grants, GUIDs and verified cost.
-    const replay = await controller.catalog({ categories: [category],
-      products: [ { ...products[0], price: 60000, costPrice: undefined } ] })
-    assert.equal(replay.autoPriceScope.newlyEnabled, 0)
-    assert.equal((await sync.scope()).length, 5)
-    const knownCost = await prisma.product.findUniqueOrThrow({
-      where: { oneCId: products[0].oneCId },
-    })
-    assert.equal(knownCost.costPrice, 45000, 'missing cost must not erase verified cost')
-
-    // Incremental imports can add more TEST products but may never exceed 30.
-    const overflow = Array.from({ length: 28 }, (_, i) => ({
-      oneCId: randomUUID(), sku: 'AUTO-SCOPE-EXTRA-' + seed + '-' + i,
-      slug: 'auto-scope-extra-' + seed + '-' + i,
-      name: 'Дополнительный TEST товар ' + i, brand: 'Test',
-      categoryOneCId: category.oneCId, price: 70000, stockQty: 2,
-    }))
-    const next = await controller.catalog({ categories: [category], products: overflow })
-    assert.equal(next.products, overflow.length, 'all products must import even after scope capacity is reached')
-    assert.equal(next.autoPriceScope.enabled, 30)
-    assert.equal(next.autoPriceScope.newlyEnabled, 25)
-    assert.equal(next.autoPriceScope.skippedByLimit, 3)
-    assert.equal((await sync.scope()).length, 30)
-    assert.equal(await prisma.oneCPriceChange.count({
-      where: { product: { oneCId: { in: overflow.map(row => row.oneCId) } } },
-    }), 0)
-
+    process.env.ONE_C_BASE_KIND = 'PRODUCTION'; process.env.ONE_C_TEST_PRICE_SYNC_ENABLED = 'true'
+    await controller.catalog({ categories: [category], products })
+    assert.equal(await prisma.product.count({ where: { categoryId: (await prisma.category.findUnique({ where: { oneCId: category.oneCId } })).id, priceSyncEnabled: true } }), 0)
+    process.env.ONE_C_BASE_KIND = 'TEST'; process.env.ONE_C_TEST_PRICE_SYNC_ENABLED = 'false'
+    await controller.catalog({ categories: [category], products })
+    assert.equal((await prisma.product.findUnique({ where: { oneCId: products[0].oneCId } })).priceSyncEnabled, false)
+    process.env.ONE_C_TEST_PRICE_SYNC_ENABLED = 'true'; process.env.ONE_C_TEST_AUTO_PRICE_SCOPE = 'false'
+    const result = await controller.manualCatalog({ categories: [category], products })
+    assert.equal(result.autoPriceScope.newlyEnabled, 45)
+    assert.equal(result.autoPriceScope.skippedByLimit, 0)
+    assert.equal(await prisma.product.count({ where: { oneCId: { in: products.map(p => p.oneCId) }, priceSyncEnabled: true } }), 45)
+    assert.equal((await controller.catalog({ categories: [category], products })).autoPriceScope.newlyEnabled, 0)
+    assert.equal(await prisma.oneCPriceChange.count({ where: { oneCId: { in: products.map(p => p.oneCId) } } }), 0)
     assert.equal((await controller.priceSyncDashboard()).testAutoScopeOnCatalogImport, true)
   } finally {
-    if (previousKind === undefined) delete process.env.ONE_C_BASE_KIND
-    else process.env.ONE_C_BASE_KIND = previousKind
-    if (previousFlag === undefined) delete process.env.ONE_C_TEST_AUTO_PRICE_SCOPE
-    else process.env.ONE_C_TEST_AUTO_PRICE_SCOPE = previousFlag
+    for (const [key, value] of [['ONE_C_BASE_KIND', previousKind], ['ONE_C_TEST_PRICE_SYNC_ENABLED', previousEnabled], ['ONE_C_TEST_AUTO_PRICE_SCOPE', previousLegacy]]) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value
+    }
   }
 })
-
 
 test('Price preview scopes diagnostics to the selected section and blocks wrong storage, colour and used candidates', async () => {
   const id = randomUUID()

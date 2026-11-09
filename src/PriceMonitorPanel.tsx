@@ -6,7 +6,6 @@ const rub = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽'
 const prettyDate = (s?: string | null) => s ? new Date(s).toLocaleString('ru-RU') : '—'
 const pathSegments = (value: string) => value.split(' / ').map(s => s.trim()).filter(Boolean)
 const inPath = (category: string, path: string) => !path || category === path || category.startsWith(path + ' / ')
-const cleanName = (name: string) => name.replace(/^Фотография товара\s*/i, '').trim()
 
 function childrenAt(products: ApiProduct[], path: string) {
   const folders = new Map<string, number>()
@@ -72,7 +71,6 @@ function SourceEvidence({ item }: { item: PriceMonitorItem }) {
 
 export function PriceMonitorPanel({ products, initialPath }: { products: ApiProduct[]; initialPath?: string }) {
   const [stock, setStock] = useState<ApiProduct[]>(products)
-  const [onlyAllowed, setOnlyAllowed] = useState(true)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
   const [outcomes, setOutcomes] = useState<MatchOutcome[]>([])
@@ -96,8 +94,6 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   const loadingMatch = useRef(0)
   const [matchLoading, setMatchLoading] = useState(false)
   const [visibleLimit, setVisibleLimit] = useState(80)
-  const [showUnlinked, setShowUnlinked] = useState(false)
-  const [unlinkedLimit, setUnlinkedLimit] = useState(80)
 
   useEffect(() => { setStock(products) }, [products])
   useEffect(() => {
@@ -146,9 +142,9 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   const sourceName = '05.ru'
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
-    && (!onlyAllowed || product.priceSyncEnabled)
+    && product.priceSyncEnabled
     && product.price > 0 && product.stockQty > (product.reservedQty || 0)
-  ), [stock, onlyAllowed])
+  ), [stock])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
   ), [phones, path])
@@ -184,6 +180,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     return byOutcome.get(productId)?.status === 'NO_MATCH' ? 'NO_MATCH' as const : 'PENDING' as const
   }
   const visiblePhones = searchablePhones.filter(product => group === 'ALL' || matchGroup(product.id) === group)
+  const searchTargets = visiblePhones.filter(p => !(byProduct.get(p.id)?.length) && byOutcome.get(p.id)?.status !== 'NO_MATCH')
   const confirmed = scopedPhones.filter(p => matchGroup(p.id) === 'CONFIRMED').length
   const needsReview = scopedPhones.filter(p => matchGroup(p.id) === 'REVIEW').length
   const noMatches = scopedPhones.filter(p => matchGroup(p.id) === 'NO_MATCH').length
@@ -203,8 +200,6 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   const activeSourceName = sources.find(item => item.key === active?.sourceKey)?.name || (activeIsIndex ? '05.ru' : sourceName)
   const belongsToSelectedSource = (job: MonitorJob) => job.sourceKey === sourceKey || (sourceKey === '05ru' && !job.sourceKey)
   const last = jobs.find(j => j.kind === 'MATCH_1C' && belongsToSelectedSource(j))
-  const lastRecheck = jobs.find(j => j.kind === 'RECHECK' && belongsToSelectedSource(j))
-  const unlinked = onlyAllowed ? [] : items.filter(i => i.source.key === sourceKey && (!i.product?.oneCId || !phones.some(p => p.id === i.product?.id)))
   const level = pathSegments(path)
   // Searching filters tiles only; never widen a price-changing scope silently.
   const displayPath = path
@@ -212,21 +207,19 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
     await run('match', async () => {
-      const number = Math.min(5000, scopedPhones.length)
+      const targets = searchTargets.slice(0, 5000)
+      const number = targets.length
       if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
       const needsCatalogIndex = number > 40
-      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru', onlyAllowed)
-      setNotice((needsCatalogIndex
-        ? '05.ru: общий индекс смартфонов и сопоставление с 1С. '
-        : '05.ru: быстрый поиск без полного обхода каталога. ')
-        + 'Запущено проверок: ' + job.queued + '.')
+      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru', true, targets.map(p => p.id))
+      setNotice('Поиск запущен: ' + job.queued + '.')
     })
   }
 
   async function retryOneProduct(productId: number) {
     if (active) { setError('Сначала заверши текущую проверку'); return }
     await run('retry-one', () => api.monitorRetryMatch(productId),
-      'Отдельный ручной повторный поиск поставлен в очередь. Остальные исключённые товары не затронуты.')
+      'Повторный поиск запущен.')
   }
 
   async function bindManually(product: ApiProduct) {
@@ -238,7 +231,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
       }
       setLinkingProduct(null)
       setLinkUrl('')
-    }, 'Карточка привязана. При следующих проверках поиск не потребуется.')
+    }, 'Связь сохранена.')
   }
 
   async function expand(item: PriceMonitorItem) {
@@ -263,7 +256,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     await run('confirm', async () => {
       if (!isFresh(item)) await api.adminCheckCompetitorPrice({ url: item.externalUrl })
       await api.monitorConfirm(item.id, Number(selected))
-    }, 'Совпадение подтверждено. Цена твоего товара не изменена.')
+    }, 'Связь подтверждена.')
   }
 
   function itemStatus(item?: PriceMonitorItem, outcome?: MatchOutcome) {
@@ -284,33 +277,32 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     return <article className="mp-tile" key={p.id}>
       <div className="mp-tile-head">
         <span className={'mp-pill ' + state.className}>{state.label}</span>
-        <small>{p.stockQty - (p.reservedQty || 0)} шт. · 1С</small>
       </div>
       <strong className="mp-product-name">{p.name}</strong>
-      <div className="mp-prices">
+      {linked && opened === linked.id && <div className="mp-prices">
         <div><small>Наш сайт</small><b>{rub(p.price)}</b></div>
         <div className="mp-shop-price">
           <small>{sourceName}</small>
           <b>{linked?.latestPrice && isFresh(linked) ? rub(linked.latestPrice) : '—'}</b>
           {linked && <SourceEvidence item={linked} />}
         </div>
-      </div>
+      </div>}
       {linked
         ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
             {opened === linked.id ? 'Скрыть детали' : linked.matchStatus === 'CONFIRMED' ? 'Детали' : 'Проверить'}
           </button>
         : <span className="mp-no-match">{outcome?.status === 'NO_MATCH'
-          ? 'Первый поиск завершён без совпадений. Автоматически больше не проверяется.'
+          ? 'Совпадений нет'
           : outcome?.status === 'RETRYABLE'
-            ? 'Поиск завершился ошибкой или был неполным. Доступна повторная проверка.'
-            : 'Подходящая карточка ' + sourceName + ' пока не найдена'}</span>}
+            ? 'Нужен повтор поиска'
+            : 'Нет связи с ' + sourceName}</span>}
       {!linked && outcome?.status === 'NO_MATCH' && <button
         className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
-        onClick={() => void retryOneProduct(p.id)}>Повторить поиск вручную</button>}
+        onClick={() => void retryOneProduct(p.id)}>Повторить</button>}
       {linked?.matchStatus !== 'CONFIRMED' && <>
         <button className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
           onClick={() => { setLinkingProduct(linkingProduct === p.id ? null : p.id); setLinkUrl('') }}>
-          {linkingProduct === p.id ? 'Отменить' : 'Привязать по ссылке'}
+          {linkingProduct === p.id ? 'Отменить' : 'Указать ссылку'}
         </button>
         {linkingProduct === p.id && <div className="mp-expanded">
           <label>Ссылка на точную карточку {sourceName}
@@ -318,12 +310,12 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
               onChange={e => setLinkUrl(e.target.value)} placeholder="https://05.ru/cat/…/p/…"/>
           </label>
           <button disabled={Boolean(busy) || Boolean(active) || !linkUrl.trim()}
-            onClick={() => void bindManually(p)}>Проверить и сохранить связь</button>
+            onClick={() => void bindManually(p)}>Сохранить связь</button>
         </div>}
       </>}
       {linked && opened === linked.id && <div className="mp-expanded">
-        {linked.matchStatus === 'SUGGESTED' && <p>Предложение для проверки, не подтверждено. Цена 1С не изменится.</p>}
-        <p>Карточка {linked.source.name} · последнее чтение: {prettyDate(linked.lastSuccessAt)}{linked.region ? ' · ' + linked.region : ''}. Ссылка для проверки находится рядом с ценой.</p>
+        {linked.matchStatus === 'SUGGESTED' && <p>Проверь модель, память, цвет и состояние.</p>}
+
         {linked.lastError && <p className="form-error">{linked.lastError}</p>}
         {matchLoading ? <p>Проверяем варианты…</p> : <>
           {linked.matchStatus !== 'CONFIRMED' && <>
@@ -346,7 +338,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
               onClick={() => void confirm(linked)}>Подтвердить совпадение</button>
           </>}
           <button className="mp-link-button" disabled={Boolean(busy) || Boolean(active)}
-            onClick={() => void run('check', () => api.adminCheckCompetitorPrice({ url: linked.externalUrl }), 'Цена магазина обновлена.')}>Проверить цену сейчас</button>
+            onClick={() => void run('check', () => api.adminCheckCompetitorPrice({ url: linked.externalUrl }), 'Цена магазина обновлена.')}>Обновить цену 05.ru</button>
           {linked.product?.id && <button disabled={Boolean(busy) || Boolean(active)}
             onClick={() => {
               const confirmedLink = linked.matchStatus === 'CONFIRMED'
@@ -366,29 +358,17 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   }
 
   return <div className="mp-shell">
-    <div className="mp-scope-switch" aria-label="Область поиска карточек">
-      <button type="button" aria-pressed={onlyAllowed} disabled={Boolean(busy) || Boolean(active)} onClick={() => setOnlyAllowed(true)}>Для обмена</button>
-      <button type="button" aria-pressed={!onlyAllowed} disabled={Boolean(busy) || Boolean(active)} onClick={() => setOnlyAllowed(false)}>Весь каталог</button>
-      <span>{onlyAllowed ? 'Только разрешённые в 1С' : 'Все товары из 1С'}</span>
-    </div>
-    <header className="mp-top">
-      <div><h2>Карточки 05.ru</h2><p>Модель, память, цвет и состояние должны совпадать.</p></div>
-      <div className="mp-top-count"><b>{phones.length}</b><span>товаров из 1С</span></div>
-    </header>
-
     <div className="mp-summary">
       <span><b>{confirmed}</b> связаны</span>
       <span><b>{needsReview}</b> требуют проверки</span>
-      <span><b>{noMatches}</b> без совпадений</span>
-      <span><b>{unlinkedInScope}</b> не проверены</span>
+      <span><b>{noMatches + unlinkedInScope}</b> без связи</span>
     </div>
 
     <div className="mp-toolbar">
-      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !scopedPhones.length}
-        onClick={() => void searchMatches()}>{busy === 'match' ? 'Ищем…' : 'Найти карточки товаров на 05.ru'}</button>
-      <input aria-label="Найти товар" placeholder="Название товара…" value={search} onChange={e => setSearch(e.target.value)}/>
+      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !searchTargets.length}
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Ищем…' : `Найти совпадения (${searchTargets.length})`}</button>
+      <input aria-label="Найти товар" placeholder="Найти товар…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
-    <details className="mp-helper"><summary>Как искать быстрее?</summary><p>Открой нужный раздел ниже перед поиском. Поиск связывает карточки и не меняет розничные цены. Для готовых связей используй проверку цен в основной панели.</p></details>
     {active && <div className="mp-progress" role="status">
       <span>{activeIsIndex
         ? (active.kind === 'INDEX_05RU_SMARTPHONES' ? 'Сбор каталога смартфонов 05.ru' : 'Сбор каталога 05.ru')
@@ -398,17 +378,8 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
       <progress aria-label="Ход проверки" max={Math.max(1, activeIsIndex ? active.maxPages : (active.perPage || active.processed || 1))}
         value={activeIsIndex ? active.page : active.processed} />
     </div>}
-    {lastRecheck && !active && <div className="mp-last">
-      Последнее обновление цен ({sources.find(item => item.key === lastRecheck.sourceKey)?.name || sourceName}): {lastRecheck.processed} / {lastRecheck.perPage || lastRecheck.processed} · ошибок: {lastRecheck.errors}
-      {lastRecheck.status === 'FAILED' && <>
-        {' · остановлено из-за ошибки доступа. '}
-        <button disabled={Boolean(busy)} onClick={() => void run('retry', () => api.monitorJobAction(lastRecheck.id, 'retry'),
-          'Проверка продолжена с оставшихся ссылок.')}>Продолжить обновление</button>
-      </>}
-      {lastRecheck.lastError && <details><summary>Ошибки проверки</summary><p>{lastRecheck.lastError}</p></details>}
-    </div>}
     {last && !active && <div className="mp-last">
-      Последний поиск ({sources.find(item => item.key === last.sourceKey)?.name || sourceName}): {last.processed} / {last.perPage || last.processed} · тех. ошибок: {last.errors}
+      Поиск: {last.processed} / {last.perPage || last.processed} · ошибок: {last.errors}
       {last.lastError && <details className="mp-diagnostic"><summary>Диагностика поиска</summary><pre>{last.lastError}</pre></details>}
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
@@ -455,31 +426,9 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
         {visiblePhones.length > visibleLimit && <button className="mp-more-button"
           onClick={() => setVisibleLimit(n => n + 80)}>Показать ещё 80 из {visiblePhones.length}</button>}
       </>}
-      {!visiblePhones.length && !folders.length &&
-        <p className="mp-empty">{phones.length ? 'В этом разделе нет товаров в наличии.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
+      {!visiblePhones.length &&
+        <p className="mp-empty">{phones.length ? 'По выбранным фильтрам товаров нет.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
     </section>
-
-    {unlinked.length > 0 && <details className="mp-extra" onToggle={e => setShowUnlinked(e.currentTarget.open)}>
-      <summary>Не разобрано: {unlinked.length} карточек {sourceName}</summary>
-      {showUnlinked && <div className="mp-extra-grid">{unlinked.slice(0, unlinkedLimit).map(item => <div key={item.id} className="mp-extra-card">
-        <b>{cleanName(item.externalName || 'Без названия')}</b>
-        <p>{item.latestPrice ? rub(item.latestPrice) : 'Цена неизвестна'} · {item.matchStatus === 'CONFIRMED' ? 'связано' : 'не сопоставлено'}</p>
-        <SourceEvidence item={item} />
-        <button onClick={() => void expand(item)}>{opened === item.id ? 'Скрыть' : 'Сопоставить'}</button>
-        {opened === item.id && <div className="mp-expanded">
-          {matchLoading ? 'Загрузка…' : <>
-            <select value={selected} onChange={e => setSelected(e.target.value)}>
-              <option value="">Выбери товар из 1С</option>
-              {matches.map(c => <option key={c.product.id} value={c.product.id}>{c.product.name}</option>)}
-            </select>
-            <button disabled={!selected || Boolean(busy) || Boolean(active)} onClick={() => void confirm(item)}>Подтвердить</button>
-          </>}
-        </div>}
-      </div>)}
-      {unlinked.length > unlinkedLimit && <button className="mp-more-button"
-        onClick={() => setUnlinkedLimit(n => n + 80)}>Показать ещё 80 из {unlinked.length}</button>}
-      </div>}
-    </details>}
 
     <details className="mp-extra">
       <summary>Проверить одну ссылку вручную</summary>

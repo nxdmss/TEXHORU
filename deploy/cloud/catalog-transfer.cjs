@@ -76,7 +76,6 @@ function importCatalog(directory, database, uploads) {
       const insert = db.prepare(`INSERT INTO "${name}" (${columns.map(column => '"' + column + '"').join(',')}) VALUES (${columns.map(() => '?').join(',')})`)
       for (const row of rows) insert.run(...row)
     }
-    if (db.prepare('SELECT COUNT(*) n FROM Product WHERE priceSyncEnabled=1').get().n > 30) throw Error('TEST permission count exceeds 30')
     if (db.prepare('PRAGMA foreign_key_check').get()) throw Error('Catalog foreign keys are inconsistent')
     fs.mkdirSync(uploads, { recursive: true }); copied = true
     if (fs.existsSync(path.join(directory, 'uploads'))) fs.cpSync(path.join(directory, 'uploads'), uploads, { recursive: true })

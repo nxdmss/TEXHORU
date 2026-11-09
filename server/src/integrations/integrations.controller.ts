@@ -6,15 +6,14 @@ import { IntegrationsService } from './integrations.service'
 import { OneCGuard } from './onec.guard'
 import { OneCPriceSyncService } from './price-sync.service'
 import { OneCAgentHeartbeatDto, PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
+import { automaticTestCatalogScope } from './test-catalog-policy'
 
 @Controller()
 export class IntegrationsController {
   constructor(private readonly integrations: IntegrationsService, private readonly priceSync: OneCPriceSyncService) {}
 
-  // Both flags must be set explicitly by the operator of a TEST-only 1C site.
-  // An admin-side JSON import never grants price-write eligibility.
   private testAutoPriceScopeEnabled() {
-    return process.env.ONE_C_BASE_KIND === 'TEST' && process.env.ONE_C_TEST_AUTO_PRICE_SCOPE === 'true'
+    return automaticTestCatalogScope()
   }
 
   /** Reverse retail-price writes are deliberately disabled unless the server is explicitly marked TEST. */
@@ -26,12 +25,12 @@ export class IntegrationsController {
 
   @Post('integrations/1c/catalog') @UseGuards(OneCGuard)
   catalog(@Body() dto: OneCCatalogDto) {
-    return this.integrations.importCatalog(dto, { autoApproveTestPriceScope: this.testAutoPriceScopeEnabled() })
+    return this.integrations.importCatalog(dto)
   }
   @Post('admin/integrations/1c/catalog') @UseGuards(AuthGuard, AdminGuard)
   manualCatalog(@Body() dto: OneCCatalogDto) { return this.integrations.importCatalog(dto) }
   @Post('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) priceScope(@Body() dto: PriceSyncScopeDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.configureScope(dto) }
-  @Get('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) getPriceScope() { this.assertTestPriceSyncEnabled(); return this.priceSync.scope() }
+  @Get('integrations/1c/price-sync/scope') @UseGuards(OneCGuard) getPriceScope() { this.assertTestPriceSyncEnabled(); return this.priceSync.scopeForAgent() }
   @Get('integrations/1c/price-sync/product/:oneCId') @UseGuards(OneCGuard) priceSyncProduct(@Param('oneCId') oneCId: string) { this.assertTestPriceSyncEnabled(); return this.priceSync.productByOneCId(oneCId) }
   @Get('integrations/1c/price-sync/pending') @UseGuards(OneCGuard) pendingPrices() { this.assertTestPriceSyncEnabled(); return this.priceSync.pending() }
   @Post('integrations/1c/price-sync/receipts') @UseGuards(OneCGuard) priceReceipts(@Body() dto: PriceSyncReceiptsDto) { this.assertTestPriceSyncEnabled(); return this.priceSync.receipts(dto) }

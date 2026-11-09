@@ -99,6 +99,78 @@ test('150 products: default update queues only the 30 permitted ones without par
   assert(job.pendingUrls.every(url => allowed.some(product => product.link.externalUrl === url)))
 })
 
+test('startup connects every existing TEST import and an old agent drains more than thirty changes safely', async () => {
+  const { product, sync } = await fixture()
+  const products = []
+  for (let i = 0; i < 75; i++) products.push(await product({ priceSyncEnabled: false }))
+  const manual = await prisma.product.create({ data: { categoryId: products[0].categoryId, name: 'Local only', brand: 'Test', price: 1000, sku: randomUUID(), slug: randomUUID() } })
+  process.env.ONE_C_BASE_KIND = 'PRODUCTION'
+  await sync.onApplicationBootstrap()
+  assert.equal((await sync.scope()).length, 0)
+  process.env.ONE_C_BASE_KIND = 'TEST'
+  process.env.ONE_C_TEST_PRICE_SYNC_ENABLED = 'false'
+  await sync.onApplicationBootstrap()
+  assert.equal((await sync.scope()).length, 0)
+  process.env.ONE_C_TEST_PRICE_SYNC_ENABLED = 'true'
+  await sync.onApplicationBootstrap()
+  await sync.configureScope({ oneCIds: [products[0].oneCId] })
+  assert.equal((await sync.scope()).filter(p => products.some(item => item.id === p.id)).length, 75)
+  assert.equal((await prisma.product.findUnique({ where: { id: manual.id } })).priceSyncEnabled, false)
+  assert.equal(await prisma.oneCPriceChange.count(), 0, 'automatic eligibility never sends prices')
+  const logs = await prisma.syncLog.count({ where: { entity: 'PRICE_SYNC_SCOPE' } })
+  await sync.onApplicationBootstrap()
+  assert.equal(await prisma.syncLog.count({ where: { entity: 'PRICE_SYNC_SCOPE' } }), logs, 'restart does not create duplicate grant logs')
+  for (const p of products) await OneCPriceSyncService.queue(prisma, { ...p, priceSyncEnabled: true }, 49000, p.link.id)
+  let sessions = 0, delivered = 0
+  while ((await sync.pending()).items.length) {
+    const window = await sync.scopeForAgent()
+    assert(window.length > 0 && window.length <= 30)
+    const allowed = new Set(window.map(p => p.oneCId))
+    for (let batch = 0; batch < 3; batch++) {
+      const pending = (await sync.pending()).items
+      if (!pending.length) break
+      assert(pending.length <= 10)
+      assert(pending.every(p => allowed.has(p.oneCId)), 'pending batches must stay in the session scope')
+      await sync.receipts({ items: pending.map(p => ({ id: p.id, appliedPrice: p.targetPrice })) })
+      delivered += pending.length
+    }
+    sessions++
+  }
+  assert.equal(sessions, 3)
+  assert.equal(delivered, 75)
+  assert.equal(await prisma.product.count({ where: { id: { in: products.map(p => p.id) }, price: 49000, priceSyncEnabled: true } }), 75)
+  const archived = await prisma.oneCPriceChange.create({ data: { productId: products[0].id, oneCId: products[0].oneCId, oldPrice: 49000, newPrice: 48000, sourceLinkId: products[0].link.id } })
+  await prisma.product.update({ where: { id: products[0].id }, data: { status: 'ARCHIVED' } })
+  assert.equal((await sync.scopeForAgent()).length, 0)
+  assert.equal((await sync.pending()).items.length, 0)
+  assert.equal((await prisma.oneCPriceChange.findUnique({ where: { id: archived.id } })).status, 'CANCELLED', 'a hidden product cannot stall the session window')
+})
+
+test('one update sends the entire automatic TEST catalog across successive agent sessions', async () => {
+  const { product, workflow, sync } = await fixture()
+  const products = []
+  for (let i = 0; i < 45; i++) products.push(await product({ priceSyncEnabled: false }))
+  await sync.onApplicationBootstrap()
+  const operation = await workflow.start()
+  assert.equal(operation.total, 45)
+  assert.equal(operation.ready, 45)
+  for (const size of [30, 15]) {
+    await workflow.advance()
+    assert.equal(await prisma.oneCPriceChange.count({ where: { status: 'PENDING' } }), size)
+    assert.equal(await prisma.product.count({ where: { id: { in: products.map(p => p.id) }, priceSyncEnabled: true } }), 45)
+    const session = new Set((await sync.scopeForAgent()).map(p => p.oneCId))
+    while ((await sync.pending()).items.length) {
+      const items = (await sync.pending()).items
+      assert(items.every(p => session.has(p.oneCId)))
+      await sync.receipts({ items: items.map(p => ({ id: p.id, appliedPrice: p.targetPrice })) })
+    }
+  }
+  await workflow.advance()
+  assert.equal((await workflow.current()).state, 'COMPLETED')
+  assert.equal((await workflow.current()).applied, 45)
+  assert.equal(await prisma.product.count({ where: { id: { in: products.map(p => p.id) }, price: 49000 } }), 45)
+})
+
 test('readiness includes missing links, missing prices, stale cards and pending changes; recheck targets saved permitted cards only', async () => {
   const { product, monitor, sync } = await fixture()
   const good = await product()

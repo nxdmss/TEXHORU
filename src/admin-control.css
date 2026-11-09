@@ -112,45 +112,10 @@
 .admin-control .pu-rule summary { font-size: 11px; color: var(--ac-muted); }
 .pu-setup { padding: 0 20px 20px; min-width: 0; }
 .pu-advanced { scroll-margin-top: 20px; }
-.pu-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; border-bottom: 1px solid var(--ac-line); padding: 4px 0 18px; margin-bottom: 22px; }
-.pu-steps button { display: flex; gap: 10px; align-items: center; padding: 11px 12px; background: #f7f7f4; border: 1px solid transparent; border-radius: 8px; text-align: left; color: var(--tx-muted); font-size: 11px; }
-.pu-steps b { font-size: 11px; font-weight: 500; color: #8a8a83; }
-.pu-steps button[aria-current] { background: var(--tx-accent-soft); border-color: #f2cdd1; color: var(--tx-accent); }
-.pu-steps button[aria-current] b { color: var(--tx-accent); }
-.pu-import-guide { max-width: 620px; padding: 13px 8px 10px; }
-.pu-import-icon { display: grid; place-items: center; width: 45px; height: 45px; background: var(--tx-accent-soft); color: var(--tx-accent); border-radius: 8px; margin-bottom: 18px; }
-.pu-import-guide h3, .pa-scope-heading h3 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 10px; font-weight: 500; }
-.pu-import-guide p { font-size: 12px; color: var(--tx-muted); line-height: 1.7; margin: 0 0 18px; }
-.pu-import-address { display: flex; gap: 12px; flex-wrap: wrap; justify-content: space-between; padding: 12px 14px; border: 1px solid var(--ac-line); background: #f8f8f5; border-radius: 8px; margin-bottom: 16px; font-size: 11px; }
-.pu-import-address span { color: #74746f; }.pu-import-address code { color: var(--tx-accent); overflow-wrap: anywhere; }
-.pu-import-guide > details > summary { color: var(--tx-muted); font-size: 11px; }
-.pu-import-guide > details > p { margin: 12px 0 0; }
-.pu-import-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 23px 0 15px; }
-.pu-import-actions button, .pu-step-next button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 14px; background: var(--tx-accent); border: 1px solid var(--tx-accent); border-radius: 8px; color: white; font-size: 12px; }
-.pu-import-actions button + button { color: var(--tx-muted); background: white; border-color: var(--ac-line); }
-.pu-import-actions svg, .pu-step-next svg { width: 15px; height: 15px; }
-.pu-import-guide > small { font-size: 11px; color: var(--tx-muted); }
-.pu-step-next { display: flex; justify-content: flex-end; margin-top: 22px; padding-top: 17px; border-top: 1px solid var(--ac-line); }
-.admin-control .pa-scope { border: 0; padding: 3px 0 0; margin: 0; }
-.pa-scope-heading { display: flex; align-items: start; justify-content: space-between; gap: 15px; margin-bottom: 17px; }
-.pa-scope-heading p { font-size: 11px; color: var(--tx-muted); margin: 0; }
-.pa-scope-heading > span { padding: 6px 10px; border-radius: 6px; background: var(--tx-accent-soft); color: var(--tx-accent); font-size: 12px; white-space: nowrap; }
-.pa-scope-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.admin-control .pa-scope-filters :is(input, select) { min-width: 0; max-width: 100%; font-size: 12px; border: 1px solid var(--ac-line); border-radius: 8px; padding: 10px 12px; background: white; margin: 0; }
-.pa-scope-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 15px 0; }
-.pa-scope-tabs button { border: 0; background: #f6f6f3; color: var(--tx-muted); font-size: 11px; padding: 8px 10px; border-radius: 7px; }
-.pa-scope-tabs button[aria-pressed=true] { background: var(--tx-accent-soft); color: var(--tx-accent); }
-.pa-scope-tabs > span { margin-left: auto; font-size: 10px; color: var(--tx-muted); }
-.admin-control .pa-scope-list { display: grid; max-height: 380px; overflow: auto; border: 1px solid var(--ac-line); border-radius: 8px; margin-bottom: 14px; }
-.admin-control .pa-scope-list label { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #ebebe5; font-size: 12px; }
-.pa-scope-list label:last-child { border-bottom: 0; }.pa-scope-list label span { min-width: 0; overflow-wrap: anywhere; }
-.admin-control .pa-scope-list small { display: block; margin-top: 4px; color: var(--tx-muted); font-size: 10px; }
-.admin-control .pa-scope-list input { accent-color: var(--tx-accent); flex-shrink: 0; width: 16px; height: 16px; }
-.pa-scope-list > p, .pa-scope-hint { padding: 12px; color: var(--tx-muted); font-size: 12px; }
-.admin-control .pa-scope-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 12px; }
-.admin-control .pa-action { border: 1px solid var(--ac-line); border-radius: 8px; padding: 9px 12px; background: white; color: var(--tx-muted); font-size: 11px; }
-.admin-control .pa-primary { background: var(--tx-accent); border-color: var(--tx-accent); color: white; }
-.admin-control .pa-message { color: #23785c; font-size: 12px; }.admin-control .pa-error { color: #b54250; font-size: 12px; }
+ .pu-import-address { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--tx-line); border-radius: 6px; background: #f8f8f5; font-size: 11px; margin: 12px 0; }
+.pu-import-help { padding-top: 16px; margin-top: 18px; border-top: 1px solid var(--tx-line); }
+.pu-import-help p { color: var(--tx-muted); font-size: 12px; margin: 12px 0; }
+.pu-import-help button { border: 1px solid var(--tx-line); border-radius: 6px; padding: 9px 12px; background: white; font-size: 12px; }
 .admin-control .mp-shell { border: 0; padding: 0; background: transparent; }
 .admin-control .mp-top h2 { font-size: 20px; font-weight: 500; }.admin-control .mp-top p { font-size: 11px; color: var(--tx-muted); }
 .admin-control .mp-summary { border-radius: 8px; background: #f7f7f4; }
@@ -226,12 +191,7 @@
   .admin-control .pu-groups { gap: 7px; }.admin-control .pu-groups button { padding: 15px 11px; min-height: 110px; }
   .admin-control .pu-groups span { font-size: 10px; }.admin-control .pu-groups b { font-size: 28px; }.admin-control .pu-groups svg { display: none; }
   .admin-control .pu-check-action .pu-connect-button { margin-left: 0; }
-  .pu-setup { padding: 0 13px 16px; }.pu-steps { gap: 5px; }
-  .pu-steps button { display: grid; gap: 4px; padding: 10px 8px; font-size: 10px; }
-  .pu-import-guide { padding-left: 1px; padding-right: 1px; }.pu-import-guide h3, .pa-scope-heading h3 { font-size: 18px; }
-  .pu-import-actions { display: grid; }.pu-import-actions button { font-size: 11px; }
-  .pa-scope-filters { grid-template-columns: 1fr; }.pa-scope-tabs { gap: 6px; }.pa-scope-tabs button { font-size: 10px; }
-  .pa-scope-tabs > span { width: 100%; margin-left: 0; }
+  .pu-setup { padding: 0 13px 16px; }
   .admin-control .pu-product-list label > span { min-width: 0; }
   .admin-control .pu-product-list label > b { width: 100%; padding-left: 26px; font-size: 11px; }
   .admin-control .pu-product-list label > span { flex-basis: 75%; }
@@ -242,3 +202,18 @@
 .admin-control .admin-wordmark { font-size: 26px; letter-spacing: -.045em; font-weight: 700; line-height: 1.15; }
 .admin-wordmark > span { color: var(--tx-accent); }
 .admin-wordmark > small { margin-top: 7px; letter-spacing: .02em; font-size: 10px; }
+
+.admin-control .mp-summary { background: transparent; gap: 16px; }
+.admin-control .mp-summary > span { border: 0; padding: 0; font-size: 11px; color: var(--tx-muted); }
+.admin-control .mp-summary b { font-size: 14px; color: var(--tx-ink); }
+.admin-control .mp-browser { padding: 0; border: 0; }
+.admin-control .mp-card-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; max-height: 580px; overflow-y: auto; border: 1px solid var(--tx-line); border-radius: 8px; }
+.admin-control .mp-tile { display: flex; flex-direction: row; flex-wrap: wrap; gap: 9px 13px; align-items: center; padding: 13px; border: 0; border-bottom: 1px solid var(--tx-line); border-radius: 0; }
+.admin-control .mp-tile:last-child { border-bottom: 0; }
+.admin-control .mp-product-name { flex: 1 1 240px; order: 0; font-size: 13px; font-weight: 500; min-height: 0; }
+.admin-control .mp-tile-head { order: 1; flex-shrink: 0; }
+.admin-control .mp-tile-button { order: 2; margin: 0; width: auto; min-height: 34px; padding: 8px 11px; border-radius: 6px; font-size: 11px; }
+.admin-control .mp-no-match { display: none; }
+.admin-control .mp-tile > .mp-prices { order: 3; flex-basis: 100%; padding-top: 12px; border-top: 1px solid var(--tx-line); }
+.admin-control .mp-tile > .mp-expanded { order: 4; flex-basis: 100%; }
+@media(max-width:600px) { .admin-control .mp-product-name { flex-basis: 100%; }.admin-control .mp-summary { gap: 7px 13px; } }

@@ -53,7 +53,7 @@ if [[ ! -e /etc/texhoru/app.env ]]; then
     printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
     printf 'ONE_C_API_KEY=%s\n' "$(openssl rand -hex 32)"
     printf 'ADMIN_EMAIL=%s\nADMIN_PASSWORD=%s\n' "$email" "$password"
-    printf 'ONE_C_BASE_KIND=TEST\nONE_C_TEST_PRICE_SYNC_ENABLED=true\nONE_C_TEST_AUTO_PRICE_SCOPE=false\n'
+    printf 'ONE_C_BASE_KIND=TEST\nONE_C_TEST_PRICE_SYNC_ENABLED=true\n'
   } > /etc/texhoru/app.env
   unset password
 fi
