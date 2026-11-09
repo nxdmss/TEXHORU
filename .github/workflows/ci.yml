@@ -57,3 +57,11 @@ jobs:
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor
+      - name: Install browser for interface checks
+        if: runner.os == 'Linux'
+        run: node server/node_modules/playwright/cli.js install --with-deps --only-shell chromium
+      - name: Check storefront and admin in the browser
+        if: runner.os == 'Linux'
+        run: |
+          node tests/storefront.browser.mjs
+          node tests/price-demo.browser.mjs

@@ -1,3 +1,6 @@
+import { Icon } from './Icon'
+import { CartDrawer } from './CartDrawer'
+import { cartLimit, productImage, restoreCart } from './store-utils'
 import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
 import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
@@ -8,7 +11,7 @@ import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSma
 import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, featuredPhoneImage, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, API_URL, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
+import { api, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -42,23 +45,6 @@ const statusLabels: Record<string, string> = {
 }
 const paymentLabels: Record<string, string> = { NOT_STARTED: 'Не начата', PENDING: 'В процессе', PAID: 'Оплачено', FAILED: 'Ошибка', REFUNDED: 'Возврат' }
 
-function Icon({ name }: { name: 'search' | 'cart' | 'arrow' | 'close' | 'minus' | 'plus' | 'user' | 'box' | 'back' | 'menu' | 'chevronLeft' | 'chevronRight' }) {
-  const paths = {
-    search: <><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></>,
-    cart: <><path d="M3.5 5h2l1.8 9.2h9.6l2-6.3H6.2"/><circle cx="9" cy="18.5" r="1"/><circle cx="16.5" cy="18.5" r="1"/></>,
-    arrow: <><path d="M4 12h15"/><path d="m14 7 5 5-5 5"/></>,
-    back: <><path d="M20 12H5"/><path d="m10 7-5 5 5 5"/></>,
-    close: <><path d="m5 5 14 14"/><path d="M19 5 5 19"/></>,
-    minus: <path d="M5 12h14"/>,
-    plus: <><path d="M5 12h14"/><path d="M12 5v14"/></>,
-    user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.8-3.6 4.2-5.4 7-5.4s5.2 1.8 7 5.4"/></>,
-    box: <><path d="M4 8.2 12 4l8 4.2v7.6L12 20l-8-4.2z"/><path d="M12 4v16"/><path d="M4 8.2 12 12l8-3.8"/></>,
-    menu: <><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></>,
-    chevronLeft: <path d="m15 5-7 7 7 7"/>,
-    chevronRight: <path d="m9 5 7 7-7 7"/>,
-  }
-  return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>
-}
 
 function OrderCard({ order }: { order: AccountOrder }) {
   return <article className="order-card">
@@ -69,56 +55,76 @@ function OrderCard({ order }: { order: AccountOrder }) {
   </article>
 }
 
-function ProductCard({ product, onOpen, onAdd }: { product: Product; onOpen: (product: Product) => void; onAdd: (product: Product) => void }) {
-  return <article className="product-card">
+function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen }: {
+  product: Product; onOpen: (product: Product) => void; onAdd: (product: Product) => void;
+  cartQuantity: number; onCartOpen: () => void;
+}) {
+  return <article className="product-card" data-product-id={product.id}>
     <button className="product-open" onClick={() => onOpen(product)} aria-label={`Открыть ${product.name}`}>
-      <div className="product-media"><img src={/iphone\s*\d+/i.test(product.name) ? featuredPhoneImage(product.name, product.image) : product.image} alt={product.name} loading="lazy" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /></div>
+      <div className="product-media"><img src={productImage(product)} alt={product.name} loading="lazy" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /></div>
       <div className="product-card__copy">
+        <span className="product-card__brand">{product.brand}</span>
         <div className="product-card__title-row">
           <h3>{product.name}</h3>
-          {product.badge && <span className="product-card__badge">{product.badge}</span>}
         </div>
-        <div className="product-card__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div>
+        <div className="product-card__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div>
       </div>
     </button>
-    <button className="product-card__add" onClick={() => onAdd(product)} aria-label={`Добавить ${product.name} в корзину`}><Icon name="plus" /></button>
+    {product.badge && <span className="product-card__badge">{product.badge}</span>}
+    <span className="product-card__stock">{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
+    <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
+      onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
+      <Icon name="cart" /><span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span>
+    </button>
   </article>
 }
 
 function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: () => void; onCreated: (order: CreatedOrder) => void }) {
-  const [form, setForm] = useState({ customerName: '', customerPhone: '', customerEmail: '', deliveryMethod: 'PICKUP' as 'PICKUP' | 'COURIER', deliveryAddress: 'Кизилюрт, Дагестан', paymentMethod: 'ON_RECEIPT' as 'ONLINE' | 'ON_RECEIPT', comment: '' })
+  const [form, setForm] = useState({ customerName: '', customerPhone: '', customerEmail: '', deliveryMethod: 'PICKUP' as 'PICKUP' | 'COURIER', deliveryAddress: '', paymentMethod: 'ON_RECEIPT' as 'ONLINE' | 'ON_RECEIPT', comment: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [onlinePayment, setOnlinePayment] = useState(false)
+  const orderAttempt = useRef<{ signature: string; key: string } | null>(null)
+  useEffect(() => {
+    let active = true
+    void api.paymentStatus().then(status => { if (active) setOnlinePayment(status.configured) }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
   const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true); setError('')
     try {
       const deliveryAddress = form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : form.deliveryAddress
-      const result = await api.createOrder({ ...form, deliveryAddress, customerEmail: form.customerEmail || undefined, comment: form.comment || undefined, idempotencyKey: crypto.randomUUID(), items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })) })
+      const input = { ...form, deliveryAddress, customerEmail: form.customerEmail || undefined,
+        comment: form.comment || undefined, items: cart.map(item => ({ productId: item.product.id, quantity: item.quantity })) }
+      const signature = JSON.stringify(input)
+      if (orderAttempt.current?.signature !== signature) orderAttempt.current = { signature, key: crypto.randomUUID() }
+      const result = await api.createOrder({ ...input, idempotencyKey: orderAttempt.current.key })
       onCreated({ number: result.number, trackingToken: result.trackingToken, paymentMethod: result.paymentMethod })
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось создать заказ') } finally { setLoading(false) }
   }
 
+  if (!cart.length) return <section className="checkout-page checkout-empty"><p className="eyebrow">TEXHORU / Покупки</p><h1>Корзина пока пуста</h1><p>Добавьте товары, чтобы оформить заказ.</p><button className="checkout-submit" onClick={onBack}>Открыть каталог <Icon name="arrow" /></button></section>
   return <section className="checkout-page">
     <button className="back-link" onClick={onBack}><Icon name="back" /> Вернуться к покупкам</button>
     <div className="checkout-layout">
       <form className="checkout-form" onSubmit={submit}>
-        <p className="eyebrow">Оформление</p><h1>Ваш заказ</h1>
+        <p className="eyebrow">TEXHORU / Оформление</p><h1>Ваш заказ</h1><p className="checkout-intro">Оставьте контакты и выберите способ получения.</p>
         <div className="form-grid">
-          <label><span>Имя</span><input required value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Умар Мутаев" /></label>
-          <label><span>Телефон</span><input required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} placeholder="+7 999 000-00-00" /></label>
-          <label className="form-grid__wide"><span>Email</span><input type="email" value={form.customerEmail} onChange={(e) => setForm({ ...form, customerEmail: e.target.value })} placeholder="mail@example.com" /></label>
+          <label><span>Имя</span><input name="name" autoComplete="name" minLength={2} required value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Как к вам обращаться" /></label>
+          <label><span>Телефон</span><input type="tel" name="tel" autoComplete="tel" minLength={6} required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} placeholder="+7 999 000-00-00" /></label>
+          <label className="form-grid__wide"><span>Email · необязательно</span><input name="email" autoComplete="email" type="email" value={form.customerEmail} onChange={(e) => setForm({ ...form, customerEmail: e.target.value })} placeholder="mail@example.com" /></label>
         </div>
-        <div className="choice-block"><span className="choice-title">Получение</span><div className="choice-grid"><button type="button" className={form.deliveryMethod === 'PICKUP' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'PICKUP' })}><strong>Самовывоз</strong><span>Кизилюрт</span></button><button type="button" className={form.deliveryMethod === 'COURIER' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'COURIER' })}><strong>Доставка</strong><span>Кизилюрт и Дагестан</span></button></div></div>
+        <div className="choice-block"><span className="choice-title">Получение</span><div className="choice-grid"><button type="button" aria-pressed={form.deliveryMethod === 'PICKUP'} className={form.deliveryMethod === 'PICKUP' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'PICKUP' })}><strong>Самовывоз</strong><span>Кизилюрт</span></button><button type="button" aria-pressed={form.deliveryMethod === 'COURIER'} className={form.deliveryMethod === 'COURIER' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'COURIER' })}><strong>Доставка</strong><span>Кизилюрт и Дагестан</span></button></div></div>
         {form.deliveryMethod === 'COURIER' && <label className="checkout-single"><span>Адрес доставки</span><input required value={form.deliveryAddress} onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })} /></label>}
-        <div className="choice-block"><span className="choice-title">Оплата</span><div className="choice-grid"><button type="button" className={form.paymentMethod === 'ON_RECEIPT' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, paymentMethod: 'ON_RECEIPT' })}><strong>При получении</strong><span>Карта или наличные</span></button><button type="button" className={form.paymentMethod === 'ONLINE' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, paymentMethod: 'ONLINE' })}><strong>Онлайн</strong><span>Через платёжного провайдера</span></button></div></div>
-        <label className="checkout-single"><span>Комментарий</span><textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Необязательно" /></label>
-        {error && <div className="form-error">{error}. Проверьте, что backend запущен на {API_URL}.</div>}
+        <div className="choice-block"><span className="choice-title">Оплата</span><div className="choice-grid"><button type="button" aria-pressed={form.paymentMethod === 'ON_RECEIPT'} className={form.paymentMethod === 'ON_RECEIPT' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, paymentMethod: 'ON_RECEIPT' })}><strong>При получении</strong><span>Карта или наличные</span></button>{onlinePayment && <button type="button" aria-pressed={form.paymentMethod === 'ONLINE'} className={form.paymentMethod === 'ONLINE' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, paymentMethod: 'ONLINE' })}><strong>Онлайн</strong><span>Картой на сайте</span></button>}</div></div>
+        <details className="checkout-comment"><summary>Добавить комментарий</summary><label className="checkout-single"><span>Комментарий к заказу</span><textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Пожелания к заказу" /></label></details>
+        {error && <div className="form-error" role="alert">{error}</div>}
         <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Создаём заказ…' : `Оформить заказ · ${money.format(total)} ₽`}</button>
-        <p className="checkout-note">TEXHORU не хранит данные банковских карт. Онлайн-оплата проходит на стороне платёжного провайдера.</p>
+        {form.paymentMethod === 'ONLINE' && <p className="checkout-note">Оплата откроется на защищённой странице. Данные карты не сохраняются в магазине.</p>}
       </form>
-      <aside className="checkout-summary"><h2>В заказе</h2>{cart.map((item) => <div className="checkout-item" key={item.product.id}><img src={item.product.image} alt="" /><div><strong>{item.product.name}</strong><span>{item.quantity} × {money.format(item.product.price)} ₽</span></div></div>)}<div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div></aside>
+      <aside className="checkout-summary"><p className="eyebrow">Ваш выбор</p><details className="checkout-order-items" open><summary>Состав заказа · {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</summary>{cart.map((item) => <div className="checkout-item" key={item.product.id}><img src={productImage(item.product)} alt="" onError={e => { e.currentTarget.src = '/products/phone.svg' }} /><div><strong>{item.product.name}</strong><span>{item.quantity} × {money.format(item.product.price)} ₽</span></div></div>)}</details><div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small></aside>
     </div>
   </section>
 }
@@ -375,7 +381,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<AdminTab>('overview')
   const [priceSetup, setPriceSetup] = useState(false)
   const [navigationOpen, setNavigationOpen] = useState(false)
-  const [email, setEmail] = useState('director@texhoru.local')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -658,7 +664,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   if (checkingSession) return <section className="admin-shell"><div className="admin-loading">Проверяем сессию…</div></section>
-  if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU</p><h1>Вход в управление</h1><label><span>Почта</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Данные для входа выдаёт администратор магазина. Пароль из примера нужно заменить.</small></form></section>
+  if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU</p><h1>Вход в управление</h1><label><span>Почта</span><input type="email" autoComplete="username" required placeholder="Почта сотрудника" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Доступ для сотрудников TEXHORU.</small></form></section>
 
   const syncPending = priceSync.summary?.pending ?? priceSync.changes.filter(change => change.status === 'PENDING').length
   const syncDelivered = priceSync.summary?.delivered ?? priceSync.changes.filter(change => change.status === 'DELIVERED').length
@@ -676,7 +682,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const connectProducts = () => { setPriceSetup(true); setTab('prices') }
   return <section className="admin-shell admin-control">
     <aside className={'admin-sidebar' + (navigationOpen ? ' is-open' : '')}>
-    <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><span>Т<span>↗</span></span><div>TEXHORU<small>Пульт управления</small></div></button>
+    <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><div className="admin-wordmark">TEXHO<span>RU</span><small>Управление магазином</small></div></button>
     <button type="button" className="admin-mobile-toggle" aria-expanded={navigationOpen} aria-controls="admin-navigation" onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'} />Разделы</button>
     <nav id="admin-navigation" className="admin-tabs" aria-label="Разделы управления магазином">
       {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
@@ -955,7 +961,7 @@ function App() {
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [promosLoaded, setPromosLoaded] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
-  const [cart, setCart] = useState<CartLine[]>(() => { try { return JSON.parse(localStorage.getItem('texhoru_cart') || '[]') } catch { return [] } })
+  const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
   const [cartOpen, setCartOpen] = useState(false)
   const [accountTab, setAccountTab] = useState<AccountTab>('active')
   const [path, setPath] = useState(() => window.location.pathname)
@@ -970,13 +976,13 @@ function App() {
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
 
   useEffect(() => {
-    api.products().then((items) => { setCatalogProducts(items); setCart((current) => current.filter((line) => items.some((item) => item.id === line.product.id)).map((line) => ({ ...line, product: items.find((item) => item.id === line.product.id)! }))); setApiOnline(true) }).catch(() => setApiOnline(false))
+    api.products().then((items) => { setCatalogProducts(items); setCart(current => current.flatMap(line => { const product = items.find(item => item.id === line.product.id); return product && cartLimit(product) > 0 ? [{ product, quantity: Math.min(line.quantity, cartLimit(product)) }] : [] })); setApiOnline(true) }).catch(() => setApiOnline(false))
     void refreshPromos()
     const onPromosChanged = () => { void refreshPromos() }
     window.addEventListener('texhoru:promos-changed', onPromosChanged)
     return () => window.removeEventListener('texhoru:promos-changed', onPromosChanged)
   }, [])
-  useEffect(() => { localStorage.setItem('texhoru_cart', JSON.stringify(cart)) }, [cart])
+  useEffect(() => { try { localStorage.setItem('texhoru_cart', JSON.stringify(cart)) } catch { /* Shopping remains available when storage is blocked. */ } }, [cart])
   useEffect(() => { const onPopState = () => animateCatalog(() => setPath(window.location.pathname)); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState) }, [])
 
   const navigate = (nextPath: string) => {
@@ -1050,16 +1056,25 @@ function App() {
     return () => window.clearInterval(timer)
   }, [path, sliderItems.length])
   useEffect(() => { if (slideIndex >= sliderItems.length) setSlideIndex(0) }, [slideIndex, sliderItems.length])
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0), total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
-  const addToCart = (product: Product) => { if (product.stockQty === 0 && product.stock !== 'Под заказ') return; setCart((current) => { const existing = current.find((item) => item.product.id === product.id); return existing ? current.map((item) => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { product, quantity: 1 }] }); setCartOpen(true) }
-  const changeQuantity = (productId: number, delta: number) => setCart((current) => current.map((item) => item.product.id === productId ? { ...item, quantity: item.quantity + delta } : item).filter((item) => item.quantity > 0))
+  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const addToCart = (product: Product) => {
+    if (!cartLimit(product)) return
+    setCart(current => {
+      const existing = current.find(item => item.product.id === product.id)
+      return existing ? current.map(item => item.product.id === product.id
+        ? { ...item, quantity: Math.min(cartLimit(product), item.quantity + 1) } : item) : [...current, { product, quantity: 1 }]
+    })
+    setCartOpen(true)
+  }
+  const changeQuantity = (productId: number, delta: number) => setCart(current => current.map(item => item.product.id === productId
+    ? { ...item, quantity: Math.max(1, Math.min(cartLimit(item.product), item.quantity + delta)) } : item))
   const openProduct = (product: Product) => {
     if (journeyMatch) lastPhonePath.current = path
     navigate(`/product/${product.id}`)
   }
-  const jumpToCatalog = (nextCategory: Category = 'Все') => {
+  const jumpToCatalog = (nextCategory: Category = 'Все', preserveSearch = false) => {
     setCategory(nextCategory)
-    setQuery('')
+    if (!preserveSearch) setQuery('')
     setStoreSection('')
     setMenuOpen(false)
     if (window.location.pathname !== '/') {
@@ -1138,8 +1153,8 @@ function App() {
         </div>
         <aside className="storefront-carousel__aside">
           <span className="storefront-carousel__aside-kicker">TEXHORU</span>
-          <h3>Акции, новинки и цены — в одной зоне</h3>
-          <p>Большой баннер листается мышкой или пальцем, а справа всегда стоит аккуратная карточка для внимания.</p>
+          <h3>Техника для ваших задач</h3>
+          <p>Смартфоны, электроника и аксессуары. Выберите своё в каталоге TEXHORU.</p>
           <button type="button" className="storefront-carousel__aside-link" onClick={() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Открыть каталог <Icon name="arrow" /></button>
         </aside>
       </div>
@@ -1152,16 +1167,16 @@ function App() {
       {!folderOnly && <>
         <div className="catalog-result-count">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + filtered.length}</div>
         <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
-          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart}/>)}</div>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)}/>)}</div>
         {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogProducts.length} товаров</button>}
         {!isFeaturedView && filtered.length > storeLimit &&
           <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}
-        {filtered.length === 0 && <div className="empty-search">Каталог пока пуст. Загрузите товары из 1С или выберите другой раздел.</div>}
+        {filtered.length === 0 && <div className="empty-search">Товары не найдены. Попробуйте другое название или выберите другой раздел.</div>}
       </>}
     </section>
   </>
 
-  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={/iphone\s*\d+/i.test(product.name) ? featuredPhoneImage(product.name, product.image) : product.image} alt={product.name} onError={e => { e.currentTarget.src='/products/phone.svg' }} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>Картой, наличными или онлайн</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} />)}</div></div>}</section> }
+  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<img src={productImage(product)} alt={product.name} onError={e => { e.currentTarget.src='/products/phone.svg' }} /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} />)}</div></div>}</section> }
 
   const renderAccountPage = () => <section className="account-page">
     <div className="account-page__top">
@@ -1169,7 +1184,7 @@ function App() {
       <div className="account-simple-head"><div><p className="eyebrow">TEXHORU</p><h1>Личный кабинет</h1></div></div>
     </div>
     <div className="account-page__content account-page__content--simple">
-      <div className="empty-search">Личный кабинет подключим после завершения парсера. Тестовых заказов и выдуманных данных здесь нет.</div>
+      <div className="empty-search">Отслеживать заказ можно по персональной ссылке, которая появляется после оформления.</div>
     </div>
   </section>
 
@@ -1180,7 +1195,7 @@ function App() {
     count={journeyProducts.length} onOpen={openJourney}>
     {journeyProducts.length > 0
       ? <div className="product-grid">{journeyProducts.map(product =>
-          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart}/>)}</div>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)}/>)}</div>
       : <div className="empty-search">В наличии нет смартфонов в этом разделе.</div>}
   </SmartphoneJourney>
   else if (mockPaymentMatch) content = <MockPaymentPage paymentId={mockPaymentMatch[1]} trackingToken={tokenFromQuery} onDone={() => navigate(`/order/${tokenFromQuery}`)} />
@@ -1190,7 +1205,7 @@ function App() {
   else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
-  return <div className="app-shell">{!isAdminPage && <header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog(category) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
+  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>{!isAdminPage && <header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
   {menuOpen && <div className="menu-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMenuOpen(false) }}><aside className="category-drawer"><div className="category-drawer__head"><div><span>TEXHORU</span><strong>Категории</strong></div><button onClick={() => setMenuOpen(false)} aria-label="Закрыть меню"><Icon name="close" /></button></div><nav className="category-drawer__list">
     <button onClick={() => jumpToStoreSection('')}><span>Популярное</span><Icon name="arrow" /></button>
     <button onClick={() => openJourney('/catalog/smartphones')}><span>Смартфоны</span><Icon name="arrow" /></button>
@@ -1201,7 +1216,11 @@ function App() {
     {menuChildren.map(node => <button key={node.path} onClick={() => node.children.length ? setMenuPath(node.path) : jumpToStoreSection(categorySelection(node.path))}><span>{node.title} · {node.count}</span><Icon name="arrow" /></button>)}
   </nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
   <main id="top">{content}</main>{!isAdminPage && <footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>}
-  {cartOpen && <div className="overlay" onMouseDown={(event) => { if (event.currentTarget === event.target) setCartOpen(false) }}><aside className="drawer"><div className="drawer-head"><div><p className="eyebrow">Заказ</p><h2>Корзина ({cartCount})</h2></div><button className="icon-button" onClick={() => setCartOpen(false)}><Icon name="close" /></button></div><div className="drawer-body cart-lines">{cart.length === 0 ? <div className="cart-empty">Корзина пока пуста.</div> : cart.map((item) => <div className="cart-line" key={item.product.id}><button className="cart-line__image" onClick={() => { setCartOpen(false); openProduct(item.product) }}><img src={item.product.image} alt={item.product.name} /></button><div className="cart-line-copy"><button className="cart-line__title" onClick={() => { setCartOpen(false); openProduct(item.product) }}>{item.product.name}</button><span>{item.product.shortSpec}</span><b>{money.format(item.product.price)} ₽</b><div className="qty"><button onClick={() => changeQuantity(item.product.id, -1)}><Icon name="minus" /></button><span>{item.quantity}</span><button onClick={() => changeQuantity(item.product.id, 1)}><Icon name="plus" /></button></div></div></div>)}</div><div className="drawer-bottom"><div className="total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><button className="checkout" disabled={!cart.length} onClick={() => { setCartOpen(false); navigate('/checkout') }}>Перейти к оформлению</button><small>{apiOnline ? 'Цена и остаток будут перепроверены сервером.' : 'Для создания заказа запустите backend.'}</small></div></aside></div>}
+  {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
+    onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}
+    onRemove={id => setCart(current => current.filter(item => item.product.id !== id))}
+    onCheckout={() => { setCartOpen(false); navigate('/checkout') }} />}
+
   </div>
 }
 

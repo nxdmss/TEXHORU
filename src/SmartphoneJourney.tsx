@@ -46,8 +46,9 @@ export function SmartphonePortal({ onOpen, featured }: { onOpen: OpenAction; fea
           onError={e => { e.currentTarget.src='/products/phone.svg' }} />
       </div>
       <div className="phone-portal__copy">
+        <span className="phone-portal__kicker">TEXHORU / Каталог</span>
         <strong>СМАРТФОНЫ</strong>
-        <span className="phone-portal__link">Открыть раздел</span>
+        <span className="phone-portal__link">Выбрать смартфон <span aria-hidden="true">→</span></span>
       </div>
     </button>
   </section>
@@ -78,7 +79,7 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
           onClick={e => onOpen('/catalog/smartphones/' + encodeURIComponent(brand.slug), e.currentTarget.querySelector('span'))}>
           <span>{brand.name}</span>
         </button>)}
-        {brands.length === 0 && <p className="phone-journey__empty">Смартфоны появятся после загрузки каталога из 1С.</p>}
+        {brands.length === 0 && <p className="phone-journey__empty">В этом разделе пока нет смартфонов в наличии.</p>}
       </nav>
       <div className="phone-journey__inventory">{children}</div>
     </div>

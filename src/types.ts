@@ -16,7 +16,7 @@ export type Product = {
   price: number
   oldPrice?: number
   badge?: string
-  stock: 'В наличии' | 'Мало' | 'Под заказ'
+  stock: 'В наличии' | 'Мало' | 'Под заказ' | 'Нет в наличии'
   stockQty?: number
   image: string
   shortSpec: string
