@@ -1,0 +1,18 @@
+/* A frame measures the visible object, rather than the source file's empty canvas. */
+.product-shot.product-shot {
+  display: block; position: absolute; inset: 6px; overflow: hidden;
+  padding: 0 !important; margin: 0; border: 0; background: transparent !important;
+  pointer-events: none;
+}
+.product-shot.product-shot.product-shot > img {
+  display: block !important; position: absolute !important;
+  width: var(--shot-width, 100%) !important; height: var(--shot-height, 100%) !important;
+  left: var(--shot-left, 0px) !important; top: var(--shot-top, 0px) !important;
+  max-width: none !important; max-height: none !important; min-width: 0 !important;
+  padding: 0 !important; margin: 0 !important; border: 0 !important;
+  object-fit: contain !important; transform: none !important; filter: none !important;
+  background: transparent !important; transition: none !important;
+}
+.storefront .product-media { padding: 0 !important; }
+.cart-line__image, .checkout-item__image { position: relative; }
+.checkout-item__image { display: block; width: 55px; height: 65px; }

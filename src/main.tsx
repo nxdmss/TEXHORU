@@ -12,6 +12,7 @@ import App from './App'
 import './styles.css'
 import './brand-system.css'
 import './admin-control.css'
+import './product-image.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
