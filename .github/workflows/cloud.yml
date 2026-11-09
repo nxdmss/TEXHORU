@@ -1,0 +1,23 @@
+name: Cloud deployment
+on:
+  pull_request:
+    paths: ['deploy/**', 'server/**', 'src/**', 'public/**', 'package*.json', 'scripts/export-cloud-data.mjs', '.dockerignore', '.github/workflows/cloud.yml', 'tests/cloud-*.mjs']
+  push:
+    branches: [main]
+    paths: ['deploy/**', 'server/**', 'src/**', 'public/**', 'package*.json', 'scripts/export-cloud-data.mjs', '.dockerignore', '.github/workflows/cloud.yml', 'tests/cloud-*.mjs']
+jobs:
+  cloud-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - name: Validate server scripts
+        run: |
+          bash -n deploy/cloud/install.sh deploy/cloud/manage.sh
+          sh -n deploy/cloud/entrypoint.sh
+      - name: Build production image
+        run: docker build -f deploy/cloud/Dockerfile -t texhoru:cloud-test .
+      - name: Test HTTPS, credentials, parser runtime and persistent data
+        run: node tests/cloud-smoke.mjs

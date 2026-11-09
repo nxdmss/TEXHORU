@@ -8,6 +8,7 @@ import { ContentModule } from './content/content.module'
 import { HealthModule } from './health/health.module'
 import { IntegrationsModule } from './integrations/integrations.module'
 import { MediaModule } from './media/media.module'
+import { MaintenanceModule } from './maintenance/maintenance.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { OrdersModule } from './orders/orders.module'
 import { PaymentsModule } from './payments/payments.module'
@@ -30,6 +31,7 @@ import { PriceMonitorModule } from './price-monitor/price-monitor.module'
     ContentModule,
     IntegrationsModule,
     MediaModule,
+    MaintenanceModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

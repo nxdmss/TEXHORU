@@ -1267,7 +1267,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   // Price refresh reads only saved links for the selected store. Discovery is
   // never invoked from this path.
   private async recheckBatch(jobId: string, pending: string[], sourceKey: StoreKey = '05ru', previousError: string | null = null) {
-    const batch = pending.slice(0, 4)
+    const configured = Number(process.env.MONITOR_RECHECK_CONCURRENCY || 4)
+    const concurrency = Number.isInteger(configured) && configured >= 1 && configured <= 4 ? configured : 4
+    const batch = pending.slice(0, concurrency)
     const parser = this.parserFor(sourceKey)
     const settings = sourceKey === '05ru' ? null : await this.settings(sourceKey)
     if (sourceKey !== '05ru' && !settings?.region?.trim()) {
@@ -1387,7 +1389,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           const links = await this.prisma.competitorProduct.findMany({
             where: {
               sourceId: source.id, matchStatus: 'CONFIRMED',
-              product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE } },
+              product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE,
+                ...(process.env.MONITOR_SCHEDULE_AUTHORIZED_ONLY === 'true' ? { priceSyncEnabled: true } : {}) } },
             },
             select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
           })

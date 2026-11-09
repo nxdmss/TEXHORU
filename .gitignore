@@ -25,3 +25,9 @@ backups/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Cloud configuration lives in /etc/texhoru, never in Git.
+deploy/cloud/*.env
+deploy/cloud/credentials*
+*.pem
+*.key
