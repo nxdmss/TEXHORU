@@ -58,19 +58,32 @@ export function featuredProducts<T extends { id: number; name: string; category:
   return result
 }
 
-/** Actual Apple product photography, rather than custom SVG approximations.
- * Existing original photos uploaded to TEXHORU always take priority.
- * These are Apple CDN image URLs (not copied 05.ru media).
- * To make product shots independent from external networks, replace URLs with
- * properly licensed, locally hosted images in the product editor.
- */
+/** Locally hosted Apple product images. Match model AND colour; preserve uploaded photos. */
+const iphonePhotoColors: Record<string, readonly string[]> = {
+  '12': ['blue'],
+  '13': ['black', 'white', 'blue'],
+  '14': ['black', 'white'],
+  '15': ['black', 'pink', 'blue'],
+  '16': ['black', 'white', 'green', 'pink'],
+  '16e': ['black'],
+  '17': ['black', 'white', 'blue', 'green'],
+  'air': ['black'],
+  '17-pro': ['white', 'blue', 'orange'],
+  '17-pro-max': ['white', 'blue', 'orange'],
+}
 export function featuredPhoneImage(name: string, image?: string) {
-  if (image && !/\/products\/(?:phone|iphone-cut-[\w-]+)\.svg(?:\?|$)/.test(image)) return image
-  if (!/\biphone\s*17\s*pro(?:\s*max)?\b/i.test(name)) return image || '/products/phone.svg'
-  const size = /\bpro\s*max\b/i.test(name) ? 'iphone-17-pro-max' : 'iphone-17-pro'
-  const color = /оранж|cosmic\s*orange|orange/i.test(name) ? 'cosmicorange'
-    : /син|голуб|deep\s*blue|blue/i.test(name) ? 'deepblue'
-    : 'silver'
-  return 'https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/'
-    + size + '-finish-select-' + color + '-202509?wid=900&hei=900&fmt=png-alpha'
+  if (image && !/\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(image)) return image
+  const fallback = image || '/products/phone.svg'
+  if (/чехол|накладк|стекл|кабел|пленк|плёнк|защитн|линз|\b(?:case|cover|glass|protector)\b/i.test(name)) return fallback
+  const match = name.match(/\biphone\s*(1[2-7])\s*(pro\s*max|pro|plus|mini|air|e)?\b/i)
+  const variant = (match?.[2] || '').toLowerCase().replace(/\s+/g, '-')
+  const model = /\biphone\s+air\b/i.test(name) || match?.[1] === '17' && variant === 'air' ? 'air'
+    : match ? match[1] + (variant === 'e' ? 'e' : variant ? '-' + variant : '') : ''
+  const colour = /оранж|orange/i.test(name) ? 'orange'
+    : /ч[её]рн|black|midnight/i.test(name) ? 'black'
+    : /бел|white|silver|starlight|серебр/i.test(name) ? 'white'
+    : /розов|pink/i.test(name) ? 'pink'
+    : /зел[её]н|green|teal|sage/i.test(name) ? 'green'
+    : /син|голуб|blue/i.test(name) ? 'blue' : ''
+  return iphonePhotoColors[model]?.includes(colour) ? `/products/apple/iphone-${model}-${colour}.png` : fallback
 }
