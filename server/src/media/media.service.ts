@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, UnsupportedMediaTypeException } from '@n
 import { ConfigService } from '@nestjs/config'
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createReadStream, promises as fs } from 'node:fs'
-import { basename, extname, join, resolve } from 'node:path'
+import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 const MIME_BY_EXT: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.avif': 'image/avif' }
@@ -22,7 +22,9 @@ export class MediaService {
     this.driver = config.get<string>('MEDIA_STORAGE_DRIVER') === 'yandex' ? 'yandex' : 'local'
     this.bucket = config.get<string>('YC_STORAGE_BUCKET') ?? ''
     this.publicBaseUrl = (config.get<string>('MEDIA_PUBLIC_BASE_URL') ?? '').replace(/\/$/, '')
-    if (config.get<string>('NODE_ENV') === 'production' && this.driver !== 'yandex') {
+    const persistentLocal = config.get<string>('ALLOW_PERSISTENT_LOCAL_MEDIA') === 'true'
+      && !!process.env.TEXHORU_UPLOADS_DIR && isAbsolute(process.env.TEXHORU_UPLOADS_DIR)
+    if (config.get<string>('NODE_ENV') === 'production' && this.driver !== 'yandex' && !persistentLocal) {
       throw new Error('MEDIA_STORAGE_DRIVER=yandex is required in production')
     }
     if (this.driver === 'yandex') {

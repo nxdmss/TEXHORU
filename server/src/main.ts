@@ -22,6 +22,8 @@ function assertProductionEnv() {
 async function bootstrap() {
   assertProductionEnv()
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false })
+  if (process.env.TRUST_PROXY_HOPS === '1') app.set('trust proxy', 1)
+  app.enableShutdownHooks()
   app.useBodyParser('json', { limit: '10mb' })
   const origins = (process.env.FRONTEND_ORIGIN ?? 'http://127.0.0.1:5173')
     .split(',')

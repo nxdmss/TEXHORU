@@ -33,7 +33,8 @@ jobs:
             'onec/agent/Run-TEXHORUAgent.ps1',
             'onec/agent/Remove-TEXHORUAgent.ps1',
             'onec/agent/Agent-Protocol.ps1',
-            'onec/agent/Update-TEXHORUAgent.ps1'
+            'onec/agent/Update-TEXHORUAgent.ps1',
+            'onec/agent/Set-TEXHORUCloudEndpoint.ps1'
           )
           foreach ($script in $scripts) {
             $tokens = $null
@@ -48,7 +49,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: ./tests/agent-protocol.test.ps1
-      - run: node --test tests/catalog-groups.test.mjs tests/demo-launcher.test.mjs
+      - name: Проверить переключение TEST-агента на облако
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tests/agent-cloud-endpoint.test.ps1
+      - run: node --test tests/catalog-groups.test.mjs tests/demo-launcher.test.mjs tests/cloud-transfer.test.mjs
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor
