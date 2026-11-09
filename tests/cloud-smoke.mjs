@@ -120,7 +120,7 @@ try {
   assert.equal(uploaded.status, 201)
   const url = uploaded.json().url
   assert.deepEqual((await request(url)).bytes, png)
-  docker('exec', app, 'node', '-e', "const {chromium}=require('playwright'); (async()=>{const b=await chromium.launch({headless:true});const p=await b.newPage();await p.setContent('<h1>TEXHORU</h1>');if(await p.textContent('h1')!=='TEXHORU')throw Error('browser');await b.close()})().catch(()=>process.exit(1))")
+  docker('exec', app, 'node', '-e', "const {existsSync}=require('node:fs');const {chromium}=require('playwright');const {FiveRuParser}=require('./dist/price-monitor/five-ru.parser');(async()=>{if(existsSync(chromium.executablePath()))throw Error('Expected a headless-shell-only cloud image');const parser=new FiveRuParser();const b=await parser.browser();const p=await b.newPage();await p.setContent('<h1>TEXHORU</h1>');if(await p.textContent('h1')!=='TEXHORU')throw Error('parser browser');await b.close()})().catch(error=>{console.error(error);process.exit(1)})")
   docker('stop', '--time', '40', app); docker('rm', app)
   const different = randomUUID()
   writeEnv(different); runApp(); await waitApp()

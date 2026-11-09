@@ -1,7 +1,7 @@
 import { BadGatewayException, BadRequestException, Injectable, OnModuleDestroy } from '@nestjs/common'
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import type { Browser, BrowserContext, Page } from 'playwright'
 import { canonicalModel, identity, normalize, type Identity } from './product-matching'
-import { existsSync } from 'node:fs'
+import { launchParserBrowser } from './browser-runtime'
 import { rankSearchLinks, rankSearchLinksForInspection } from './search-discovery'
 import type { StorefrontAdapter, StoreProductResult, StoreSearchTrace } from './storefront-adapter'
 
@@ -172,21 +172,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
   }
 
   private async browser() {
-    // On Windows, reuse the installed Microsoft Edge executable in headless
-    // mode. Playwright creates a temporary isolated profile; it never opens
-    // or changes the employee's regular Edge profile. This avoids a large
-    // first-run Chromium download on restricted office networks.
-    if (process.platform === 'win32') {
-      try {
-        return await chromium.launch({ channel: 'msedge', headless: true })
-      } catch {
-        // A bundled Playwright Chromium remains a supported fallback.
-      }
-    }
-    if (!existsSync(chromium.executablePath())) {
-      throw new Error('Не найден браузер для фонового парсера 05.ru. На Windows установи Microsoft Edge и перезапусти TEXHORU.')
-    }
-    return chromium.launch({ headless: true })
+    return launchParserBrowser('05.ru')
   }
   private async context(browser: Browser, lightweight = false) {
     const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 1440, height: 1000 } })

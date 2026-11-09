@@ -99,6 +99,15 @@
 .admin-control .pu-root :is(.pu-product-list strong, .pu-result strong, .pu-product-list small) { overflow-wrap: anywhere; }
 .admin-control .pu-selection-tools input, .admin-control .pu-root select { max-width: 100%; }
 .admin-control .pu-short-reason { color: #93643d; }
+.pu-price-check { border: 1px solid var(--tx-line); border-radius: 8px; padding: 17px 20px; background: white; }
+.pu-price-check.has-warning { border-color: #dfc2ab; }
+.pu-price-check progress { width: 100%; height: 5px; accent-color: var(--tx-accent); margin-top: 14px; }
+.pu-check-counts { display: flex; gap: 8px 20px; flex-wrap: wrap; margin-top: 12px; font-size: 11px; color: var(--tx-muted); }
+.pu-check-counts b { color: var(--tx-ink); font-weight: 500; }
+.pu-check-error, .pu-check-hint { margin: 12px 0 0; font-size: 12px; line-height: 1.6; }
+.pu-check-error { color: #92552c; }.pu-check-hint { color: var(--tx-muted); }
+.pu-check-details { margin-top: 12px; }.pu-check-details > summary { color: var(--tx-muted); }
+.pu-check-details pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 11px/1.6 var(--font-mono); color: var(--tx-muted); }
 .admin-control .pu-rule { margin-top: -3px; }
 .admin-control .pu-rule summary { font-size: 11px; color: var(--ac-muted); }
 .pu-setup { padding: 0 20px 20px; min-width: 0; }

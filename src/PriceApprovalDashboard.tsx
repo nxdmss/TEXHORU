@@ -16,11 +16,21 @@ function shortReason(reason: string) {
   if (reason.includes('Не разрешён')) return 'Не разрешён обмен с 1С'
   if (reason.includes('Нет привязки')) return 'Нет привязки к 05.ru'
   if (reason.includes('не подтверждено')) return 'Нужно подтвердить привязку или наличие'
+  if (reason.includes('Последняя проверка завершилась ошибкой')) return 'Ошибка проверки 05.ru'
   if (reason.includes('устарела') || reason.includes('свежая')) return 'Нужна свежая проверка цены'
   if (reason.includes('уже совпадает')) return 'Цена уже актуальна'
   if (reason.includes('остатка')) return 'Нет свободного остатка'
   if (reason.includes('Нет актуальной цены')) return 'Нет цены 05.ru'
   return reason.split('; ')[0]
+}
+function checkError(message: string) {
+  if (/не (?:найден|удалось запустить) браузер|executable doesn't exist/i.test(message)) return 'Не удалось запустить браузер проверки на сервере.'
+  const http = message.match(/HTTP\s+(401|403|429)\b/i)?.[1]
+  if (http === '429') return '05.ru ограничил частоту запросов (HTTP 429). Проверка остановлена.'
+  if (http || /сайт ограничил запросы|проверку доступа/i.test(message)) return '05.ru ограничил доступ к карточкам' + (http ? ` (HTTP ${http})` : '') + '.'
+  if (/подтверждение снято/i.test(message)) return 'Часть карточек не совпадает с товарами 1С. Проверь привязки.'
+  if (/timeout|timed out|тайм.?аут|не ответил/i.test(message)) return '05.ru не ответил вовремя.'
+  return 'Не удалось проверить часть карточек. Причина — в подробностях ниже.'
 }
 function operationLabel(operation: PriceUpdateOperation) {
   switch (operation.state) {
@@ -47,6 +57,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
   const [sync, setSync] = useState<OneCPriceSyncStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [checkStarting, setCheckStarting] = useState(false)
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [mode, setMode] = useState<'all' | 'selected'>('all')
@@ -106,6 +117,11 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
     ? 'Ожидаем связь с компьютером 1С' : agent.state === 'error'
     ? 'Агент на связи: есть ошибка' : 'Компьютер 1С на связи'
   const locked = loading || busy || active || !!readiness?.checking
+  const priceCheck = readiness?.priceCheck
+  const checkActive = !!priceCheck && ['QUEUED', 'RUNNING'].includes(priceCheck.status)
+  const checkWarning = !!priceCheck && (['FAILED', 'CANCELLED'].includes(priceCheck.status)
+    || priceCheck.errors > 0 || !!priceCheck.lastError)
+  const currentPrices = items.filter(p => p.authorized && p.reason === 'Предлагаемая цена уже совпадает с текущей ценой TEXHORU').length
 
   function toggleProduct(id: number, checked: boolean) {
     const current = mode === 'all' ? eligible.map(p => p.productId) : selected
@@ -114,13 +130,13 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
   }
   async function checkPrices() {
     if (locked) return
-    setBusy(true); setError(''); setNotice('')
+    requestVersion.current++
+    setBusy(true); setCheckStarting(true); setError(''); setNotice('')
     try {
-      const result = await api.checkAllowedPrices()
-      setNotice(`Проверяем карточки: ${result.queued}.`)
+      await api.checkAllowedPrices()
       await load()
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось проверить цены') }
-    finally { setBusy(false) }
+    finally { setBusy(false); setCheckStarting(false) }
   }
   async function start() {
     if (locked || !chosen.length || !sync?.testPriceSyncEnabled) return
@@ -147,7 +163,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       <div className="pu-main-action">
         <button type="button" className="pu-primary" onClick={() => void start()}
           disabled={locked || !chosen.length || !sync?.testPriceSyncEnabled}>
-          {busy ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? `Обновить готовые (${chosen.length})` : `Обновить выбранные (${chosen.length})`}
+          {busy && !checkStarting ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? `Обновить готовые (${chosen.length})` : `Обновить выбранные (${chosen.length})`}
         </button>
         <span>Сайт обновится после подтверждения 1С</span>
       </div>
@@ -170,12 +186,34 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
         </button>)}
     </div>
     <div className="pu-check-action"><button type="button" disabled={locked || !readiness?.authorized}
-      onClick={() => void checkPrices()}>{readiness?.checking ? 'Проверяем цены…' : 'Проверить цены разрешённых'}</button>
+      onClick={() => void checkPrices()}>{checkStarting || readiness?.checking ? 'Проверяем цены…' : 'Проверить цены разрешённых'}</button>
       <small>{readiness?.authorized ?? 0} товаров · только разрешённые</small>
       <button className="pu-connect-button" type="button" onClick={() => {
         setToolsOpen(true); setSetupStep('catalog')
         toolsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }}><AdminIcon name="plus" />Подключить товары</button></div>
+
+    {priceCheck && <section className={'pu-price-check' + (checkWarning ? ' has-warning' : '')} aria-label="Результат проверки цен 05.ru">
+      <div className="pu-status-line"><strong role="status">{priceCheck.status === 'QUEUED' ? 'Проверка цен в очереди'
+        : priceCheck.status === 'RUNNING' ? 'Проверяем цены 05.ru'
+        : priceCheck.status === 'FAILED' ? 'Проверка цен остановлена'
+        : priceCheck.status === 'CANCELLED' ? 'Проверка цен отменена'
+        : priceCheck.perPage > 0 && priceCheck.errors >= priceCheck.perPage ? 'Не удалось проверить цены'
+        : checkWarning ? 'Проверка завершена с замечаниями' : 'Цены 05.ru проверены'}</strong>
+        <time dateTime={priceCheck.finishedAt || priceCheck.createdAt}>{new Date(priceCheck.finishedAt || priceCheck.createdAt).toLocaleString('ru-RU')}</time></div>
+      {checkActive && <progress aria-label="Проверка карточек 05.ru" max={Math.max(1, priceCheck.perPage)} value={priceCheck.processed} />}
+      <div className="pu-check-counts"><span>Обработано: <b>{priceCheck.processed} из {priceCheck.perPage}</b></span>
+        {priceCheck.errors > 0 && <span>Ошибок: <b>{priceCheck.errors}</b></span>}
+        {!checkActive && <><span>Готовы к обновлению: <b>{eligible.length}</b></span>
+          {currentPrices > 0 && <span>Цена уже актуальна: <b>{currentPrices}</b></span>}</>}
+      </div>
+      {priceCheck.lastError && <><p className="pu-check-error">{checkError(priceCheck.lastError)}</p>
+        <details className="pu-check-details"><summary>Причина и подробности</summary><pre>{priceCheck.lastError}</pre></details></>}
+      {!checkActive && !checkWarning && <p className="pu-check-hint">{eligible.length ? 'Можно отправить готовые цены в 1С.'
+        : currentPrices > 0 ? 'Актуальные цены повторно отправлять не нужно. Остальные причины — в группе «Нельзя обновить».'
+        : 'Готовых изменений нет. Открой «Нельзя обновить», чтобы увидеть причины.'}</p>}
+      {unavailable && <p className="pu-check-error">Не удалось получить свежий результат. Проверяем связь с сайтом.</p>}
+    </section>}
 
     {operation && <section className="pu-status" aria-label="Ход обновления">
       <div className="pu-status-line"><strong>{operationLabel(operation)}</strong>
