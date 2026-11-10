@@ -1,5 +1,6 @@
 import { Icon } from './Icon'
 import { CartDrawer } from './CartDrawer'
+import { CategoryDrawer } from './CategoryDrawer'
 import { ProductImage } from './ProductImage'
 import { cartLimit, restoreCart } from './store-utils'
 import { CatalogSections } from './CatalogSections'
@@ -967,7 +968,6 @@ function App() {
   const [path, setPath] = useState(() => window.location.pathname)
   const lastPhonePath = useRef('/catalog/smartphones')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPath, setMenuPath] = useState('')
   const [slideIndex, setSlideIndex] = useState(0)
   const [sliderDragOffset, setSliderDragOffset] = useState(0)
   const [sliderIsDragging, setSliderIsDragging] = useState(false)
@@ -1001,7 +1001,6 @@ function App() {
       if (window.location.pathname !== url) window.history.pushState({}, '', url)
       setPath(url)
       setMenuOpen(false)
-      setMenuPath('')
       setCategory('Все')
       setStoreSection('')
       setQuery('')
@@ -1034,7 +1033,6 @@ function App() {
     return matches.sort((left, right) => mix(left.id) - mix(right.id))
   }, [catalogProducts, selectedJourneyBrand])
   const categoryRoots = useMemo(() => categoryTree(catalogProducts.map(p => storefrontPath(p.category,p.name))), [catalogProducts])
-  const menuChildren = childrenAtPath(categoryRoots, menuPath)
   const selectedBrowsePath = selectedCategoryPath(storeSection)
   const browseChildren = childrenAtPath(categoryRoots, selectedBrowsePath || '')
   const isFeaturedView = !query.trim() && !storeSection && category === 'Все'
@@ -1089,7 +1087,6 @@ function App() {
     setQuery('')
     setStoreSection(nextSection)
     setMenuOpen(false)
-    setMenuPath('')
     if (window.location.pathname !== '/') {
       navigate('/')
       window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -1205,16 +1202,9 @@ function App() {
   else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
-  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>{!isAdminPage && <header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
-  {menuOpen && <div className="menu-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMenuOpen(false) }}><aside className="category-drawer"><div className="category-drawer__head"><div><span>TEXHORU</span><strong>Категории</strong></div><button onClick={() => setMenuOpen(false)} aria-label="Закрыть меню"><Icon name="close" /></button></div><nav className="category-drawer__list">
-    <button onClick={() => jumpToStoreSection('')}><span>Популярное</span><Icon name="arrow" /></button>
-    <button onClick={() => openJourney('/catalog/smartphones')}><span>Смартфоны</span><Icon name="arrow" /></button>
-    {menuPath && <>
-      <button onClick={() => setMenuPath(categorySegments(menuPath).slice(0, -1).join(' / '))}><span>← Назад</span></button>
-      <button onClick={() => jumpToStoreSection(categorySelection(menuPath))}><span>Все: {categorySegments(menuPath).at(-1)}</span><Icon name="arrow" /></button>
-    </>}
-    {menuChildren.map(node => <button key={node.path} onClick={() => node.children.length ? setMenuPath(node.path) : jumpToStoreSection(categorySelection(node.path))}><span>{node.title} · {node.count}</span><Icon name="arrow" /></button>)}
-  </nav><div className="category-drawer__footer"><button onClick={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }}><Icon name="user" /> Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div></aside></div>}
+  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>{!isAdminPage && <header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
+  {menuOpen && <CategoryDrawer products={catalogProducts} roots={categoryRoots} onClose={() => setMenuOpen(false)}
+    onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }} />}
   <main id="top">{content}</main>{!isAdminPage && <footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>}
   {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
     onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}

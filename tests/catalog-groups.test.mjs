@@ -21,7 +21,7 @@ function loadTs(path, dependencies = {}) {
 const tree = loadTs('../src/onec-category-tree.ts')
 const { catalogPath, catalogBranches, inCatalogSection } = loadTs('../src/catalog-groups.ts', { './onec-category-tree': tree })
 const { featuredProducts, storefrontPath, featuredPhoneImage } = loadTs('../src/catalog-navigation.ts')
-const { categoryTree, childrenAtPath } = tree
+const { categoryTree, childrenAtPath, categoryMenuRoot } = tree
 test('imports in a broad category are separated by product type; accessories stay separate', () => {
   assert.deepEqual(catalogPath({ name: 'Фотография товара Ноутбук Apple MacBook 8/512', categoryName: 'Товары 05.ru' }), ['computers', 'Ноутбуки'])
   assert.deepEqual(catalogPath({ name: 'Чехол для iPhone 17', categoryName: 'Смартфоны' }), ['accessories', 'Чехлы, зарядки и кабели'])
@@ -107,4 +107,17 @@ test('local iPhone photographs match model and colour and preserve uploaded phot
     assert.equal(featuredPhoneImage(name, ''), '/products/phone.svg', 'unknown models/colours and accessories never borrow another phone photo')
   }
   assert.equal(featuredPhoneImage('Apple iPhone Air Space Black', ''), '/products/apple/iphone-air-black.png')
+})
+
+test('category menu skips common 1C wrapper folders while preserving native paths and counts', () => {
+  const roots = categoryTree(['МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Apple', 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Xiaomi', 'МОБИЛЬНАЯ СВЯЗЬ / Аксессуары / Кабели'])
+  const menu = categoryMenuRoot(roots)
+  assert.equal(menu.path, 'МОБИЛЬНАЯ СВЯЗЬ')
+  assert.equal(menu.nodes.length, 2)
+  assert.equal(menu.nodes.reduce((n, node) => n + node.count, 0), 3)
+  assert(menu.nodes.every(node => node.path.startsWith('МОБИЛЬНАЯ СВЯЗЬ / ')))
+  const severalRoots = categoryMenuRoot(categoryTree(['Смартфоны / Apple', 'Ноутбуки / Asus']))
+  assert.equal(severalRoots.path, '')
+  assert.equal(severalRoots.nodes.length, 2)
+  assert.deepEqual(categoryMenuRoot([]), { path: '', nodes: [] })
 })
