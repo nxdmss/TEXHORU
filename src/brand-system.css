@@ -14,6 +14,8 @@
 .storefront .header.header--storefront { background: var(--tx-paper) !important; border-bottom-color: var(--tx-line) !important; }
 .storefront .header-search-inline { border-radius: var(--tx-radius); }
 .storefront .header-search-inline input { font-size: 13px !important; }
+.storefront .header-search-inline :is(input, button):focus-visible { outline: none; box-shadow: none; }
+.storefront .header.header--storefront .header-search-inline:focus-within { border-color: #17171766 !important; box-shadow: none !important; }
 .storefront .header.header--storefront > .brand .brand-ru { font-size: inherit !important; vertical-align: baseline !important; letter-spacing: inherit !important; margin-left: 0 !important; }
 .storefront .header-tool, .storefront .ghost-button, .storefront .cart-button { min-height: 42px; border-radius: 6px; font-size: 12px; text-transform: none; font-weight: 500; }
 .storefront .cart-button > span { display: inline-grid; place-content: center; min-width: 21px; height: 21px; padding: 0 5px; background: var(--tx-accent); color: white; border: 0; border-radius: 4px; font-size: 10px; }
