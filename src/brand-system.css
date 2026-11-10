@@ -34,7 +34,9 @@
 .storefront .catalog-more { border: 1px solid var(--tx-line); border-radius: 6px; padding: 13px 22px; min-height: 44px; background: white; color: var(--tx-ink); font: 500 12px var(--font-sans); text-transform: none; }
 .storefront .catalog-more:hover { border-color: var(--tx-ink); }
 .storefront .storefront-carousel__viewport, .storefront .storefront-carousel__aside { border-radius: var(--tx-radius) !important; border-color: var(--tx-line); }
-.storefront .storefront-carousel__aside { background: white; }.storefront .storefront-carousel__aside-kicker { color: var(--tx-accent); font-size: 10px; }
+.storefront .storefront-carousel__viewport { aspect-ratio: 20 / 9 !important; overflow: hidden; isolation: isolate; clip-path: inset(0 round var(--tx-radius)); background: transparent; box-shadow: none; }
+.storefront .storefront-carousel__track, .storefront .storefront-slide, .storefront .storefront-slide img { border-radius: 0 !important; }
+.storefront .storefront-carousel__aside { background: white; color: var(--tx-ink); }.storefront .storefront-carousel__aside-kicker { color: var(--tx-accent); font-size: 10px; }
 .storefront .storefront-carousel__aside h3 { font-size: clamp(24px, 2.5vw, 34px); line-height: 1.15; font-weight: 600; letter-spacing: -.03em; }.storefront .storefront-carousel__aside p { font-size: 13px; color: var(--tx-muted); }
 .storefront .storefront-carousel__aside-link { background: var(--tx-ink); color: white; border: 0; border-radius: 6px; padding: 12px 15px; font: 500 12px var(--font-sans); text-transform: none; }
 .storefront .category-drawer { background: white; border-color: var(--tx-line); }.storefront .category-drawer__head { border-color: var(--tx-line); }.storefront .category-drawer__head strong { font-size: 28px; font-weight: 600; }

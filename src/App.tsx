@@ -1099,7 +1099,7 @@ function App() {
   }
   const moveSlide = (delta: number) => setSlideIndex((current) => (current + delta + sliderItems.length) % sliderItems.length)
   const startSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (sliderItems.length < 2) return
+    if (sliderItems.length < 2 || (event.target as Element).closest('button')) return
     const width = event.currentTarget.getBoundingClientRect().width
     sliderDrag.current = { pointerId: event.pointerId, startX: event.clientX, currentX: event.clientX, width }
     event.currentTarget.setPointerCapture(event.pointerId)
