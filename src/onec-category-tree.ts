@@ -53,6 +53,15 @@ export function childrenAtPath(roots: OneCNode[], path: string): OneCNode[] {
   }
   return nodes
 }
+/** Skip shared 1C wrapper folders so opening the menu immediately offers a choice. */
+export function categoryMenuRoot(roots: OneCNode[]) {
+  let nodes = roots, path = ''
+  while (nodes.length === 1 && nodes[0].children.length) {
+    path = nodes[0].path
+    nodes = nodes[0].children
+  }
+  return { path, nodes }
+}
 export function isFeaturedCatalogProduct(item: { name: string; brand?: string; category?: string }): boolean {
   const name = item.name.toLowerCase()
   if (/чехол|стекл|кабел|зарядк|адаптер|переходник|держател/.test(name)) return false
