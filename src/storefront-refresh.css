@@ -22,3 +22,36 @@
 .storefront .footer.footer--complete .footer__bottom { display:flex;width:100%;margin:0;justify-self:stretch;box-sizing:border-box; }
 .home-collection-image>.category-menu__illustration { width:65px;height:65px;position:absolute;inset:0;margin:auto;color:#72746b;stroke-width:1; }
 @media(max-width:600px) { .storefront .footer.footer--complete { padding-top:32px!important; } }
+
+/* Public auth pages are reachable directly from every shop page. */
+.storefront .header-actions { gap: 18px; }
+.header-auth { display: flex; align-items: center; gap: 16px; }
+.header-auth a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  color: var(--tx-ink);
+  font: 500 12px var(--font-sans);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.header-auth svg { width: 19px; height: 19px; }
+.header-auth .header-auth__register { padding: 10px 14px; border: 1px solid var(--tx-line); border-radius: 6px; background: var(--tx-surface); }
+.header-auth a:hover, .header-auth a[aria-current=page] { color: var(--tx-accent); }
+.header-auth .header-auth__register:hover, .header-auth .header-auth__register[aria-current=page] { border-color: var(--tx-accent); }
+@media (min-width: 601px) and (max-width: 900px) {
+  .storefront .header-actions { gap: 10px; }
+  .header-auth { gap: 10px; }
+  .header-auth a { font-size: 11px; }
+  .header-auth .header-auth__register { padding-inline: 10px; }
+}
+@media (max-width: 600px) {
+  .storefront .header.header--storefront.header--guest { grid-template-rows: 38px 42px 40px; }
+  .storefront .header.header--storefront.header--guest .header-actions { display: contents; }
+  .storefront .header.header--storefront.header--guest .cart-button { grid-column: 3; grid-row: 1; justify-self: end; }
+  .header--guest .header-auth { grid-row: 3; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .header--guest .header-auth a { min-height: 40px; font-size: 12px; border: 1px solid var(--tx-line); border-radius: 6px; background: var(--tx-surface); padding: 8px 12px; }
+  .header--guest .header-auth a[aria-current=page] { border-color: var(--tx-accent); }
+}

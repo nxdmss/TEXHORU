@@ -17,7 +17,7 @@ export class AccountMailService implements OnModuleDestroy {
     const base = this.config.get<string>('FRONTEND_PUBLIC_URL') || ''
     const origin = new URL(base)
     if (origin.protocol !== 'https:' && this.config.get('NODE_ENV') === 'production') throw new ServiceUnavailableException('Для писем нужен HTTPS-адрес магазина')
-    const url = new URL('/account', origin)
+    const url = new URL('/login', origin)
     // Fragment avoids leaking the one-use token into HTTP logs/referrers.
     url.hash = new URLSearchParams({ action: purpose === 'VERIFY' ? 'verify' : 'reset', token }).toString()
     const content = accountEmail(name, url.toString(), purpose)
