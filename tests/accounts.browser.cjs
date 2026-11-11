@@ -70,7 +70,6 @@ async function main() {
   }
   await page.goto(url)
   await page.locator('.product-card').first().waitFor()
-  await page.locator('.home-collection-caption').first().waitFor()
   await screenshot('refresh-home-desktop')
   await page.setViewportSize({ width: 390, height: 844 }); await screenshot('refresh-home-mobile')
   const headerAuth = page.getByRole('navigation', { name: 'Вход и регистрация', exact: true })

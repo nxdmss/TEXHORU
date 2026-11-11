@@ -41,16 +41,14 @@ export function SmartphonePortal({ onOpen, featured }: { onOpen: OpenAction; fea
   const photo = featured ? featuredPhoneImage(featured.name, featured.image) : '/products/phone.svg'
   return <section className="phone-portal" aria-label="Смартфоны">
     <button type="button" className="phone-portal__button" onClick={() => onOpen('/catalog/smartphones')}>
-      <div className="phone-portal__visual"><span className="phone-portal__watermark" aria-hidden="true">НОВЫЙ<br />УРОВЕНЬ.</span>
+      <div className="phone-portal__visual">
         <img src={photo} alt={featured?.name || "Смартфоны"} loading="eager"
           onError={e => { e.currentTarget.src='/products/phone.svg' }} />
       </div>
       <div className="phone-portal__copy">
-        <span className="phone-portal__kicker"><i /> ТЕХНИКА, КОТОРАЯ БЛИЖЕ</span>
-        <strong>Больше, чем<br />просто смартфон<span>.</span></strong>
-        <span className="phone-portal__description">Для больших планов. Красивых кадров.<br />И всего, что важно именно вам.</span>
-        <span className="phone-portal__link">Выбрать смартфон <span aria-hidden="true">→</span></span>
-        <span className="phone-portal__signature">Apple · Samsung · Xiaomi и другие</span>
+        <span className="phone-portal__kicker">TEXHORU / КАТАЛОГ</span>
+        <strong>СМАРТФОНЫ</strong>
+        <span className="phone-portal__link">Выбрать модель <span aria-hidden="true">→</span></span>
       </div>
     </button>
   </section>
