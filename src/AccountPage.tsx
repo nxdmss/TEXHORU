@@ -6,13 +6,19 @@ import './account.css'
 type Mode = 'login' | 'register' | 'forgot' | 'resend' | 'verify' | 'reset'
 const labels: Record<string, string> = { NEW: 'Заказ принят', AWAITING_PAYMENT: 'Ожидает оплаты', PAID: 'Оплачен', ASSEMBLING: 'Собираем заказ', READY: 'Готов к выдаче', DELIVERING: 'В пути', COMPLETED: 'Получен', CANCELLED: 'Отменён' }
 const money = new Intl.NumberFormat('ru-RU')
-function emailAction() {
+function emailAction(defaultMode: Mode = 'login') {
   const params = new URLSearchParams(window.location.hash.slice(1))
   const action = params.get('action'), token = params.get('token') || ''
-  return { mode: (action === 'verify' || action === 'reset' ? action : 'login') as Mode, token }
+  return { mode: (action === 'verify' || action === 'reset' ? action : defaultMode) as Mode, token }
 }
-export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: (token: string) => void }) {
-  const [entry, setEntry] = useState(emailAction)
+export function AccountPage({ screen, onHome, onOrder, onNavigate, onSessionChange }: {
+  screen: 'account' | 'login' | 'register'
+  onHome: () => void
+  onOrder: (token: string) => void
+  onNavigate: (path: string, replace?: boolean) => void
+  onSessionChange: (profile: CustomerProfile | null) => void
+}) {
+  const [entry, setEntry] = useState(() => emailAction(screen === 'register' ? 'register' : 'login'))
   const [mode, setMode] = useState<Mode>(entry.mode)
   const [profile, setProfile] = useState<CustomerProfile | null>(null)
   const [orders, setOrders] = useState<CustomerOrder[]>([])
@@ -27,6 +33,10 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
   const [showPassword, setShowPassword] = useState(false)
   const loadOrders = () => api.customerOrders().then(setOrders)
   useEffect(() => {
+    if (!entry.token && screen !== 'account') setMode(screen)
+    setFields(value => ({ ...value, password: '', repeat: '' })); setShowPassword(false)
+  }, [screen, entry.token])
+  useEffect(() => {
     const openEmailAction = () => {
       const next = emailAction()
       if (!next.token) return
@@ -38,18 +48,27 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
     return () => window.removeEventListener('hashchange', openEmailAction)
   }, [])
   useEffect(() => {
+    // Keep old email links working while all sign-in actions live on /login.
+    if (screen === 'account' && entry.token) { onNavigate('/login', true); return }
     if (entry.token) window.history.replaceState({}, '', window.location.pathname + window.location.search)
     let active = true
+    setChecking(true)
     void api.accountCapabilities().then(result => { if (active) setEmailReady(result.emailConfigured) }).catch(() => undefined)
     void api.customerProfile().then(async user => {
       if (!active) return
-      setProfile(user); setDraft({ name: user.name, phone: user.phone || '', deliveryAddress: user.deliveryAddress })
+      setProfile(user); onSessionChange(user); setDraft({ name: user.name, phone: user.phone || '', deliveryAddress: user.deliveryAddress })
+      if (screen !== 'account' && !entry.token) { onNavigate('/account', true); return }
+      if (screen !== 'account') return
       try { const list = await api.customerOrders(); if (active) setOrders(list) }
       catch { if (active) setError('Не удалось загрузить заказы. Обновите список.') }
-    }).catch(() => undefined).finally(() => { if (active) setChecking(false) })
+    }).catch(() => {
+      if (!active) return
+      setProfile(null); onSessionChange(null)
+      if (screen === 'account') onNavigate('/login', true)
+    }).finally(() => { if (active) setChecking(false) })
     return () => { active = false }
-  }, [entry.token])
-  function changeMode(next: Mode) { setMode(next); setError(''); setNotice(''); setFields(value => ({ ...value, password: '', repeat: '' })); setShowPassword(false) }
+  }, [screen, entry.token])
+  function changeMode(next: Mode) { if (next === 'login' || next === 'register') onNavigate('/' + next); setMode(next); setError(''); setNotice(''); setFields(value => ({ ...value, password: '', repeat: '' })); setShowPassword(false) }
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(''); setNotice('')
     if (['register', 'reset'].includes(mode) && fields.password !== fields.repeat) { setError('Пароли не совпадают'); return }
@@ -57,9 +76,9 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
     try {
       if (mode === 'login') {
         const result = await api.customerLogin(fields.email, fields.password)
-        setProfile(result.user); setDraft({ name: result.user.name, phone: result.user.phone || '', deliveryAddress: result.user.deliveryAddress })
+        setProfile(result.user); onSessionChange(result.user); setDraft({ name: result.user.name, phone: result.user.phone || '', deliveryAddress: result.user.deliveryAddress })
         setFields(value => ({ ...value, password: '', repeat: '' }))
-        await loadOrders()
+        setChecking(true); onNavigate('/account', true)
         return
       }
       const result = mode === 'register' ? await api.register({ email: fields.email, password: fields.password, name: fields.name })
@@ -67,7 +86,7 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
         : mode === 'reset' ? await api.resetPassword(entry.token, fields.password)
         : mode === 'resend' ? await api.resendVerification(fields.email) : await api.forgotPassword(fields.email)
       setNotice(result.message)
-      if (mode === 'verify' || mode === 'reset') { setProfile(null); setMode('login'); setFields(value => ({ ...value, password: '', repeat: '' })) }
+      if (mode === 'verify' || mode === 'reset') { setProfile(null); onSessionChange(null); setEntry({ mode: 'login', token: '' }); setMode('login'); onNavigate('/login', true); setFields(value => ({ ...value, password: '', repeat: '' })) }
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось выполнить запрос') }
     finally { setBusy(false) }
   }
@@ -79,7 +98,7 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
   }
   async function logout() {
     setBusy(true); setError('')
-    try { await api.customerLogout(); setProfile(null); setOrders([]); setDraft({ name: '', phone: '', deliveryAddress: '' }); setNotice(''); setMode('login') }
+    try { await api.customerLogout(); setProfile(null); setOrders([]); setDraft({ name: '', phone: '', deliveryAddress: '' }); setNotice(''); setMode('login'); onSessionChange(null); setChecking(true); onNavigate('/login', true) }
     catch { setError('Не удалось выйти. Попробуйте ещё раз.') }
     finally { setBusy(false) }
   }
@@ -89,7 +108,7 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
   const visibleOrders = orders.filter(order => tab === 'history' ? ['COMPLETED', 'CANCELLED'].includes(order.status) : !['COMPLETED', 'CANCELLED'].includes(order.status))
   return <section className="customer-page">
     <button className="back-link" onClick={onHome}><Icon name="back" /> В магазин</button>
-    {checking ? <div className="customer-loading" role="status">Открываем ваш кабинет…</div> : !profile || ['verify', 'reset'].includes(mode) ? <div className="customer-entry">
+    {checking ? <div className="customer-loading" role="status">Открываем ваш кабинет…</div> : screen !== 'account' ? <div className="customer-entry">
       <aside className="customer-story"><span className="customer-kicker">TEXHORU / ЛИЧНОЕ</span><div><h1>Ваша техника. <br />Ваша история.</h1><p>Все покупки — в одном месте. <br />С заботой о вашем времени.</p></div><div className="customer-story__benefits"><span><Icon name="box" /> Статусы и история заказов</span><span><Icon name="user" /> Данные для быстрого оформления</span><span><Icon name="cart" /> Покупки в вашем ритме</span></div><span className="customer-story__foot">Хорошая техника. Личный подход.</span></aside>
       <div className="customer-form-wrap" aria-label="Вход и регистрация">
         {['login', 'register'].includes(mode) && <nav className="customer-form-tabs" aria-label="Доступ к кабинету"><button onClick={() => changeMode('login')} aria-pressed={mode === 'login'}>Войти</button><button onClick={() => changeMode('register')} aria-pressed={mode === 'register'}>Регистрация</button></nav>}
@@ -108,13 +127,13 @@ export function AccountPage({ onHome, onOrder }: { onHome: () => void; onOrder: 
         <div className="customer-form-footer">{mode === 'login' ? <><span>Не пришло подтверждение?</span><button onClick={() => changeMode('resend')}>Отправить снова</button></> : <button onClick={() => changeMode('login')}>Вернуться ко входу</button>}</div>
         <button className="customer-text-button" onClick={onHome}>Продолжить покупки без входа <Icon name="arrow" /></button>
       </div>
-    </div> : <>
+    </div> : profile ? <>
       <header className="customer-dashboard-head"><div><span className="customer-kicker">ВАШ ЛИЧНЫЙ TEXHORU</span><h1>Здравствуйте, {profile.name.split(' ')[0]}.</h1><p>Всё важное о ваших покупках — здесь.</p></div><button className="customer-text-button" onClick={logout} disabled={busy}>Выйти из аккаунта <Icon name="arrow" /></button></header>
       <div className="customer-dashboard"><aside className="customer-sidebar"><div className="customer-id"><span className="customer-avatar">{profile.name.slice(0, 1).toUpperCase()}</span><strong>{profile.name}</strong><span>{profile.email}</span><small>✓ Почта подтверждена</small></div><nav aria-label="Разделы кабинета">{(['orders', 'history', 'profile'] as const).map(value => <button key={value} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setNotice(''); setError('') }}>{value === 'orders' ? 'Текущие заказы' : value === 'history' ? 'История покупок' : 'Мои данные'}<Icon name={value === 'profile' ? 'user' : 'box'} /></button>)}</nav><p>Заказы, оформленные после входа, появляются в кабинете автоматически. Гостевые доступны по личной ссылке.</p></aside>
       <div className="customer-dashboard-content">
         {error && <p className="customer-error" role="alert">{error}</p>}{notice && <p className="customer-success" role="status">{notice}</p>}
         {tab === 'profile' ? <form className="customer-form customer-profile-form" onSubmit={saveProfile}><span className="customer-kicker">КОНТАКТЫ И ПОЛУЧЕНИЕ</span><h2>Удобно, когда всё заполнено.</h2><label>Ваше имя<input required autoComplete="name" minLength={2} maxLength={80} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label><label>Телефон<input type="tel" autoComplete="tel" maxLength={25} value={draft.phone} placeholder="+7 999 000-00-00" onChange={e => setDraft({ ...draft, phone: e.target.value })} /></label><label className="customer-profile-address">Адрес доставки<textarea autoComplete="street-address" maxLength={500} value={draft.deliveryAddress} onChange={e => setDraft({ ...draft, deliveryAddress: e.target.value })} placeholder="Город, улица, дом, квартира" /></label><div className="customer-email-locked"><span>Электронная почта</span><strong>{profile.email}</strong><small>Подтверждена</small></div><button className="customer-submit" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить данные'}<Icon name="arrow" /></button><button type="button" className="customer-text-button" disabled={busy || emailReady === false} onClick={async () => { setBusy(true); setError(''); setNotice(''); try { const result = await api.forgotPassword(profile.email); setNotice(result.message) } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось отправить письмо') } finally { setBusy(false) } }}>Сменить пароль через почту</button></form> : <><div className="customer-orders-head"><h2>{tab === 'history' ? 'История покупок' : 'Текущие заказы'} <span>{visibleOrders.length}</span></h2><button className="customer-text-button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await loadOrders() } catch { setError('Не удалось обновить заказы') } finally { setBusy(false) } }}>Обновить</button></div>{!visibleOrders.length ? <div className="customer-empty"><span><Icon name="box" /></span><h3>{tab === 'history' ? 'Здесь будет ваша история.' : 'Новая техника ждёт вас.'}</h3><p>{tab === 'history' ? 'Завершённые и отменённые заказы появятся здесь.' : 'Выберите что-нибудь для себя. Мы сохраним заказ и покажем, как он к вам движется.'}</p><button className="customer-submit" onClick={onHome}>За покупками <Icon name="arrow" /></button></div> : <div className="customer-orders">{visibleOrders.map(order => <article className="customer-order" key={order.number}><header><div><span>ЗАКАЗ № {order.number}</span><small>{new Date(order.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</small></div><span className={'customer-order-status status-' + order.status.toLowerCase()}>{labels[order.status] || order.status}</span></header><ul>{order.items.map((item, index) => <li key={index}><span>{item.name}<small>{item.quantity} шт.</small></span><strong>{money.format(item.price * item.quantity)} ₽</strong></li>)}</ul><footer><span>{order.deliveryMethod === 'PICKUP' ? 'Самовывоз' : 'Доставка'}</span><strong>{money.format(order.total)} ₽</strong><button onClick={() => onOrder(order.trackingToken)}>Подробнее <Icon name="arrow" /></button></footer></article>)}</div>}</>}
       </div></div>
-    </>}
+    </> : <div className="customer-loading" role="status">Открываем страницу входа…</div>}
   </section>
 }
