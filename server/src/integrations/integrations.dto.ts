@@ -1,23 +1,24 @@
 import { IdentityDto } from '../price-monitor/price-monitor.dto'
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested, MaxLength } from 'class-validator'
+import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested, MaxLength, ArrayMaxSize, IsBoolean } from 'class-validator'
 import { Type } from 'class-transformer'
 import { OrderStatus } from '@prisma/client'
 
 export class OneCCategoryDto {
-  @IsString() oneCId!: string
-  @IsString() name!: string
-  @IsString() slug!: string
+  @IsString() @MaxLength(100) oneCId!: string
+  @IsString() @MaxLength(500) name!: string
+  @IsString() @MaxLength(200) slug!: string
 }
 
 export class OneCProductDto {
-  @IsString() oneCId!: string
-  @IsString() sku!: string
-  @IsString() name!: string
-  @IsString() slug!: string
-  @IsString() brand!: string
-  @IsString() categoryOneCId!: string
+  @IsString() @MaxLength(100) oneCId!: string
+  @IsString() @MaxLength(200) sku!: string
+  @IsString() @MaxLength(500) name!: string
+  @IsString() @MaxLength(200) slug!: string
+  @IsString() @MaxLength(100) brand!: string
+  @IsString() @MaxLength(100) categoryOneCId!: string
   @IsInt() @Min(0) price!: number
   @IsInt() @Min(0) stockQty!: number
+  @IsOptional() @IsBoolean() isDeleted?: boolean
   @IsOptional() @IsInt() @Min(0) oldPrice?: number
   @IsOptional() @IsString() @MaxLength(30) gtin?: string
   @IsOptional() @IsString() @MaxLength(100) mpn?: string
@@ -26,8 +27,8 @@ export class OneCProductDto {
 }
 
 export class OneCCatalogDto {
-  @IsArray() @ValidateNested({ each: true }) @Type(() => OneCCategoryDto) categories!: OneCCategoryDto[]
-  @IsArray() @ValidateNested({ each: true }) @Type(() => OneCProductDto) products!: OneCProductDto[]
+  @IsArray() @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => OneCCategoryDto) categories!: OneCCategoryDto[]
+  @IsArray() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => OneCProductDto) products!: OneCProductDto[]
 }
 
 export class OneCOrderStatusDto {

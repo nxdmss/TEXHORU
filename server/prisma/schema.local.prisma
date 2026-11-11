@@ -77,8 +77,44 @@ model User {
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  emailVerifiedAt DateTime?
+  sessionVersion Int @default(0)
+  deliveryAddress String @default("")
+  emailTokens EmailToken[]
   orders       Order[]
   auditLogs    AuditLog[]
+}
+
+model EmailToken {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  purpose String
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
+  @@index([expiresAt])
+}
+
+model CatalogImportSession {
+  id String @id
+  clientId String
+  mode String
+  status String @default("RUNNING")
+  activeKey String? @unique
+  nextBatch Int @default(0)
+  processed Int @default(0)
+  skipped Int @default(0)
+  lastBatchHash String?
+  lastResult Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  finishedAt DateTime?
+
+  @@index([status, updatedAt])
 }
 
 model Category {
@@ -116,6 +152,10 @@ model Product {
   gtin         String?
   mpn          String?
   attributes   Json          @default(dbgenerated("'{}'"))
+  isPhone Boolean @default(false)
+  searchText String?
+  browsePath String?
+  importVariantKey String?
   costPrice    Int?
   priceSyncEnabled Boolean @default(false)
   oneCPriceChanges OneCPriceChange[]
@@ -128,7 +168,11 @@ model Product {
   matchOutcomes ProductMatchOutcome[]
 
   @@index([categoryId, status])
+  @@index([status, isPhone, brand])
+  @@index([status, price, id])
+  @@index([browsePath, status])
   @@index([brand])
+  @@index([importVariantKey, status])
   @@index([updatedAt])
 }
 
@@ -157,6 +201,7 @@ model Order {
   items                  OrderItem[]
   payments               Payment[]
 
+  @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([oneCSyncedAt])
 }

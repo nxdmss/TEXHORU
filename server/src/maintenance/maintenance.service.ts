@@ -22,6 +22,10 @@ export async function pruneOperationalData(db: PrismaService, now = new Date(), 
     await tx.notification.deleteMany({ where: remove(notifications) })
     await tx.monitorDelivery.deleteMany({ where: remove(deliveries) })
     await tx.competitorCatalogEntry.deleteMany({ where: remove(index) })
+    const tokens = await tx.emailToken.findMany({ where: { expiresAt: { lt: new Date(now.getTime() - 86400000) } }, select: { id: true }, take: batch })
+    await tx.emailToken.deleteMany({ where: remove(tokens) })
+    const imports = await tx.catalogImportSession.findMany({ where: { status: { not: 'RUNNING' }, updatedAt: { lt: cutoff } }, select: { id: true }, take: batch })
+    await tx.catalogImportSession.deleteMany({ where: remove(imports) })
     // EXISTS avoids collecting every catalog ID into memory/SQLite parameters.
     const history = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT h.id FROM "CompetitorPriceHistory" h

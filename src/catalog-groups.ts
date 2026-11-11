@@ -1,5 +1,5 @@
 import { ALL_CATALOG, matchesCategoryPath, selectedCategoryPath } from './onec-category-tree'
-export type CatalogEntry = { name: string; categoryName?: string }
+export type CatalogEntry = { name: string; categoryName?: string; count?: number }
 export type CatalogBranch = { id: string; title: string; image: string; count: number; children: { id: string; title: string; count: number }[] }
 const sections = [
   ['phones', 'Телефоны и гаджеты', '/products/phone.svg'],

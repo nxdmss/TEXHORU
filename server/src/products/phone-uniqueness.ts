@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { identity, normalize } from '../price-monitor/product-matching'
 
 type Variant = {
@@ -41,4 +42,9 @@ export function uniquePhoneProducts<T extends Variant>(rows: T[]): T[] {
     seen.add(key)
     return true
   })
+}
+
+export function phoneVariantIndex(item: Variant) {
+  const key = phoneVariantKey(item)
+  return key ? createHash('sha256').update(key).digest('hex') : '-'
 }

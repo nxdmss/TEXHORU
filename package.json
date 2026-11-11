@@ -20,7 +20,8 @@
     "data:import": "npm --prefix server run data:import",
     "test:startup": "node --test tests/startup.test.mjs",
     "test:project": "node --test tests/project-readiness.test.mjs",
-    "reset:local": "node scripts/reset-local.mjs"
+    "reset:local": "node scripts/reset-local.mjs",
+    "test:accounts:browser": "node tests/accounts.browser.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.0.4",

@@ -8,7 +8,8 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Playwright 1.55 supports Ubuntu 24.04; ubuntu-latest now selects 26.04.
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +58,7 @@ jobs:
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor
+      - run: node --test server/tests/account-catalog-sync.test.cjs
       - name: Install browser for interface checks
         if: runner.os == 'Linux'
         run: node server/node_modules/playwright/cli.js install --with-deps --only-shell chromium
@@ -64,4 +66,5 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           node tests/storefront.browser.mjs
+          node tests/accounts.browser.cjs
           node tests/price-demo.browser.mjs

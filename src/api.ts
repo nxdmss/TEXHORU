@@ -201,8 +201,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export type CustomerProfile = { id: string; name: string; email: string; phone: string | null; deliveryAddress: string; emailVerifiedAt: string | null; role: string }
+export type CustomerOrder = { number: number; trackingToken: string; status: string; paymentStatus: string; total: number; deliveryMethod: string; deliveryAddress: string; createdAt: string; items: Array<{ name: string; quantity: number; price: number }> }
+export type CatalogSyncStatus = { session: null | { id: string; clientId: string; mode: string; status: string; processed: number; skipped: number; nextBatch: number; updatedAt: string; finishedAt: string | null }; batchSize: number; maxBatchSize: number; maxPayloadBytes: number; parallelism: number }
+
 export const api = {
-  async products() { return (await request<ApiProduct[]>('/products')).map(mapProduct) },
+  accountCapabilities() { return request<{ emailConfigured: boolean }>('/auth/capabilities') },
+  customerLogin(email: string, password: string) { return request<{ user: CustomerProfile }>('/auth/customer-login', { method: 'POST', body: JSON.stringify({ email, password }) }) },
+  customerLogout() { return request('/auth/customer-logout', { method: 'POST' }) },
+  customerProfile() { return request<CustomerProfile>('/account/profile') },
+  customerOrders() { return request<CustomerOrder[]>('/account/orders') },
+  updateCustomerProfile(input: { name: string; phone: string; deliveryAddress: string }) { return request<CustomerProfile>('/account/profile', { method: 'PATCH', body: JSON.stringify(input) }) },
+  register(input: { name: string; email: string; password: string }) { return request<{ message: string }>('/auth/register', { method: 'POST', body: JSON.stringify(input) }) },
+  verifyEmail(token: string) { return request<{ message: string }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }) },
+  resendVerification(email: string) { return request<{ message: string }>('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email }) }) },
+  forgotPassword(email: string) { return request<{ message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }) },
+  resetPassword(token: string, password: string) { return request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }) },
+  catalogSyncStatus() { return request<CatalogSyncStatus>('/admin/integrations/1c/catalog-sync') },
+  cancelCatalogSync(id: string) { return request('/admin/integrations/1c/catalog-sync/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }) },
+  async products() { return (await request<ApiProduct[]>('/catalog/home')).map(mapProduct) },
+  async product(id: number) { return mapProduct(await request<ApiProduct>('/products/' + id)) },
+  async cartProducts(ids: number[]) { return (await request<ApiProduct[]>('/catalog/cart', { method: 'POST', body: JSON.stringify({ ids }) })).map(mapProduct) },
+  catalogSummary() { return request<{ groups: Array<{ path: string; brand: string; count: number }> }>('/catalog/summary') },
+  async catalogPage(input: Record<string, string | number | undefined>) { const params = new URLSearchParams(); for (const [key,value] of Object.entries(input)) if (value !== undefined && value !== '') params.set(key, String(value)); const result = await request<{ items: ApiProduct[]; total: number; hasMore: boolean }>('/catalog/products?' + params); return { ...result, items: result.items.map(mapProduct) } },
   categories() { return request<ApiCategory[]>('/categories') },
   promos() { return request<PromoBanner[]>('/content/promos') },
   createOrder(input: {

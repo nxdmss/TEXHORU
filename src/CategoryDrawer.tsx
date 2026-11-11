@@ -9,7 +9,7 @@ import type { Product } from './types'
 const categoryPlural = new Intl.PluralRules('ru')
 const categoryNouns: Partial<Record<Intl.LDMLPluralRule, string>> = { one: 'товар', few: 'товара', many: 'товаров' }
 
-function CategoryIllustration({ title }: { title: string }) {
+export function CategoryIllustration({ title }: { title: string }) {
   const name = title.toLowerCase()
   const shape = /наушник|гарнитур|headphone/.test(name)
     ? <><path d="M5 13v-2a7 7 0 0 1 14 0v2"/><rect x="3" y="12" width="4" height="8" rx="2"/><rect x="17" y="12" width="4" height="8" rx="2"/></>
@@ -39,8 +39,8 @@ function CategoryIllustration({ title }: { title: string }) {
   return <svg className="category-menu__illustration" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shape}</svg>
 }
 
-export function CategoryDrawer({ products, roots, onClose, onSelect, onAccount }: {
-  products: Product[]; roots: OneCNode[]; onClose: () => void; onSelect: (selection: string) => void; onAccount: () => void
+export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect, onAccount }: {
+  groups?: Array<{ path: string; count: number }>; products: Product[]; roots: OneCNode[]; onClose: () => void; onSelect: (selection: string) => void; onAccount: () => void
 }) {
   const [path, setPath] = useState('')
   const root = useMemo(() => categoryMenuRoot(roots), [roots])
@@ -85,7 +85,7 @@ export function CategoryDrawer({ products, roots, onClose, onSelect, onAccount }
         && !/\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(image)
     })
   }
-  const count = products.filter(product => !currentPath || matchesCategoryPath(storefrontPath(product.category, product.name), currentPath)).length
+  const count = groups.length ? groups.filter(group => !currentPath || matchesCategoryPath(group.path, currentPath)).reduce((sum, group) => sum + group.count, 0) : products.filter(product => !currentPath || matchesCategoryPath(storefrontPath(product.category, product.name), currentPath)).length
   return <div className="menu-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
     <aside className="category-drawer category-menu" id="category-menu" ref={panel} role="dialog" aria-modal="true" aria-label="Каталог товаров">
       <div className="category-drawer__head"><div><span>TEXHORU</span><h2>{atRoot ? 'Категории' : browseLabel(current)}</h2></div>
@@ -98,9 +98,10 @@ export function CategoryDrawer({ products, roots, onClose, onSelect, onAccount }
         <nav className="category-menu__grid" aria-label={atRoot ? 'Категории товаров' : 'Подразделы ' + current}>
           {nodes.map(node => {
             const product = cover(node)
+            const total = groups.length ? groups.filter(group => matchesCategoryPath(group.path, node.path)).reduce((sum, group) => sum+group.count, 0) : node.count
             return <button type="button" className="category-menu__tile" key={node.path} onClick={() => open(node)} aria-label={'Открыть раздел ' + node.title}>
               <span className="category-menu__visual">{product ? <ProductImage name={product.name} image={product.image} alt="" /> : <CategoryIllustration title={node.title} />}</span>
-              <span className="category-menu__caption"><strong>{browseLabel(node.title)}</strong><small>{node.count} {categoryNouns[categoryPlural.select(node.count)] || 'товаров'}</small></span>
+              <span className="category-menu__caption"><strong>{browseLabel(node.title)}</strong><small>{total} {categoryNouns[categoryPlural.select(total)] || 'товаров'}</small></span>
               <Icon name="chevronRight" />
             </button>
           })}

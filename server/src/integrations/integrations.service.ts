@@ -1,21 +1,39 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
-import { StockState } from '@prisma/client'
+import { refreshCatalogIndexes } from '../products/catalog-index'
+import { storefrontPath, isSmartphonePath } from '../products/storefront-path'
+import { BadRequestException, ConflictException, HttpException, Injectable } from '@nestjs/common'
+import { Prisma, StockState } from '@prisma/client'
 import { OrdersService } from '../orders/orders.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 import { OneCPriceSyncService } from './price-sync.service'
-import { phoneVariantKey } from '../products/phone-uniqueness'
+import { phoneVariantIndex } from '../products/phone-uniqueness'
 import { automaticTestCatalogScope } from './test-catalog-policy'
 
 @Injectable()
 export class IntegrationsService {
   constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService) {}
 
+  private importing = false
+
   // Import grants eligibility in an enabled TEST deployment, never queues prices.
-  async importCatalog(dto: OneCCatalogDto) {
+  async importCatalog(dto: OneCCatalogDto, checkpoint?: { sessionId: string; batch: number; hash: string }) {
+    if (dto.products.length > 100 || dto.categories.length > 500) throw new BadRequestException('Не более 100 товаров и 500 категорий в пакете')
+    if (this.importing) throw new HttpException('Другой пакет уже обрабатывается. Повторите через 2 секунды.', 429)
+    this.importing = true
     const automaticScope = automaticTestCatalogScope()
     try {
+      if (!checkpoint && await this.prisma.catalogImportSession.findFirst({ where: { activeKey: 'catalog', status: 'RUNNING', updatedAt: { gt: new Date(Date.now() - 86400000) } }, select: { id: true } })) {
+        throw new HttpException('Идёт полная выгрузка каталога. Повторите старый обмен позже.', 429)
+      }
+      await refreshCatalogIndexes(this.prisma)
       return await this.prisma.$transaction(async tx => {
+        if (checkpoint) {
+          const session = await tx.catalogImportSession.findUnique({ where: { id: checkpoint.sessionId } })
+          if (!session) throw new BadRequestException('Сеанс выгрузки не найден')
+          if (session.nextBatch === checkpoint.batch + 1 && session.lastBatchHash === checkpoint.hash) return session.lastResult as Prisma.JsonObject
+          if (session.status !== 'RUNNING' || session.nextBatch !== checkpoint.batch) throw new ConflictException('Номер или содержимое пакета не совпадает с прогрессом сервера')
+          if (session.updatedAt.getTime() < Date.now() - 86400000) throw new ConflictException('Сеанс устарел. Начните выгрузку заново.')
+        }
         if (new Set(dto.categories.map(c => c.oneCId)).size !== dto.categories.length || new Set(dto.products.map(p => p.oneCId)).size !== dto.products.length) throw new BadRequestException('Повторяющиеся идентификаторы в пакете 1С')
         const categoryIdByIncomingOneCId = new Map<string, string>()
 
@@ -52,19 +70,41 @@ export class IntegrationsService {
             })
           }
 
+          if (sameOneCId && sameOneCId.name !== incomingName) {
+            let after = 0
+            while (true) {
+              const affected = await tx.product.findMany({ where: { categoryId: resolvedCategory.id, id: { gt: after } },
+                select: { id: true, name: true, brand: true, gtin: true, mpn: true, attributes: true, updatedAt: true }, orderBy: { id: 'asc' }, take: 200 })
+              if (!affected.length) break
+              for (const row of affected) await tx.product.update({ where: { id: row.id }, data: {
+                importVariantKey: phoneVariantIndex({ ...row, categoryName: incomingName }), isPhone: isSmartphonePath(incomingName), browsePath: storefrontPath(incomingName, row.name), updatedAt: row.updatedAt,
+              } })
+              after = affected.at(-1)!.id
+            }
+          }
           categoryIdByIncomingOneCId.set(category.oneCId, resolvedCategory.id)
         }
 
         // Existing 1C GUIDs remain authoritative. A second GUID representing
         // precisely the same identifiable phone variant must not create a new card.
         // Keep all old rows, orders and price-monitor associations untouched.
-        const current = await tx.product.findMany({
-          where: { status: 'ACTIVE' }, include: { category: true }, orderBy: { id: 'asc' },
-        })
+        const incomingKeys = dto.products.map(item => {
+          const category = dto.categories.find(c => c.oneCId === item.categoryOneCId)
+          return category ? phoneVariantIndex({ ...item, categoryName: category.name }) : null
+        }).filter((key): key is string => Boolean(key && key !== '-'))
+        // Resolve categories not resent in a legacy batch without reading any products.
+        for (const item of dto.products.filter(p => !categoryIdByIncomingOneCId.has(p.categoryOneCId))) {
+          const category = await tx.category.findUnique({ where: { oneCId: item.categoryOneCId } })
+          if (category) {
+            const key = phoneVariantIndex({ ...item, categoryName: category.name })
+            if (key !== '-') incomingKeys.push(key)
+          }
+        }
         const occupiedVariants = new Map<string, { oneCId: string | null; id: number }>()
-        for (const row of current) {
-          const key = phoneVariantKey(row)
-          if (key && !occupiedVariants.has(key)) occupiedVariants.set(key, { oneCId: row.oneCId, id: row.id })
+        // At most one indexed representative per incoming variant (<=100).
+        for (const key of new Set(incomingKeys)) {
+          const row = await tx.product.findFirst({ where: { importVariantKey: key, status: 'ACTIVE' }, select: { id: true, oneCId: true }, orderBy: { id: 'asc' } })
+          if (row) occupiedVariants.set(key, row)
         }
         let skippedDuplicates = 0
         const duplicateExamples: string[] = []
@@ -101,21 +141,21 @@ export class IntegrationsService {
           }
 
           const existing = byOneCId ?? bySku ?? bySlug
-          const variantKey = phoneVariantKey({
+          const variantKey = phoneVariantIndex({
             name: item.name, brand: item.brand, gtin: item.gtin, mpn: item.mpn,
             attributes: item.attributes, categoryName: category.name,
           })
           if (existing?.oneCId && existing.oneCId !== item.oneCId) {
             // A reused SKU or slug does not authorise changing a previously
             // imported 1C GUID: it would break the external inventory link.
-            if (variantKey && phoneVariantKey({ ...existing, categoryName: category.name }) === variantKey) {
+            if (variantKey !== '-' && phoneVariantIndex({ ...existing, categoryName: category.name }) === variantKey) {
               skippedDuplicates++
               if (duplicateExamples.length < 12) duplicateExamples.push(item.name)
               continue
             }
             throw new Error('Конфликт идентификаторов 1С: SKU/slug уже принадлежит другому GUID. ' + item.name)
           }
-          const occupied = variantKey && occupiedVariants.get(variantKey)
+          const occupied = variantKey !== '-' && occupiedVariants.get(variantKey)
           if (occupied && occupied.id !== existing?.id) {
             // Never merge two different immutable 1C IDs or sum their stock
             // blindly: the source's records may differ for business reasons.
@@ -142,16 +182,20 @@ export class IntegrationsService {
             categoryId: category.id,
             price: incomingPrice,
             oldPrice: item.oldPrice,
-            stockQty: item.stockQty,
+            stockQty: item.isDeleted ? 0 : item.stockQty,
             stockState,
-            status: 'ACTIVE' as const,
+            importVariantKey: variantKey,
+            isPhone: isSmartphonePath(category.name),
+            browsePath: storefrontPath(category.name, item.name),
+            searchText: `${item.name} ${item.brand} ${item.sku} ${existing?.shortSpec || ''}`.toLocaleLowerCase('ru-RU'),
+            status: item.isDeleted ? 'ARCHIVED' as const : 'ACTIVE' as const,
             ...(automaticScope ? { priceSyncEnabled: true } : {}),
           }
 
           const updated = existing
             ? await tx.product.update({ where: { id: existing.id }, data: productData })
             : await tx.product.create({ data: productData })
-          if (variantKey) occupiedVariants.set(variantKey, { oneCId: updated.oneCId, id: updated.id })
+          if (variantKey !== '-') occupiedVariants.set(variantKey, { oneCId: updated.oneCId, id: updated.id })
           if (automaticScope && !existing?.priceSyncEnabled) newlyEnabled++
 
           const crossedLowStock = item.stockQty <= 3 && (!existing || existing.stockQty > 3)
@@ -182,11 +226,17 @@ export class IntegrationsService {
           },
         })
 
-        return { ok: true, categories: dto.categories.length,
+        const result = { ok: true, categories: dto.categories.length,
           products: dto.products.length - skippedDuplicates,
           skippedDuplicates, duplicateExamples, ...(autoPriceScope ? { autoPriceScope } : {}) }
-      }, { timeout: 180000 })
+        if (checkpoint) await tx.catalogImportSession.update({ where: { id: checkpoint.sessionId }, data: {
+          nextBatch: { increment: 1 }, processed: { increment: result.products }, skipped: { increment: skippedDuplicates },
+          lastBatchHash: checkpoint.hash, lastResult: result,
+        } })
+        return result
+      }, { timeout: 30000 })
     } catch (error) {
+      if (error instanceof HttpException && error.getStatus() === 429) throw error
       await this.prisma.syncLog.create({
         data: {
           direction: 'FROM_1C',
@@ -196,7 +246,7 @@ export class IntegrationsService {
         },
       })
       throw error
-    }
+    } finally { this.importing = false }
   }
 
 
