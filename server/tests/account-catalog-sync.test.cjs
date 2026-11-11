@@ -5,6 +5,28 @@ const { spawnSync } = require('node:child_process')
 const { resolve } = require('node:path')
 const { rmSync, writeFileSync } = require('node:fs')
 
+test('SMTP failures expose diagnostic codes without credentials or account links', async () => {
+  const { AccountMailService } = require('../dist/auth/account-mail.service')
+  const secrets = { SMTP_HOST: 'smtp.example.test', SMTP_USER: 'sender@example.test', SMTP_PASSWORD: randomUUID(), MAIL_FROM: 'sender@example.test', FRONTEND_PUBLIC_URL: 'https://shop.example.test' }
+  const token = randomUUID(), messages = []
+  const service = new AccountMailService({ get: key => secrets[key] })
+  service.logger = { error: message => messages.push(message) }
+  for (const failure of [
+    { code: 'EAUTH', responseCode: 535, command: 'AUTH PLAIN', message: secrets.SMTP_PASSWORD },
+    { code: 'ETIMEDOUT', command: 'CONN', response: token },
+    { code: token, command: secrets.SMTP_USER },
+    null,
+  ]) {
+    service.transport = { sendMail: async () => { throw failure }, close() {} }
+    await assert.rejects(service.send('recipient@example.test', 'Test', token, 'VERIFY'), error => error.getStatus() === 503)
+  }
+  assert.match(messages[0], /code=EAUTH responseCode=535 command=AUTH PLAIN/)
+  assert.match(messages[1], /code=ETIMEDOUT responseCode=unknown command=CONN/)
+  assert.match(messages[2], /code=unknown responseCode=unknown command=unknown/)
+  for (const secret of [secrets.SMTP_PASSWORD, secrets.SMTP_USER, token, 'recipient@example.test']) assert(!messages.join(' ').includes(secret))
+  service.onModuleDestroy()
+})
+
 // Real HTTP controllers/guards, real isolated SQLite; mail transport is replaced in tests.
 test('customer lifecycle, access boundaries, and resumable bounded catalog exchange', async t => {
   const database = resolve(__dirname, '../prisma/monitor-test-accounts-' + randomUUID() + '.db')

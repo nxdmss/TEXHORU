@@ -97,6 +97,9 @@ try {
   }
   assert(connected, 'Caddy HTTPS must work with verification of its local test CA')
   assert.match((await request('/admin')).bytes.toString(), /id="root"/)
+  const favicon = await request('/favicon.svg')
+  assert.equal(favicon.status, 200, 'runtime user must be able to read public assets')
+  assert.match(favicon.bytes.toString(), /<svg/)
   assert.equal((await request('/api/admin/price-monitor/price-readiness')).status, 401)
   let login = await request('/api/auth/login', { method: 'POST', body: { email, password } })
   assert.equal(login.status, 201)
