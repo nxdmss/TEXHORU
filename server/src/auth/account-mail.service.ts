@@ -32,8 +32,13 @@ export class AccountMailService implements OnModuleDestroy {
     })
     try {
       await this.transport.sendMail({ from: this.config.get<string>('MAIL_FROM'), to: email, ...content })
-    } catch {
-      this.logger.error('Account email delivery failed; check SMTP settings and provider status')
+    } catch (error) {
+      // Never log the message, response, address or transport: these may contain
+      // credentials, recipient data or the one-use account link.
+      const failure = error as { code?: unknown; responseCode?: unknown; command?: unknown } | null
+      const safeLabel = (value: unknown) => typeof value === 'string' && /^[A-Z0-9 _-]{1,40}$/.test(value) ? value : 'unknown'
+      const responseCode = typeof failure?.responseCode === 'number' && Number.isInteger(failure.responseCode) ? failure.responseCode : 'unknown'
+      this.logger.error(`Account email delivery failed: code=${safeLabel(failure?.code)} responseCode=${responseCode} command=${safeLabel(failure?.command)}`)
       throw new ServiceUnavailableException('Не удалось отправить письмо. Попробуйте ещё раз чуть позже.')
     }
   }

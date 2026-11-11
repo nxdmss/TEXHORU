@@ -24,7 +24,7 @@ RUN --mount=type=secret,id=proxy_ca \
     rm -rf /var/lib/apt/lists/* /root/.npm
 COPY --from=build /app/server/node_modules/.prisma ./server/node_modules/.prisma
 COPY --from=build /app/server/dist ./server/dist
-COPY --from=build /app/dist ./dist
+COPY --from=build --chown=node:node /app/dist ./dist
 COPY server/prisma/schema.local.prisma ./server/prisma/schema.local.prisma
 COPY deploy/cloud/init.mjs deploy/cloud/import.mjs deploy/cloud/data-files.mjs deploy/cloud/entrypoint.sh ./deploy/cloud/
 RUN mkdir -p /data /uploads && chown node:node /data /uploads && \
