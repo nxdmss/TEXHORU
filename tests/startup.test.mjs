@@ -21,7 +21,7 @@ function fixture() {
   const root = join(temp, 'OneDrive', 'Desktop', 'TEXHORU with spaces')
   copyApplication(original, root)
   mkdirSync(join(root, 'scripts'), { recursive: true })
-  for (const name of ['runtime-preparation.mjs', 'auto-start.mjs', 'auto-stop.mjs', 'session-control.mjs']) cpSync(join(original, 'scripts', name), join(root, 'scripts', name))
+  for (const name of ['runtime-preparation.mjs', 'auto-start.mjs', 'auto-stop.mjs', 'session-control.mjs', 'live-updates.mjs']) cpSync(join(original, 'scripts', name), join(root, 'scripts', name))
   mkdirSync(join(root, '.texhoru'), { recursive: true })
   return { temp, root }
 }
@@ -105,6 +105,10 @@ test('Cold prepare, warm reuse, live site, media from original folder and authen
     assert.equal(product.price, 4321); assert.equal(product.stockQty, 7); assert.equal(product.reservedQty, 2)
     assert.equal((await inspect.user.findUnique({ where: { email: 'existing@test.local' } })).passwordHash, 'do-not-reset')
     await inspect.$disconnect()
+  } catch (error) {
+    const log = join(root, '.texhoru', 'startup.log')
+    if (existsSync(log)) console.error(readFileSync(log, 'utf8').slice(-6000))
+    throw error
   } finally {
     await stopSession(root).catch(() => false)
     if (child?.exitCode === null && child?.signalCode === null) child.kill('SIGTERM')

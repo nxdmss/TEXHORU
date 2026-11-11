@@ -28,7 +28,7 @@ function OneCCatalogSections({ items, selection, onSelect, searching }: Props) {
   const parts = path ? categorySegments(path) : []
   const title = parts.at(-1) || 'Категории'
   const count = (next: string) => items.filter(item =>
-    item.categoryName === next || item.categoryName?.startsWith(next + ' / ')).length
+    item.categoryName === next || item.categoryName?.startsWith(next + ' / ')).reduce((sum,item) => sum+(item.count ?? 1),0)
   if (searching) return null
   return <section className="store-category-browser" key={path || 'root'} aria-label="Навигация по категориям">
     {path && <nav className="store-category-crumbs" aria-label="Путь по каталогу">

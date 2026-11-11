@@ -13,7 +13,7 @@ export function restoreCart(raw: string | null): CartLine[] {
     const value: unknown = JSON.parse(raw || '[]')
     if (!Array.isArray(value)) return []
     const seen = new Set<number>()
-    return value.filter((line): line is CartLine => {
+    return value.slice(0, 100).filter((line): line is CartLine => {
       const p = line?.product
       if (!p || !Number.isInteger(p.id) || p.id <= 0 || seen.has(p.id)
         || typeof p.name !== 'string' || typeof p.image !== 'string'

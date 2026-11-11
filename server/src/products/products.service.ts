@@ -1,3 +1,6 @@
+import { refreshCatalogIndexes } from './catalog-index'
+import { CatalogQueryDto } from './catalog-query.dto'
+import { Prisma } from '@prisma/client'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { ProductStatus, StockState } from '@prisma/client'
 import { AuditService } from '../audit/audit.service'
@@ -10,28 +13,69 @@ import { OneCPriceSyncService } from '../integrations/price-sync.service'
 export class ProductsService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
 
+  private readonly publicSelect = {
+    id: true, oneCId: true, sku: true, slug: true, name: true, brand: true, description: true, shortSpec: true,
+    image: true, price: true, oldPrice: true, stockQty: true, reservedQty: true, stockState: true,
+    status: true, badge: true, warranty: true, deliveryNote: true, specs: true,
+    category: { select: { id: true, name: true, slug: true, sortOrder: true } },
+  } as const
+
+  private visibility(): Prisma.ProductWhereInput {
+    return { status: 'ACTIVE', category: { isActive: true }, OR: [{ oneCId: null }, { price: { gt: 0 }, stockQty: { gt: this.prisma.product.fields.reservedQty } }] }
+  }
+  private present<T extends { stockQty: number; reservedQty: number; stockState: StockState }>(item: T) {
+    const available = Math.max(0, item.stockQty - item.reservedQty)
+    const stockState = item.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
+    const { reservedQty: _, ...safe } = item
+    return { ...safe, stockQty: available, stockState }
+  }
+  // Legacy exchange consumers keep their array response. Storefront uses bounded pages.
   async list() {
-    const rows = await this.prisma.product.findMany({ where: { status: ProductStatus.ACTIVE }, include: { category: true }, orderBy: [{ category: { sortOrder: 'asc' } }, { id: 'asc' }] })
-    // A 1C item is public only if it has a sellable price and free stock.
-    // This applies to every category (laptops, accessories, phones), not just smartphones.
-    const visible = rows.filter(item => !item.oneCId
-      || (item.price > 0 && item.stockQty > item.reservedQty))
-    // Older 1C imports may already contain duplicate GUIDs for the exact
-    // same variant. Show one public card; keep all original records intact.
-    return uniquePhoneProducts(visible).map((item) => {
-      const available = Math.max(0, item.stockQty - item.reservedQty)
-      const stockState = item.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
-      return { ...item, stockQty: available, stockState }
-    })
+    const rows = await this.prisma.product.findMany({ where: this.visibility(), select: this.publicSelect, orderBy: { id: 'asc' } })
+    return uniquePhoneProducts(rows).map(item => this.present(item))
+  }
+  async catalog(dto: CatalogQueryDto) {
+    await refreshCatalogIndexes(this.prisma)
+    const filters: Prisma.ProductWhereInput[] = [this.visibility()]
+    if (dto.q?.trim()) filters.push({ searchText: { contains: dto.q.trim().toLocaleLowerCase('ru-RU') } })
+    if (dto.path) filters.push({ OR: [{ browsePath: dto.path }, { browsePath: { startsWith: dto.path + ' / ' } }] })
+    if (dto.brand) filters.push({ brand: dto.brand })
+    if (dto.available === 'true') filters.push({ stockQty: { gt: this.prisma.product.fields.reservedQty } })
+    if (dto.smartphones === 'true') filters.push({ isPhone: true })
+    const where: Prisma.ProductWhereInput = { AND: filters }
+    const orderBy: Prisma.ProductOrderByWithRelationInput[] = dto.sort === 'price-asc' ? [{ price: 'asc' }, { id: 'asc' }] : dto.sort === 'price-desc' ? [{ price: 'desc' }, { id: 'asc' }] : dto.sort === 'name' ? [{ name: 'asc' }, { id: 'asc' }] : [{ id: 'asc' }]
+    const [rows, total] = await Promise.all([
+      this.prisma.product.findMany({ where, select: this.publicSelect, orderBy, skip: (dto.page - 1) * dto.take, take: dto.take }),
+      this.prisma.product.count({ where }),
+    ])
+    return { items: uniquePhoneProducts(rows).map(item => this.present(item)), total, page: dto.page, take: dto.take, hasMore: dto.page * dto.take < total }
+  }
+  async home() {
+    await refreshCatalogIndexes(this.prisma)
+    const visibility = this.visibility()
+    const total = await this.prisma.product.count({ where: visibility })
+    if (total <= 100) return (await this.catalog(Object.assign(new CatalogQueryDto(), { take: 100 }))).items
+    const brands = await this.prisma.product.groupBy({ by: ['brand'], where: { AND: [visibility, { isPhone: true }] }, orderBy: { brand: 'asc' }, take: 6 })
+    const phones = []
+    // A bounded sample across brands, including models beyond the first database page.
+    for (const { brand } of brands) phones.push(...await this.prisma.product.findMany({ where: { AND: [visibility, { isPhone: true, brand }] }, select: this.publicSelect, orderBy: { id: 'asc' }, take: 8 }))
+    const others = await this.prisma.product.findMany({ where: { AND: [visibility, { isPhone: false }] }, select: this.publicSelect, orderBy: { id: 'asc' }, take: 100-phones.length })
+    return uniquePhoneProducts([...phones, ...others]).map(item => this.present(item))
+  }
+  async cart(ids: number[]) {
+    const rows = await this.prisma.product.findMany({ where: { AND: [this.visibility(), { id: { in: ids.slice(0, 100) } }] }, select: this.publicSelect, take: 100 })
+    return rows.map(item => this.present(item))
+  }
+  async summary() {
+    await refreshCatalogIndexes(this.prisma)
+    const rows = await this.prisma.product.groupBy({ by: ['browsePath', 'brand'], where: this.visibility(), _count: true })
+    return { groups: rows.map(row => ({ path: row.browsePath || 'Без категории', brand: row.brand, count: row._count })) }
   }
 
   async get(id: number) {
-    const product = await this.prisma.product.findFirst({ where: { id, status: ProductStatus.ACTIVE }, include: { category: true } })
-    if (!product || (product.oneCId && (product.price <= 0
-      || product.stockQty <= product.reservedQty))) throw new NotFoundException('Товар не найден')
-    const available = Math.max(0, product.stockQty - product.reservedQty)
-    const stockState = product.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
-    return { ...product, stockQty: available, stockState }
+    const product = await this.prisma.product.findFirst({ where: { AND: [this.visibility(), { id }] }, select: this.publicSelect })
+    if (!product) throw new NotFoundException('Товар не найден')
+    return this.present(product)
   }
 
   categories() { return this.prisma.category.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }) }
@@ -65,12 +109,13 @@ export class ProductsService {
     const existing = await this.prisma.category.findUnique({ where: { id } })
     if (!existing) throw new NotFoundException('Категория не найдена')
     const item = await this.prisma.category.update({ where: { id }, data: dto })
+    if (dto.name !== undefined) await this.prisma.product.updateMany({ where: { categoryId: id }, data: { importVariantKey: null, browsePath: null, searchText: null } })
     await this.audit.log(userId, 'UPDATE_CATEGORY', 'Category', item.id, { name: item.name, fields: Object.keys(dto) })
     return item
   }
 
   async create(dto: UpsertProductDto, userId?: string) {
-    const item = await this.prisma.product.create({ data: { ...dto, stockState: (dto.stockState ?? 'IN_STOCK') as StockState, specs: dto.specs ?? [] } })
+    const item = await this.prisma.product.create({ data: { ...dto, importVariantKey: null, browsePath: null, searchText: null, stockState: (dto.stockState ?? 'IN_STOCK') as StockState, specs: dto.specs ?? [] } })
     await this.audit.log(userId, 'CREATE_PRODUCT', 'Product', String(item.id), { sku: item.sku, name: item.name })
     return item
   }
@@ -100,7 +145,7 @@ export class ProductsService {
       }
       const changed = await tx.product.updateMany({
         where: { id, price: existing.price },
-        data: { ...dto, stockState: dto.stockState as StockState | undefined, specs: dto.specs },
+        data: { ...dto, importVariantKey: null, browsePath: null, searchText: null, stockState: dto.stockState as StockState | undefined, specs: dto.specs },
       })
       if (changed.count !== 1) throw new ConflictException('Цена изменилась параллельно. Обнови страницу')
       const item = await tx.product.findUniqueOrThrow({ where: { id } })

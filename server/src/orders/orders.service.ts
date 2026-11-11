@@ -13,7 +13,7 @@ export class OrdersService {
     private readonly audit: AuditService,
   ) {}
 
-  async create(dto: CreateOrderDto) {
+  async create(dto: CreateOrderDto, userId?: string) {
     const existing = await this.prisma.order.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, include: { items: true } })
     if (existing) return existing
     if (!dto.items.length) throw new BadRequestException('Корзина пуста')
@@ -36,6 +36,7 @@ export class OrdersService {
 
       const created = await tx.order.create({
         data: {
+          userId,
           idempotencyKey: dto.idempotencyKey,
           customerName: dto.customerName,
           customerPhone: dto.customerPhone,
@@ -76,6 +77,8 @@ export class OrdersService {
       items: order.items.map((item) => ({ name: item.name, quantity: item.quantity, price: item.price })),
     }
   }
+
+  customerList(userId: string) { return this.prisma.order.findMany({ where: { userId }, select: { number: true, trackingToken: true, status: true, paymentStatus: true, total: true, deliveryMethod: true, deliveryAddress: true, createdAt: true, items: { select: { name: true, quantity: true, price: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }) }
 
   adminList() { return this.prisma.order.findMany({ include: { items: true, payments: true }, orderBy: { createdAt: 'desc' }, take: 200 }) }
 

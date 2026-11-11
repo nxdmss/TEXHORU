@@ -1,3 +1,6 @@
+import { HomeCollections } from './HomeCollections'
+import { AccountPage } from './AccountPage'
+import { CatalogSyncPanel } from './CatalogSyncPanel'
 import { Icon } from './Icon'
 import { CartDrawer } from './CartDrawer'
 import { CategoryDrawer } from './CategoryDrawer'
@@ -73,7 +76,7 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen }: {
       </div>
     </button>
     {product.badge && <span className="product-card__badge">{product.badge}</span>}
-    <span className="product-card__stock">{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
+    <span className="product-card__stock"><i aria-hidden="true" />{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
     <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
       onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
       <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'Добавить в корзину'}</span>
@@ -89,6 +92,7 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
   const orderAttempt = useRef<{ signature: string; key: string } | null>(null)
   useEffect(() => {
     let active = true
+    void api.customerProfile().then(profile => { if (active) setForm(current => ({ ...current, customerName: current.customerName || profile.name, customerPhone: current.customerPhone || profile.phone || '', customerEmail: current.customerEmail || profile.email, deliveryAddress: current.deliveryAddress || profile.deliveryAddress })) }).catch(() => undefined)
     void api.paymentStatus().then(status => { if (active) setOnlinePayment(status.configured) }).catch(() => undefined)
     return () => { active = false }
   }, [])
@@ -429,7 +433,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   useEffect(() => {
-    api.me().then(async () => { setAuthenticated(true); await load() }).catch(() => setAuthenticated(false)).finally(() => setCheckingSession(false))
+    api.me().then(async user => { if (!['ADMIN', 'MANAGER', 'DIRECTOR'].includes(user.role)) throw new Error('Недостаточно прав'); setAuthenticated(true); await load() }).catch(() => setAuthenticated(false)).finally(() => setCheckingSession(false))
   }, [])
 
   useEffect(() => {
@@ -848,6 +852,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
     {tab === 'sync' && <section className="admin-sync">
+      <CatalogSyncPanel />
       <header className="admin-sync-head">
         <div><h2>Обмен с 1С</h2><p>Тестовая база · результат подтверждает 1С</p></div>
         <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Обновляем…' : 'Обновить'}</button>
@@ -957,26 +962,44 @@ function App() {
   const [category, setCategory] = useState<Category>('Все')
   const [storeSection, setStoreSection] = useState('')
   const [storeLimit, setStoreLimit] = useState(24)
+  const [sort, setSort] = useState('recommended')
+  const [onlyAvailable, setOnlyAvailable] = useState(false)
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
   const [query, setQuery] = useState('')
+  const [catalogGroups, setCatalogGroups] = useState<Array<{ path: string; brand: string; count: number }>>([])
+  const [remoteCatalog, setRemoteCatalog] = useState<{ items: Product[]; total: number; hasMore: boolean }>({ items: [], total: 0, hasMore: false })
+  const [remoteLoading, setRemoteLoading] = useState(false)
+  const [remoteError, setRemoteError] = useState('')
+  const [detailProduct, setDetailProduct] = useState<Product | undefined>()
+  const [detailLoading, setDetailLoading] = useState(false)
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [promosLoaded, setPromosLoaded] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
   const [cartOpen, setCartOpen] = useState(false)
-  const [accountTab, setAccountTab] = useState<AccountTab>('active')
   const [path, setPath] = useState(() => window.location.pathname)
   const lastPhonePath = useRef('/catalog/smartphones')
   const [menuOpen, setMenuOpen] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
   const [sliderDragOffset, setSliderDragOffset] = useState(0)
   const [sliderIsDragging, setSliderIsDragging] = useState(false)
+  const sliderClickBlocked = useRef(false)
   const sliderDrag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
 
   useEffect(() => {
-    api.products().then((items) => { setCatalogProducts(items); setCart(current => current.flatMap(line => { const product = items.find(item => item.id === line.product.id); return product && cartLimit(product) > 0 ? [{ product, quantity: Math.min(line.quantity, cartLimit(product)) }] : [] })); setApiOnline(true) }).catch(() => setApiOnline(false))
+    api.products().then(async items => {
+      setCatalogProducts(items); setApiOnline(true)
+      try {
+        const current = restoreCart(localStorage.getItem('texhoru_cart'))
+        const available = current.length ? await api.cartProducts(current.map(line => line.product.id)) : []
+        setCart(lines => lines.flatMap(line => { if (!current.some(saved => saved.product.id === line.product.id)) return [line]; const product = available.find(item => item.id === line.product.id) || items.find(item => item.id === line.product.id); return product && cartLimit(product) > 0 ? [{ product, quantity: Math.min(line.quantity, cartLimit(product)) }] : [] }))
+      } catch { /* Keep the basket until stock can be revalidated at checkout. */ }
+    }).catch(() => { setApiOnline(false); setCatalogError('Не удалось загрузить каталог. Проверьте соединение и попробуйте ещё раз.') }).finally(() => setCatalogLoading(false))
+    void api.catalogSummary().then(data => setCatalogGroups(data.groups)).catch(() => undefined)
     void refreshPromos()
     const onPromosChanged = () => { void refreshPromos() }
     window.addEventListener('texhoru:promos-changed', onPromosChanged)
@@ -1016,10 +1039,28 @@ function App() {
   const productMatch = path.match(/^\/product\/(\d+)\/?$/)
   const orderMatch = path.match(/^\/order\/([^/]+)\/?$/)
   const mockPaymentMatch = path.match(/^\/payment\/mock\/([^/]+)\/?$/)
-  const selectedProduct = productMatch ? catalogProducts.find((item) => item.id === Number(productMatch[1])) : undefined
+  const selectedProduct = productMatch ? detailProduct?.id === Number(productMatch[1]) ? detailProduct : catalogProducts.find((item) => item.id === Number(productMatch[1])) : undefined
+  useEffect(() => {
+    if (!productMatch) return
+    let active = true
+    setDetailLoading(true)
+    void api.product(Number(productMatch[1])).then(product => { if (active) setDetailProduct(product) }).catch(() => { if (active) setDetailProduct(undefined) }).finally(() => { if (active) setDetailLoading(false) })
+    return () => { active = false }
+  }, [path])
   const isProductPage = Boolean(productMatch), isAccountPage = /^\/account\/?$/.test(path), isCheckoutPage = /^\/checkout\/?$/.test(path), isAdminPage = /^\/admin\/?$/.test(path)
-  useEffect(() => { setStoreLimit(24) }, [storeSection, category, query])
-  const smartphoneBrands = useMemo(() => shopBrands(catalogProducts), [catalogProducts])
+  useEffect(() => { setStoreLimit(24) }, [storeSection, category, query, sort, onlyAvailable])
+  const catalogTotal = catalogGroups.reduce((sum, group) => sum + group.count, 0) || catalogProducts.length
+  const useRemoteCatalog = catalogTotal > catalogProducts.length
+  const smartphoneBrands = useMemo(() => {
+    if (!useRemoteCatalog) return shopBrands(catalogProducts)
+    const counts = new Map<string, number>()
+    for (const group of catalogGroups) {
+      if (!/смартфон|smartphone/i.test(group.path) || /аксессуар|чехол|чехлы|защитн|кабель/i.test(group.path)) continue
+      const brand = /^(iphone|apple)$/i.test(group.brand) ? 'Apple' : /^(redmi|poco|xiaomi)$/i.test(group.brand) ? 'Xiaomi' : group.brand
+      counts.set(brand, (counts.get(brand) || 0) + group.count)
+    }
+    return [...counts].map(([name,count]) => ({ name, count, slug: name.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '') }))
+  }, [catalogProducts, catalogGroups, useRemoteCatalog])
   const selectedJourneyBrand = journeyMatch?.[1] ? smartphoneBrands.find(brand => brand.slug === decodeURIComponent(journeyMatch[1])) : undefined
   const journeyProducts = useMemo(() => {
     const matches = catalogProducts.filter(product => isSmartphone(product)
@@ -1032,25 +1073,45 @@ function App() {
     }
     return matches.sort((left, right) => mix(left.id) - mix(right.id))
   }, [catalogProducts, selectedJourneyBrand])
-  const categoryRoots = useMemo(() => categoryTree(catalogProducts.map(p => storefrontPath(p.category,p.name))), [catalogProducts])
+  const categoryRoots = useMemo(() => categoryTree(catalogGroups.length ? catalogGroups.map(group => group.path) : catalogProducts.map(p => storefrontPath(p.category,p.name))), [catalogProducts, catalogGroups])
   const selectedBrowsePath = selectedCategoryPath(storeSection)
   const browseChildren = childrenAtPath(categoryRoots, selectedBrowsePath || '')
   const isFeaturedView = !query.trim() && !storeSection && category === 'Все'
   const folderOnly = false
-  const filtered = useMemo(() => {
+  const localFiltered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q && !storeSection && category === 'Все') return featuredProducts(catalogProducts, 10)
-    return catalogProducts.filter(product => {
+    const found = catalogProducts.filter(product => {
       const virtualPath = storefrontPath(product.category, product.name)
-      return (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
+      return (!onlyAvailable || (product.stockQty ?? 0) > 0) && (category === 'Все' || product.category === category || product.category.endsWith(' / ' + category)) &&
         (!selectedBrowsePath || virtualPath === selectedBrowsePath || virtualPath.startsWith(selectedBrowsePath + ' / ')) &&
         (!q || `${product.name} ${product.brand} ${product.category} ${product.shortSpec}`.toLowerCase().includes(q))
     })
-  }, [category, query, catalogProducts, storeSection, selectedBrowsePath, browseChildren.length])
+    return sort === 'price-asc' ? found.sort((a,b) => a.price-b.price) : sort === 'price-desc' ? found.sort((a,b) => b.price-a.price) : sort === 'name' ? found.sort((a,b) => a.name.localeCompare(b.name, 'ru')) : found
+  }, [category, query, catalogProducts, storeSection, selectedBrowsePath, browseChildren.length, sort, onlyAvailable])
+  const filtered = useRemoteCatalog && !isFeaturedView ? remoteCatalog.items : localFiltered
+  const totalFiltered = useRemoteCatalog && !isFeaturedView ? remoteCatalog.total : filtered.length
+  const visibleJourneyProducts = useRemoteCatalog ? remoteCatalog.items : journeyProducts
+  useEffect(() => {
+    if (!useRemoteCatalog || (path !== '/' && !journeyMatch) || (!journeyMatch && isFeaturedView)) return
+    let active = true
+    const page = Math.ceil(storeLimit / 24)
+    setRemoteLoading(true); setRemoteError('')
+    if (page === 1) setRemoteCatalog({ items: [], total: 0, hasMore: false })
+    const timer = window.setTimeout(() => {
+      void api.catalogPage({ page, take: 24, q: journeyMatch ? undefined : query.trim(), path: journeyMatch ? undefined : selectedBrowsePath || (category !== 'Все' ? category : undefined),
+        brand: journeyMatch ? selectedJourneyBrand?.name : undefined, smartphones: journeyMatch ? 'true' : undefined,
+        sort: journeyMatch ? 'recommended' : sort, available: onlyAvailable ? 'true' : undefined,
+      }).then(result => { if (active) setRemoteCatalog(current => ({ ...result, items: page === 1 ? result.items : [...current.items, ...result.items.filter(item => !current.items.some(old => old.id === item.id))] })) })
+        .catch(() => { if (active) setRemoteError('Не удалось загрузить товары. Попробуйте обновить страницу.') })
+        .finally(() => { if (active) setRemoteLoading(false) })
+    }, query.trim() ? 200 : 0)
+    return () => { active = false; clearTimeout(timer) }
+  }, [useRemoteCatalog, isFeaturedView, path, query, category, selectedBrowsePath, selectedJourneyBrand?.name, sort, onlyAvailable, storeLimit])
   const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : [], [promos, promosLoaded])
   useEffect(() => {
-    if (path !== '/' || sliderItems.length < 2) return
-    const timer = window.setInterval(() => setSlideIndex((current) => (current + 1) % sliderItems.length), 6000)
+    if (path !== '/' || sliderItems.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const timer = window.setInterval(() => { if (!document.hidden && !sliderDrag.current && !document.querySelector('.storefront-carousel__viewport')?.matches(':hover, :focus-within')) setSlideIndex((current) => (current + 1) % sliderItems.length) }, 6000)
     return () => window.clearInterval(timer)
   }, [path, sliderItems.length])
   useEffect(() => { if (slideIndex >= sliderItems.length) setSlideIndex(0) }, [slideIndex, sliderItems.length])
@@ -1096,10 +1157,10 @@ function App() {
   }
   const moveSlide = (delta: number) => setSlideIndex((current) => (current + delta + sliderItems.length) % sliderItems.length)
   const startSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (sliderItems.length < 2 || (event.target as Element).closest('button')) return
+    if (sliderItems.length < 2 || (event.target as Element).closest('button:not(.storefront-slide__link)')) return
     const width = event.currentTarget.getBoundingClientRect().width
     sliderDrag.current = { pointerId: event.pointerId, startX: event.clientX, currentX: event.clientX, width }
-    event.currentTarget.setPointerCapture(event.pointerId)
+    sliderClickBlocked.current = false
     setSliderDragOffset(0)
     setSliderIsDragging(true)
   }
@@ -1107,6 +1168,10 @@ function App() {
     const drag = sliderDrag.current
     if (!drag || drag.pointerId !== event.pointerId) return
     drag.currentX = event.clientX
+    if (Math.abs(event.clientX - drag.startX) > 8) {
+      sliderClickBlocked.current = true
+      if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId)
+    }
     setSliderDragOffset(event.clientX - drag.startX)
   }
   const endSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1115,6 +1180,7 @@ function App() {
     const delta = drag.currentX - drag.startX
     const threshold = Math.max(56, drag.width * 0.1)
     sliderDrag.current = null
+    window.setTimeout(() => { sliderClickBlocked.current = false }, 0)
     setSliderDragOffset(0)
     setSliderIsDragging(false)
     try { event.currentTarget.releasePointerCapture(event.pointerId) } catch {}
@@ -1123,8 +1189,10 @@ function App() {
   }
 
   const renderHome = () => <>
+    <div className="store-location-bar"><span>Кизилюрт · Дагестан</span><span>Техника для вашей жизни</span><button onClick={() => navigate('/account')}>Мои заказы <Icon name="arrow" /></button></div>
     {catalogProducts.some(product => isSmartphone(product) && (product.stockQty ?? 0) > 0) &&
       <SmartphonePortal onOpen={openJourney} featured={catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)} />}
+    {isFeaturedView && <HomeCollections products={catalogProducts} roots={categoryRoots} onSelect={jumpToStoreSection} />}
     {sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
       <div className="storefront-carousel__layout">
         <div
@@ -1138,7 +1206,7 @@ function App() {
             {sliderItems.map((promo, index) => {
               const frame = parsePromoFrame(promo.image)
               return <div key={`${promo.id}-${index}`} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
-                <img src={frame.src} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} />
+                <button className="storefront-slide__link" tabIndex={index === slideIndex ? 0 : -1} onClick={() => { if (!sliderClickBlocked.current) jumpToCatalog(promo.category || 'Все') }} aria-label={promo.title || `Открыть предложение ${index + 1}`}><img src={frame.src} loading={index ? 'lazy' : 'eager'} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} /></button>
               </div>
             })}
           </div>
@@ -1150,62 +1218,59 @@ function App() {
         </div>
         <aside className="storefront-carousel__aside">
           <span className="storefront-carousel__aside-kicker">TEXHORU</span>
-          <h3>Техника для ваших задач</h3>
-          <p>Смартфоны, электроника и аксессуары. Выберите своё в каталоге TEXHORU.</p>
+          <h3>Хороший выбор.<br />Каждый день.</h3>
+          <p>Собрали предложения, к которым стоит присмотреться. Выбирайте то, что подходит вам.</p>
           <button type="button" className="storefront-carousel__aside-link" onClick={() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Открыть каталог <Icon name="arrow" /></button>
         </aside>
       </div>
     </section>}
+    {isFeaturedView && <div className="store-benefits"><div><span>01 / ВЫБОР</span><strong>Техника под ваши задачи</strong><p>Модели, характеристики и цены — рядом.</p></div><div><span>02 / ПОЛУЧЕНИЕ</span><strong>Близко к вам</strong><p>Самовывоз в Кизилюрте и доставка.</p></div><div><span>03 / УДОБСТВО</span><strong>Всё о заказах — в кабинете</strong><p>Сохраняйте контакты и следите за статусом.</p></div></div>}
     <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id="catalog">
       <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
         <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
       </div></div>
 
       {!folderOnly && <>
-        <div className="catalog-result-count">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + filtered.length}</div>
+        <div className="catalog-toolbar"><div className="catalog-result-count">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + totalFiltered}</div>{!isFeaturedView && <div className="catalog-toolbar__controls"><label className="catalog-stock-toggle"><input type="checkbox" checked={onlyAvailable} onChange={e => setOnlyAvailable(e.target.checked)} />В наличии</label><label><span className="visually-hidden">Сортировка товаров</span><select aria-label="Сортировка товаров" value={sort} onChange={e => setSort(e.target.value)}><option value="recommended">По умолчанию</option><option value="price-asc">Сначала дешевле</option><option value="price-desc">Сначала дороже</option><option value="name">По названию</option></select></label></div>}</div>
+        {selectedBrowsePath && <nav className="catalog-breadcrumb" aria-label="Путь по каталогу"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Весь каталог</button><span>/</span><span>{selectedBrowsePath.replaceAll(' / ', ' / ')}</span></nav>}
+        {!isFeaturedView && !query.trim() && <CatalogSections items={catalogGroups.length ? catalogGroups.map(group => ({ name: '', categoryName: group.path, count: group.count })) : catalogProducts.map(p => ({ name: p.name, categoryName: storefrontPath(p.category,p.name) }))} selection={storeSection} onSelect={jumpToStoreSection} hierarchical />}
+        {(catalogLoading || (useRemoteCatalog && remoteLoading && !remoteCatalog.items.length)) && <div className="catalog-loading" role="status">Загружаем товары…</div>}
+        {(catalogError || remoteError) && <div className="empty-search" role="alert">{catalogError || remoteError}<button className="catalog-more" onClick={() => window.location.reload()}>Повторить</button></div>}
         <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
           <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)}/>)}</div>
-        {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogProducts.length} товаров</button>}
-        {!isFeaturedView && filtered.length > storeLimit &&
-          <button className="catalog-more" onClick={() => setStoreLimit(n => n + 24)}>Показать ещё 24</button>}
-        {filtered.length === 0 && <div className="empty-search">Товары не найдены. Попробуйте другое название или выберите другой раздел.</div>}
+        {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogTotal} товаров</button>}
+        {!isFeaturedView && (useRemoteCatalog ? remoteCatalog.hasMore : filtered.length > storeLimit) &&
+          <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n + 24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
+        {!catalogLoading && !catalogError && !(useRemoteCatalog && (remoteLoading || remoteError)) && filtered.length === 0 && <div className="empty-search">Товары не найдены. Попробуйте другое название или выберите другой раздел.</div>}
       </>}
     </section>
+    {isFeaturedView && <section className="home-account-banner"><div><span className="customer-kicker">ВАШ ЛИЧНЫЙ TEXHORU</span><h2>Покупки становятся проще,<br />когда мы уже знакомы.</h2><p>История заказов, статусы и ваши данные. Всё в одном кабинете.</p></div><button onClick={() => navigate('/account')}>Открыть кабинет <Icon name="arrow" /></button></section>}
   </>
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} />)}</div></div>}</section> }
-
-  const renderAccountPage = () => <section className="account-page">
-    <div className="account-page__top">
-      <button className="back-link" onClick={() => navigate('/')}><Icon name="back" /> В магазин</button>
-      <div className="account-simple-head"><div><p className="eyebrow">TEXHORU</p><h1>Личный кабинет</h1></div></div>
-    </div>
-    <div className="account-page__content account-page__content--simple">
-      <div className="empty-search">Отслеживать заказ можно по персональной ссылке, которая появляется после оформления.</div>
-    </div>
-  </section>
 
   const tokenFromQuery = new URLSearchParams(window.location.search).get('token') || ''
   let content
   if (isAdminPage) content = <AdminPage onBack={() => navigate('/')} />
   else if (journeyMatch) content = <SmartphoneJourney brands={smartphoneBrands} activeBrand={selectedJourneyBrand}
-    count={journeyProducts.length} onOpen={openJourney}>
-    {journeyProducts.length > 0
-      ? <div className="product-grid">{journeyProducts.map(product =>
+    count={useRemoteCatalog ? remoteCatalog.total : journeyProducts.length} onOpen={openJourney}>
+    {visibleJourneyProducts.length > 0
+      ? <div className="product-grid">{visibleJourneyProducts.map(product =>
           <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)}/>)}</div>
-      : <div className="empty-search">В наличии нет смартфонов в этом разделе.</div>}
+      : <div className="empty-search">{useRemoteCatalog && remoteLoading ? 'Загружаем смартфоны…' : remoteError || 'В наличии нет смартфонов в этом разделе.'}</div>}
+    {useRemoteCatalog && remoteCatalog.hasMore && <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n+24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
   </SmartphoneJourney>
   else if (mockPaymentMatch) content = <MockPaymentPage paymentId={mockPaymentMatch[1]} trackingToken={tokenFromQuery} onDone={() => navigate(`/order/${tokenFromQuery}`)} />
   else if (orderMatch) content = <OrderStatusPage trackingToken={orderMatch[1]} onHome={() => navigate('/')} />
   else if (isCheckoutPage) content = <CheckoutPage cart={cart} onBack={() => navigate('/')} onCreated={(order) => { setCart([]); navigate(`/order/${order.trackingToken}`) }} />
-  else if (isAccountPage) content = renderAccountPage()
-  else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
+  else if (isAccountPage) content = <AccountPage onHome={() => navigate('/')} onOrder={token => navigate(`/order/${token}`)} />
+  else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : detailLoading || catalogLoading ? <div className="catalog-loading" role="status">Открываем товар…</div> : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
-  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>{!isAdminPage && <header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { setAccountTab('active'); navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
-  {menuOpen && <CategoryDrawer products={catalogProducts} roots={categoryRoots} onClose={() => setMenuOpen(false)}
-    onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); setAccountTab('active'); navigate('/account') }} />}
-  <main id="top">{content}</main>{!isAdminPage && <footer className="footer"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button><div>КИЗИЛЮРТ · ДАГЕСТАН</div></footer>}
+  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>{!isAdminPage && <header className="header header--storefront"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions"><button className="ghost-button" onClick={() => { navigate('/account') }}><Icon name="user" />Кабинет</button><button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
+  {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
+    onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
+  <main id="top">{content}</main>{!isAdminPage && <footer className="footer footer--complete"><div className="footer__main"><div><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><p>Техника для вашей жизни.<br />Кизилюрт · Дагестан.</p></div><nav aria-label="Магазин"><span>Магазин</span><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Весь каталог</button><button onClick={() => setCartOpen(true)}>Корзина</button><button onClick={() => navigate('/account')}>Личный кабинет</button></nav><div><span>Покупателям</span><p>Самовывоз в Кизилюрте<br />Доставку согласуем при подтверждении<br />Способы оплаты — при оформлении</p></div></div><div className="footer__bottom"><span>© {new Date().getFullYear()} TEXHORU</span><span>Хорошая техника. Личный подход.</span><button className="footer-admin" onClick={() => navigate('/admin')}>Управление магазином ↗</button></div></footer>}
   {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
     onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}
     onRemove={id => setCart(current => current.filter(item => item.product.id !== id))}

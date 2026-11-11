@@ -31,3 +31,6 @@ deploy/cloud/*.env
 deploy/cloud/credentials*
 *.pem
 *.key
+
+# Intermediate QA assets and scripts.
+work/

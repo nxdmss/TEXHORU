@@ -2462,9 +2462,10 @@ test('Bulk 1C matching builds a persistent 05.ru smartphone index before local m
     categoryOneCId: catId, price: 92000, stockQty: 2, costPrice: 75000,
   }))
   const integration = new IntegrationsService(prisma, {})
-  await integration.importCatalog({
+  // Real exporters send bounded pages; matching still sees all 125 saved rows.
+  for (let offset = 0; offset < products.length; offset += 50) await integration.importCatalog({
     categories: [{ oneCId: catId, name: categoryPath, slug: 'bulk-' + catId }],
-    products,
+    products: products.slice(offset, offset + 50),
   })
   const url = 'https://05.ru/cat/396f7486/p/smartfon-apple-iphone-18-pro-12-gb-256-gb-oranzheviy-e-sim-999999/'
   const currentSnapshot = { ...fixture.snapshot,

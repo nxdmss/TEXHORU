@@ -57,6 +57,7 @@ jobs:
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor
+      - run: node --test server/tests/account-catalog-sync.test.cjs
       - name: Install browser for interface checks
         if: runner.os == 'Linux'
         run: node server/node_modules/playwright/cli.js install --with-deps --only-shell chromium
@@ -64,4 +65,5 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           node tests/storefront.browser.mjs
+          node tests/accounts.browser.cjs
           node tests/price-demo.browser.mjs

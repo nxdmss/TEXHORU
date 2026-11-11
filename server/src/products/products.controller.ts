@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Header, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { CatalogQueryDto, CartProductsDto } from './catalog-query.dto'
+import { Body, Controller, Delete, Get, Header, Param, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard, type AuthPayload } from '../common/auth.guard'
 import { CreateCategoryDto, UpdateCategoryDto, UpdateProductDto, UpsertProductDto } from './products.dto'
@@ -7,6 +8,11 @@ import { ProductsService } from './products.service'
 @Controller()
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
+
+  @Get('catalog/home') @Header('Cache-Control', 'no-store') home() { return this.products.home() }
+  @Get('catalog/products') @Header('Cache-Control', 'no-store') catalog(@Query() dto: CatalogQueryDto) { return this.products.catalog(dto) }
+  @Post('catalog/cart') @Header('Cache-Control', 'no-store') cart(@Body() dto: CartProductsDto) { return this.products.cart(dto.ids) }
+  @Get('catalog/summary') @Header('Cache-Control', 'no-store') summary() { return this.products.summary() }
 
   @Get('products') @Header('Cache-Control', 'no-store, max-age=0') list() { return this.products.list() }
   @Get('products/:id') @Header('Cache-Control', 'no-store, max-age=0') get(@Param('id', ParseIntPipe) id: number) { return this.products.get(id) }
