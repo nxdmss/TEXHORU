@@ -17,6 +17,7 @@ jobs:
         run: |
           bash -n deploy/cloud/install.sh deploy/cloud/manage.sh
           sh -n deploy/cloud/entrypoint.sh
+          node --test tests/cloud-reset.test.mjs
       - name: Build production image
         run: docker build -f deploy/cloud/Dockerfile -t texhoru:cloud-test .
       - name: Test HTTPS, credentials, parser runtime and persistent data

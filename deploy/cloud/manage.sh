@@ -63,6 +63,26 @@ case "${1:-status}" in
     "${compose[@]}" run --rm --no-deps --entrypoint=node --volume "$source:/transfer:ro" app /app/deploy/cloud/import.mjs
     chown -R 1000:1000 /var/lib/texhoru/uploads
     echo 'Перенос завершён. Исходная папка оставлена у владельца; автоматических бэкапов нет.' ;;
+  reset-database)
+    [[ ${2:-} == --keep-admin && $# -eq 2 ]] || { echo 'Удалить все данные базы кроме единственного администратора: sudo texhoru reset-database --keep-admin'; exit 1; }
+    exec 9>/var/lock/texhoru-deploy.lock
+    flock -n 9 || { echo 'Другая операция TEXHORU уже идёт.'; exit 1; }
+    container=$("${compose[@]}" ps -q app)
+    [[ -n $container ]] || { echo 'Контейнер приложения не найден.'; exit 1; }
+    database_dir=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")
+    [[ -n $database_dir && -f $database_dir/texhoru.db ]] || { echo 'База данных не найдена.'; exit 1; }
+    backup_dir=$(mktemp -d /var/backups/texhoru-reset-XXXXXXXX)
+    chmod 0700 "$backup_dir"
+    "${compose[@]}" stop app
+    trap '"${compose[@]}" up -d --wait --wait-timeout 180' EXIT
+    # Include WAL/SHM: a database file copied alone may omit committed records.
+    tar -C "$database_dir" -cpf "$backup_dir/database.tar" .
+    chmod 0600 "$backup_dir/database.tar"
+    echo "Резервная копия: $backup_dir/database.tar"
+    code=$(cat deploy/cloud/reset-database.cjs)
+    code+=$'\ntry { console.log(JSON.stringify(resetDatabase("/data/texhoru.db"), null, 2)) } catch (e) { console.error(e.message); process.exitCode=1 }'
+    "${compose[@]}" run --rm --no-deps -T --entrypoint=node app -e "$code"
+    echo 'База очищена. Администратор и его пароль сохранены. Файлы загрузок и конфигурация сервера сохранены.' ;;
   update)
     exec 9>/var/lock/texhoru-deploy.lock
     flock -n 9 || { echo 'Обновление уже идёт.'; exit 1; }
@@ -80,5 +100,5 @@ case "${1:-status}" in
     # never container volumes or database files, is eligible here.
     docker builder prune --force --filter until=24h --keep-storage 1GB || echo 'Очистка кэша сборки отложена.'
     echo 'Обновлено. Проверить: sudo texhoru status' ;;
-  *) echo 'Команды: status | logs | start | stop | restart | update | credentials | set-admin-password [EMAIL] | import-catalog ПАПКА | import-data ПАПКА'; exit 1 ;;
+  *) echo 'Команды: status | logs | start | stop | restart | update | reset-database --keep-admin | credentials | set-admin-password [EMAIL] | import-catalog ПАПКА | import-data ПАПКА'; exit 1 ;;
 esac
