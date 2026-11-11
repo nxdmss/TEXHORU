@@ -165,6 +165,19 @@ try {
       assert.equal(check.prepare('SELECT COUNT(*) n FROM OneCPriceChange').get().n,0);check.close();
     })().catch(e=>{console.error(e.message);process.exitCode=1})
   `)
+  // The offline helper also runs against a full Prisma schema as the non-root runtime user.
+  docker('exec', app, 'node', '-e', readFileSync('deploy/cloud/reset-database.cjs', 'utf8') + `
+    const assert=require('node:assert/strict');
+    const result=resetDatabase('/tmp/catalog-target.db');
+    assert.equal(result.administrator,'preserved@example.org');
+    const check=new DatabaseSync('/tmp/catalog-target.db',{readOnly:true});
+    assert.equal(check.prepare('SELECT COUNT(*) n FROM Product').get().n,0);
+    assert.equal(check.prepare('SELECT COUNT(*) n FROM Category').get().n,0);
+    assert.equal(check.prepare('SELECT COUNT(*) n FROM User').get().n,1);
+    assert.equal(check.prepare('SELECT passwordHash FROM User').get().passwordHash,'cloud-password-unchanged');
+    assert.equal(check.prepare('PRAGMA foreign_key_check').all().length,0);
+    check.close();
+  `)
   console.log('PASS: production image, verified Caddy TLS, secure login, 1C API authentication/import, persistent catalog/uploads, non-resetting admin and Chromium. No live 1C or 05.ru exercised.')
 } finally {
   agent?.destroy()
