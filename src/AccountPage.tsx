@@ -11,12 +11,11 @@ function emailAction(defaultMode: Mode = 'login') {
   const action = params.get('action'), token = params.get('token') || ''
   return { mode: (action === 'verify' || action === 'reset' ? action : defaultMode) as Mode, token }
 }
-export function AccountPage({ screen, onHome, onOrder, onNavigate, onSessionChange }: {
+export function AccountPage({ screen, onHome, onOrder, onNavigate }: {
   screen: 'account' | 'login' | 'register'
   onHome: () => void
   onOrder: (token: string) => void
   onNavigate: (path: string, replace?: boolean) => void
-  onSessionChange: (profile: CustomerProfile | null) => void
 }) {
   const [entry, setEntry] = useState(() => emailAction(screen === 'register' ? 'register' : 'login'))
   const [mode, setMode] = useState<Mode>(entry.mode)
@@ -56,14 +55,14 @@ export function AccountPage({ screen, onHome, onOrder, onNavigate, onSessionChan
     void api.accountCapabilities().then(result => { if (active) setEmailReady(result.emailConfigured) }).catch(() => undefined)
     void api.customerProfile().then(async user => {
       if (!active) return
-      setProfile(user); onSessionChange(user); setDraft({ name: user.name, phone: user.phone || '', deliveryAddress: user.deliveryAddress })
+      setProfile(user); setDraft({ name: user.name, phone: user.phone || '', deliveryAddress: user.deliveryAddress })
       if (screen !== 'account' && !entry.token) { onNavigate('/account', true); return }
       if (screen !== 'account') return
       try { const list = await api.customerOrders(); if (active) setOrders(list) }
       catch { if (active) setError('Не удалось загрузить заказы. Обновите список.') }
     }).catch(() => {
       if (!active) return
-      setProfile(null); onSessionChange(null)
+      setProfile(null)
       if (screen === 'account') onNavigate('/login', true)
     }).finally(() => { if (active) setChecking(false) })
     return () => { active = false }
@@ -76,7 +75,7 @@ export function AccountPage({ screen, onHome, onOrder, onNavigate, onSessionChan
     try {
       if (mode === 'login') {
         const result = await api.customerLogin(fields.email, fields.password)
-        setProfile(result.user); onSessionChange(result.user); setDraft({ name: result.user.name, phone: result.user.phone || '', deliveryAddress: result.user.deliveryAddress })
+        setProfile(result.user); setDraft({ name: result.user.name, phone: result.user.phone || '', deliveryAddress: result.user.deliveryAddress })
         setFields(value => ({ ...value, password: '', repeat: '' }))
         setChecking(true); onNavigate('/account', true)
         return
@@ -86,7 +85,7 @@ export function AccountPage({ screen, onHome, onOrder, onNavigate, onSessionChan
         : mode === 'reset' ? await api.resetPassword(entry.token, fields.password)
         : mode === 'resend' ? await api.resendVerification(fields.email) : await api.forgotPassword(fields.email)
       setNotice(result.message)
-      if (mode === 'verify' || mode === 'reset') { setProfile(null); onSessionChange(null); setEntry({ mode: 'login', token: '' }); setMode('login'); onNavigate('/login', true); setFields(value => ({ ...value, password: '', repeat: '' })) }
+      if (mode === 'verify' || mode === 'reset') { setProfile(null); setEntry({ mode: 'login', token: '' }); setMode('login'); onNavigate('/login', true); setFields(value => ({ ...value, password: '', repeat: '' })) }
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось выполнить запрос') }
     finally { setBusy(false) }
   }
@@ -98,7 +97,7 @@ export function AccountPage({ screen, onHome, onOrder, onNavigate, onSessionChan
   }
   async function logout() {
     setBusy(true); setError('')
-    try { await api.customerLogout(); setProfile(null); setOrders([]); setDraft({ name: '', phone: '', deliveryAddress: '' }); setNotice(''); setMode('login'); onSessionChange(null); setChecking(true); onNavigate('/login', true) }
+    try { await api.customerLogout(); setProfile(null); setOrders([]); setDraft({ name: '', phone: '', deliveryAddress: '' }); setNotice(''); setMode('login'); setChecking(true); onNavigate('/login', true) }
     catch { setError('Не удалось выйти. Попробуйте ещё раз.') }
     finally { setBusy(false) }
   }

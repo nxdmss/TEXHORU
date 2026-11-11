@@ -1,3 +1,4 @@
+import { HomeCollections } from './HomeCollections'
 import { AccountPage } from './AccountPage'
 import { CatalogSyncPanel } from './CatalogSyncPanel'
 import { Icon } from './Icon'
@@ -15,7 +16,7 @@ import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSma
 import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiCategory, type ApiProduct, type CustomerProfile, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
+import { api, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -977,7 +978,6 @@ function App() {
   const [promosLoaded, setPromosLoaded] = useState(false)
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
-  const [customer, setCustomer] = useState<CustomerProfile | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
   const lastPhonePath = useRef('/catalog/smartphones')
@@ -989,12 +989,6 @@ function App() {
   const sliderDrag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
-
-  useEffect(() => {
-    let active = true
-    void api.customerProfile().then(profile => { if (active) setCustomer(profile) }).catch(() => undefined)
-    return () => { active = false }
-  }, [])
 
   useEffect(() => {
     api.products().then(async items => {
@@ -1024,8 +1018,22 @@ function App() {
     if (/^\/(catalog\/smartphones|product\/)/.test(path) || /^\/(catalog\/smartphones|product\/)/.test(nextPath)) animateCatalog(update)
     else update()
   }
+  const goHome = () => {
+    setCategory('Все')
+    setStoreSection('')
+    setQuery('')
+    setSort('recommended')
+    setOnlyAvailable(false)
+    setStoreLimit(24)
+    setMenuOpen(false)
+    setCartOpen(false)
+    setSlideIndex(0)
+    navigate('/')
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
   const journeyMatch = path.match(/^\/catalog\/smartphones(?:\/([^/]+))?\/?$/)
   const openJourney = (url: string, source?: HTMLElement | null) => {
+    if (url === '/') { goHome(); return }
     const next = () => {
       if (window.location.pathname !== url) window.history.pushState({}, '', url)
       setPath(url)
@@ -1196,6 +1204,9 @@ function App() {
   }
 
   const renderHome = () => <>
+    {isFeaturedView && <HomeCollections products={catalogProducts} roots={categoryRoots}
+      onSelect={selection => animateCatalog(() => jumpToStoreSection(selection))}
+      onSmartphones={() => openJourney('/catalog/smartphones')} />}
     {isFeaturedView && sliderItems.length === 0 && catalogProducts.some(product => isSmartphone(product) && (product.stockQty ?? 0) > 0) &&
       <SmartphonePortal onOpen={openJourney} featured={catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)} />}
     {isFeaturedView && sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
@@ -1247,7 +1258,7 @@ function App() {
 
   const tokenFromQuery = new URLSearchParams(window.location.search).get('token') || ''
   let content
-  if (isAdminPage) content = <AdminPage onBack={() => navigate('/')} />
+  if (isAdminPage) content = <AdminPage onBack={goHome} />
   else if (journeyMatch) content = <SmartphoneJourney brands={smartphoneBrands} activeBrand={selectedJourneyBrand}
     count={useRemoteCatalog ? remoteCatalog.total : journeyProducts.length} onOpen={openJourney}>
     {visibleJourneyProducts.length > 0
@@ -1257,16 +1268,25 @@ function App() {
     {useRemoteCatalog && remoteCatalog.hasMore && <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n+24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
   </SmartphoneJourney>
   else if (mockPaymentMatch) content = <MockPaymentPage paymentId={mockPaymentMatch[1]} trackingToken={tokenFromQuery} onDone={() => navigate(`/order/${tokenFromQuery}`)} />
-  else if (orderMatch) content = <OrderStatusPage trackingToken={orderMatch[1]} onHome={() => navigate('/')} />
-  else if (isCheckoutPage) content = <CheckoutPage cart={cart} onBack={() => navigate('/')} onCreated={(order) => { setCart([]); navigate(`/order/${order.trackingToken}`) }} />
-  else if (isAccountPage || authScreen) content = <AccountPage screen={authScreen || 'account'} onNavigate={navigate} onSessionChange={setCustomer} onHome={() => navigate('/')} onOrder={token => navigate(`/order/${token}`)} />
+  else if (orderMatch) content = <OrderStatusPage trackingToken={orderMatch[1]} onHome={goHome} />
+  else if (isCheckoutPage) content = <CheckoutPage cart={cart} onBack={goHome} onCreated={(order) => { setCart([]); navigate(`/order/${order.trackingToken}`) }} />
+  else if (isAccountPage || authScreen) content = <AccountPage screen={authScreen || 'account'} onNavigate={navigate} onHome={goHome} onOrder={token => navigate(`/order/${token}`)} />
   else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : detailLoading || catalogLoading ? <div className="catalog-loading" role="status">Открываем товар…</div> : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
-  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>{!isAdminPage && <header className={"header header--storefront" + (!customer ? " header--guest" : "")}><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div><label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={(event) => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={(event) => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label><div className="header-actions">{customer ? <button className="ghost-button" onClick={() => navigate('/account')}><Icon name="user" />Кабинет</button> : <nav className="header-auth" aria-label="Вход и регистрация"><a href="/login" aria-current={authScreen === 'login' ? 'page' : undefined} onClick={event => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); navigate('/login') } }}><Icon name="user" />Войти</a><a href="/register" className="header-auth__register" aria-current={authScreen === 'register' ? 'page' : undefined} onClick={event => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); navigate('/register') } }}>Регистрация</a></nav>}<button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button></div></header>}
+  return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>
+  {!isAdminPage && <header className="header header--storefront">
+    <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button>
+    <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div>
+    <label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={event => { if (journeyMatch) navigate('/'); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label>
+    <div className="header-actions">
+      <button className="ghost-button header-account" onClick={() => navigate('/account')} aria-current={isAccountPage || authScreen ? 'page' : undefined}><Icon name="user" /><span>Кабинет</span></button>
+      <button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" />Корзина <span>{cartCount}</span></button>
+    </div>
+  </header>}
   {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
     onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
-  <main id="top">{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={() => navigate('/')}>TEXHO<span className="brand-ru">RU</span></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate(customer ? '/account' : '/login')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
+  <main id="top">{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
   {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
     onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}
     onRemove={id => setCart(current => current.filter(item => item.product.id !== id))}
