@@ -55,6 +55,18 @@ async function main() {
     await page.evaluate(() => window.scrollTo(0, 0)); await page.evaluate(() => document.fonts.ready)
     await page.screenshot({ path: resolve(shots, name + '.png'), fullPage: true })
     assert(await page.locator('.app-shell').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'overflow: ' + name)
+    if (await page.locator('.customer-page').count()) {
+      const frame = await page.evaluate(() => {
+        const bounds = selector => { const box = document.querySelector(selector)?.getBoundingClientRect(); return box ? { left: box.left, width: box.width, right: box.right } : null }
+        return { header: bounds('.header--storefront'), page: bounds('.customer-page'), surface: bounds('.customer-entry, .customer-dashboard'), profile: bounds('.customer-profile-form'), content: bounds('.customer-dashboard-content') }
+      })
+      for (const key of ['page', 'surface']) {
+        assert(frame[key], 'missing account surface: ' + name)
+        assert(Math.abs(frame[key].left - frame.header.left) < 1, 'account left edge differs from shop: ' + name)
+        assert(Math.abs(frame[key].right - frame.header.right) < 1, 'account right edge differs from shop: ' + name)
+      }
+      if (frame.profile) assert(Math.abs(frame.profile.width - frame.content.width) < 1, 'profile does not fill the cabinet content column: ' + name)
+    }
   }
   await page.goto(url)
   await page.locator('.product-card').first().waitFor()
@@ -62,9 +74,18 @@ async function main() {
   await screenshot('refresh-home-desktop')
   await page.setViewportSize({ width: 390, height: 844 }); await screenshot('refresh-home-mobile')
   await page.goto(url + '/account')
-  await page.getByRole('heading', { name: 'С возвращением.', exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'Вход в кабинет', exact: true }).waitFor()
   await screenshot('account-login-mobile')
-  await page.getByRole('button', { name: 'Создать аккаунт', exact: true }).first().click()
+  for (const width of [1920, 1440, 1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await screenshot('account-login-aligned-' + width)
+    await page.getByRole('button', { name: 'Регистрация', exact: true }).click()
+    await page.getByRole('heading', { name: 'Создать аккаунт', exact: true }).waitFor()
+    await screenshot('account-registration-aligned-' + width)
+    await page.getByRole('button', { name: 'Войти', exact: true }).click()
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Регистрация', exact: true }).click()
   await page.getByLabel('Ваше имя', { exact: true }).fill('Амина')
   await page.getByLabel('Электронная почта', { exact: true }).fill('browser@example.ru')
   await page.getByLabel('Пароль', { exact: true }).fill('browser-password-123')
@@ -74,7 +95,7 @@ async function main() {
   await screenshot('account-register-mobile')
   await page.goto(url + '/account#action=verify&token=' + delivered[0].token)
   await page.getByRole('button', { name: 'Подтвердить почту', exact: true }).click()
-  await page.getByRole('heading', { name: 'С возвращением.', exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'Вход в кабинет', exact: true }).waitFor()
   assert(!page.url().includes('token='), 'email token is removed from browser URL')
   await page.getByLabel('Электронная почта', { exact: true }).fill('browser@example.ru')
   await page.getByLabel('Пароль', { exact: true }).fill('browser-password-123')
@@ -87,6 +108,11 @@ async function main() {
   await page.getByLabel('Адрес доставки', { exact: true }).fill('Кизилюрт, тестовая улица, 1')
   await page.getByRole('button', { name: 'Сохранить данные', exact: true }).click()
   await page.locator('.customer-success').waitFor(); await screenshot('account-profile-desktop')
+  for (const width of [1920, 1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await screenshot('account-profile-aligned-' + width)
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(url + '/product/' + goods[0].id)
   await page.getByRole('button', { name: 'Добавить в корзину', exact: true }).click()
   await page.getByRole('button', { name: 'Перейти к оформлению', exact: true }).click()
@@ -109,7 +135,7 @@ async function main() {
   await page.getByLabel('Повторите пароль', { exact: true }).fill('replacement-password-123')
   await screenshot('account-reset-mobile')
   await page.getByRole('button', { name: 'Сохранить пароль', exact: true }).click()
-  await page.getByRole('heading', { name: 'С возвращением.', exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'Вход в кабинет', exact: true }).waitFor()
   // Search beyond the initial 100 rows must use the server, including Cyrillic case folding.
   await page.goto(url)
   await page.locator('.product-card').first().waitFor()
@@ -133,7 +159,7 @@ async function main() {
   await page.setContent(email.html); await page.screenshot({ path: resolve(shots, 'verification-email-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: resolve(shots, 'verification-email-mobile.png'), fullPage: true })
   assert.deepEqual(errors, [])
-  console.log('PASS: real registration/verification/login/profile/prefilled checkout/account orders/reset; responsive 1440/390/320 layouts; server search beyond initial 100 rows, sorting and paging; desktop/mobile HTML email rendering.')
+  console.log('PASS: real registration/verification/login/profile/prefilled checkout/account orders/reset; shared storefront/account rails at 1920/1440/1024/768/390/320, full-column profile, explicit login/registration; server search beyond initial 100 rows, sorting and paging; desktop/mobile HTML email rendering.')
 }
 main().catch(async e => { console.error(e); const page = browser?.contexts()[0]?.pages()[0]; if (page) { console.error('Visible page:', (await page.locator('body').innerText()).slice(0,1500)); await page.screenshot({ path: resolve(shots, 'failure.png'), fullPage: true }) }; process.exitCode = 1 }).finally(async () => {
   await browser?.close(); await app?.close()
