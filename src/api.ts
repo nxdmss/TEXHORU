@@ -119,6 +119,12 @@ export type PriceReadiness = {
   items: Array<{ productId: number; name: string; categoryPath: string; authorized: boolean;
     oldPrice: number; newPrice: number | null; status: 'READY' | 'PENDING' | 'BLOCKED'; reason: string | null }>;
 }
+export type RemoteCatalogStatus = {
+  configured: boolean; baseId?: string; total: number; page: number
+  agent: { online: boolean; state: string; lastSeenAt: string; groupsUpdatedAt: string | null; error: string | null } | null
+  groups: { oneCId: string; parentId: string; name: string; itemCount: number }[]
+  jobs: { id: string; kind: string; groupId: string; groupName: string; mode: string; status: string; scanned: number; processed: number; skipped: number; error: string | null; updatedAt: string }[]
+}
 export type OneCPriceSyncStatus = {
   agent?: { lastSeenAt: string; online: boolean; state?: string; applied: number; failed: number } | null;
   summary?: { pending: number; delivered: number; needsAttention: number };
@@ -217,6 +223,9 @@ export const api = {
   resendVerification(email: string) { return request<{ message: string }>('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email }) }) },
   forgotPassword(email: string) { return request<{ message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }) },
   resetPassword(token: string, password: string) { return request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }) },
+  remoteCatalog(parent = '', search = '', page = 0) { return request<RemoteCatalogStatus>('/admin/integrations/1c/remote?' + new URLSearchParams({ parent, search, page: String(page) })) },
+  remoteCatalogCreate(dto: { kind: 'GROUPS' | 'CATALOG'; mode: 'FULL' | 'DELTA'; groupId?: string }) { return request('/admin/integrations/1c/remote/jobs', { method: 'POST', body: JSON.stringify(dto) }) },
+  remoteCatalogAction(id: string, action: string) { return request('/admin/integrations/1c/remote/jobs/' + encodeURIComponent(id) + '/action', { method: 'POST', body: JSON.stringify({ action }) }) },
   catalogSyncStatus() { return request<CatalogSyncStatus>('/admin/integrations/1c/catalog-sync') },
   cancelCatalogSync(id: string) { return request('/admin/integrations/1c/catalog-sync/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }) },
   async products() { return (await request<ApiProduct[]>('/catalog/home')).map(mapProduct) },

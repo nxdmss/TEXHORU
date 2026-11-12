@@ -16,7 +16,7 @@ export class IntegrationsService {
   private importing = false
 
   // Import grants eligibility in an enabled TEST deployment, never queues prices.
-  async importCatalog(dto: OneCCatalogDto, checkpoint?: { sessionId: string; batch: number; hash: string }) {
+  async importCatalog(dto: OneCCatalogDto, checkpoint?: { sessionId: string; batch: number; hash: string }, remote?: { before: (tx: Prisma.TransactionClient) => Promise<void>; after: (tx: Prisma.TransactionClient, result: { products: number; skippedDuplicates: number }) => Promise<void> }) {
     if (dto.products.length > 100 || dto.categories.length > 500) throw new BadRequestException('Не более 100 товаров и 500 категорий в пакете')
     if (this.importing) throw new HttpException('Другой пакет уже обрабатывается. Повторите через 2 секунды.', 429)
     this.importing = true
@@ -27,6 +27,7 @@ export class IntegrationsService {
       }
       await refreshCatalogIndexes(this.prisma)
       return await this.prisma.$transaction(async tx => {
+        await remote?.before(tx)
         if (checkpoint) {
           const session = await tx.catalogImportSession.findUnique({ where: { id: checkpoint.sessionId } })
           if (!session) throw new BadRequestException('Сеанс выгрузки не найден')
@@ -233,6 +234,7 @@ export class IntegrationsService {
           nextBatch: { increment: 1 }, processed: { increment: result.products }, skipped: { increment: skippedDuplicates },
           lastBatchHash: checkpoint.hash, lastResult: result,
         } })
+        await remote?.after(tx, result)
         return result
       }, { timeout: 30000 })
     } catch (error) {
