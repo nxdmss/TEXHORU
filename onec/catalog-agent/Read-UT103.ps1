@@ -1,5 +1,32 @@
 ﻿# Read-only UT 10.3 COM adapter. No documents or register writes.
-function Get-RefId($Reference) { return ([string]$Reference.УникальныйИдентификатор()).ToLowerInvariant() }
+function Invoke-OneCMethod($Object, [string[]]$Names, [object[]]$Arguments = @()) {
+    foreach ($name in $Names) {
+        try {
+            $method = $Object.PSObject.Methods[$name]
+            if ($method) { return $method.Invoke($Arguments) }
+        } catch {}
+        try { return $Object.GetType().InvokeMember($name, [Reflection.BindingFlags]::InvokeMethod, $null, $Object, $Arguments) }
+        catch {}
+    }
+    throw ('ONEC_METHOD_NOT_FOUND:' + ($Names -join '/'))
+}
+function Set-OneCProperty($Object, [string[]]$Names, $Value) {
+    foreach ($name in $Names) {
+        try {
+            $property = $Object.PSObject.Properties[$name]
+            if ($property) { $property.Value = $Value; return }
+        } catch {}
+        try { $null = $Object.GetType().InvokeMember($name, [Reflection.BindingFlags]::SetProperty, $null, $Object, @($Value)); return }
+        catch {}
+    }
+    throw ('ONEC_PROPERTY_NOT_FOUND:' + ($Names -join '/'))
+}
+function Select-OneCQuery($Query) {
+    $result = Invoke-OneCMethod $Query @('Выполнить', 'Execute')
+    return Invoke-OneCMethod $result @('Выбрать', 'Select')
+}
+function Move-OneCSelection($Selection) { return [bool](Invoke-OneCMethod $Selection @('Следующий', 'Next')) }
+function Get-RefId($Reference) { return ([string](Invoke-OneCMethod $Reference @('УникальныйИдентификатор', 'UUID'))).ToLowerInvariant() }
 function New-OneCObject([string]$Type) {
     # COMConnector exposes global-context method names in the configuration's
     # script language. Some builds also hide global-context methods from
@@ -17,8 +44,8 @@ function New-OneCObject([string]$Type) {
 }
 function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
     $query = New-OneCObject 'Запрос'
-    $query.Текст = $Text
-    foreach ($key in $Parameters.Keys) { $query.УстановитьПараметр($key, $Parameters[$key]) }
+    Set-OneCProperty $query @('Текст', 'Text') $Text
+    foreach ($key in $Parameters.Keys) { $null = Invoke-OneCMethod $query @('УстановитьПараметр', 'SetParameter') @($key, $Parameters[$key]) }
     return $query
 }
 function Get-OneCRef([string]$Id) {
@@ -27,8 +54,8 @@ function Get-OneCRef([string]$Id) {
     # methods (ПустаяСсылка/ПолучитьСсылку) to PowerShell. Resolve a selected
     # group through a plain query instead; root jobs never need this lookup.
     $query = New-OneCQuery 'ВЫБРАТЬ Н.Ссылка КАК Ref ИЗ Справочник.Номенклатура КАК Н ГДЕ Н.ЭтоГруппа' @{}
-    $selection = $query.Выполнить().Выбрать()
-    while ($selection.Следующий()) {
+    $selection = Select-OneCQuery $query
+    while (Move-OneCSelection $selection) {
         if ((Get-RefId $selection.Ref) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
     }
     throw 'GROUP_NOT_FOUND'
@@ -51,8 +78,8 @@ function Get-GroupPath($Reference) {
 }
 function Get-PriceType([string]$Name) {
     $query = New-OneCQuery 'ВЫБРАТЬ ПЕРВЫЕ 1 Т.Ссылка КАК Ref, Т.ВалютаЦены.Код КАК Currency ИЗ Справочник.ТипыЦенНоменклатуры КАК Т ГДЕ Т.Наименование = &Name' @{ Name = $Name }
-    $selection = $query.Выполнить().Выбрать()
-    if (-not $selection.Следующий()) { throw 'PRICE_TYPE_NOT_FOUND' }
+    $selection = Select-OneCQuery $query
+    if (-not (Move-OneCSelection $selection)) { throw 'PRICE_TYPE_NOT_FOUND' }
     if (([string]$selection.Currency).Trim() -notin @('643', 'RUB')) { throw 'PRICE_CURRENCY' }
     return $selection.Ref
 }
@@ -74,21 +101,21 @@ function Read-RemotePage($Job) {
     }
     $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
     $query = New-OneCQuery $text $parameters
-    $selection = $query.Выполнить().Выбрать()
+    $selection = Select-OneCQuery $query
     $rows = @(); $refs = New-OneCObject 'Массив'
-    while ($selection.Следующий()) {
+    while (Move-OneCSelection $selection) {
         $unitName = ''
         try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
         $rows += ,@{ Ref = $selection.Ref; Code = ([string]$selection.Code).Trim(); Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; Deleted = [bool]$selection.Deleted }
-        $null = $refs.Добавить($selection.Ref)
+        $null = Invoke-OneCMethod $refs @('Добавить', 'Add') @($selection.Ref)
     }
     if ($rows.Count -eq 0) { return $null }
     $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $rows[-1].Code; scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @() }
     if ($Job.kind -eq 'GROUPS') {
         $counts = @{}
         $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель В (&Refs) СГРУППИРОВАТЬ ПО Н.Родитель' @{ Refs = $refs }
-        $selection = $query.Выполнить().Выбрать()
-        while ($selection.Следующий()) { $counts[(Get-RefId $selection.Ref)] = [int]$selection.Qty }
+        $selection = Select-OneCQuery $query
+        while (Move-OneCSelection $selection) { $counts[(Get-RefId $selection.Ref)] = [int]$selection.Qty }
         foreach ($row in $rows) {
             $id = Get-RefId $row.Ref; $parent = Get-RefId $row.Parent
             if ($parent -eq '00000000-0000-0000-0000-000000000000') { $parent = '' }
@@ -103,8 +130,8 @@ function Read-RemotePage($Job) {
     foreach ($priceType in @($retail, $purchase)) {
         $map = @{}
         $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType И Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК Ц СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; Refs = $refs }
-        $selection = $query.Выполнить().Выбрать()
-        while ($selection.Следующий()) {
+        $selection = Select-OneCQuery $query
+        while (Move-OneCSelection $selection) {
             $price = [decimal]$selection.Price
             if ($selection.Variants -gt 1 -or $price -lt 0 -or $price -ne [decimal]::Truncate($price) -or $price -gt [int]::MaxValue) { throw 'PRICE_UNIT_OR_FRACTION' }
             $map[(Get-RefId $selection.Ref)] = [int]$price
@@ -113,8 +140,8 @@ function Read-RemotePage($Job) {
     }
     $stocks = @{}
     $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК О СГРУППИРОВАТЬ ПО О.Номенклатура' @{ Refs = $refs }
-    $selection = $query.Выполнить().Выбрать()
-    while ($selection.Следующий()) {
+    $selection = Select-OneCQuery $query
+    while (Move-OneCSelection $selection) {
         $qty = [decimal]$selection.Qty
         if ($qty -ne [decimal]::Truncate($qty) -or $qty -gt [int]::MaxValue) { throw 'STOCK_FRACTION' }
         $stocks[(Get-RefId $selection.Ref)] = [int][Math]::Max(0, $qty)
