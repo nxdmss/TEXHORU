@@ -77,10 +77,9 @@ function Get-GroupPath($Reference) {
     return $path
 }
 function Get-PriceType([string]$Name) {
-    $query = New-OneCQuery 'ВЫБРАТЬ ПЕРВЫЕ 1 Т.Ссылка КАК Ref, Т.ВалютаЦены.Код КАК Currency ИЗ Справочник.ТипыЦенНоменклатуры КАК Т ГДЕ Т.Наименование = &Name' @{ Name = $Name }
+    $query = New-OneCQuery 'ВЫБРАТЬ ПЕРВЫЕ 1 Т.Ссылка КАК Ref ИЗ Справочник.ТипыЦенНоменклатуры КАК Т ГДЕ Т.Наименование = &Name' @{ Name = $Name }
     $selection = Select-OneCQuery $query
     if (-not (Move-OneCSelection $selection)) { throw 'PRICE_TYPE_NOT_FOUND' }
-    if (([string]$selection.Currency).Trim() -notin @('643', 'RUB')) { throw 'PRICE_CURRENCY' }
     return $selection.Ref
 }
 function Read-RemotePage($Job) {
