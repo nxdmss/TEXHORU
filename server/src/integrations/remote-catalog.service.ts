@@ -77,7 +77,7 @@ export class RemoteCatalogService {
       const leaseToken = row.leaseToken && row.leaseUntil && row.leaseUntil > now ? row.leaseToken : randomUUID()
       return tx.oneCCatalogJob.update({ where: { id: row.id }, data: { status: 'RUNNING', agentId: dto.agentId, leaseToken, leaseUntil: new Date(Date.now() + 120000) } })
     })
-    if (job) { const { lastHash, ...safe } = job; return { job: safe, pauseMs: 1000 } }
+    if (job) { const { lastHash, ...safe } = job; return { job: safe, pauseMs: 3000 } }
     return { job: null, pauseMs: 5000 }
   }
   async known(dto: RemoteKnownDto) {
