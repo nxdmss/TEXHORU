@@ -435,3 +435,55 @@ model OneCPriceChange {
   @@index([productId, status])
   @@index([status, createdAt])
 }
+
+// Remote catalog agent: bounded group snapshot, durable queue and per-item DELTA hashes.
+model OneCCatalogAgent {
+  baseId String @id
+  agentId String
+  lastSeenAt DateTime @default(now())
+  state String @default("idle")
+  error String?
+  groupsUpdatedAt DateTime?
+}
+model OneCRemoteGroup {
+  baseId String
+  oneCId String
+  parentId String @default("")
+  name String
+  itemCount Int @default(0)
+  generation String
+  searchName String @default("")
+  lastReceivedAt DateTime?
+  active Boolean @default(true)
+  @@id([baseId, oneCId])
+  @@index([baseId, active, parentId, name])
+}
+model OneCCatalogJob {
+  id String @id
+  baseId String
+  kind String
+  groupId String @default("")
+  groupName String
+  mode String @default("FULL")
+  status String @default("QUEUED")
+  cursor String @default("")
+  nextBatch Int @default(0)
+  scanned Int @default(0)
+  processed Int @default(0)
+  skipped Int @default(0)
+  lastHash String?
+  leaseToken String?
+  leaseUntil DateTime?
+  agentId String?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  finishedAt DateTime?
+  @@index([baseId, status, createdAt])
+}
+model OneCCatalogHash {
+  baseId String
+  oneCId String
+  hash String
+  @@id([baseId, oneCId])
+}

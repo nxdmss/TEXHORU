@@ -35,7 +35,10 @@ jobs:
             'onec/agent/Remove-TEXHORUAgent.ps1',
             'onec/agent/Agent-Protocol.ps1',
             'onec/agent/Update-TEXHORUAgent.ps1',
-            'onec/agent/Set-TEXHORUCloudEndpoint.ps1'
+            'onec/agent/Set-TEXHORUCloudEndpoint.ps1',
+            'onec/catalog-agent/Install-CatalogAgent.ps1',
+            'onec/catalog-agent/Run-CatalogAgent.ps1',
+            'onec/catalog-agent/Read-UT103.ps1'
           )
           foreach ($script in $scripts) {
             $tokens = $null
@@ -46,6 +49,10 @@ jobs:
               throw "Ошибка синтаксиса PowerShell: $script"
             }
           }
+      - name: Проверить пакеты COM-агента каталога
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tests/catalog-agent.test.ps1
       - name: Проверить протокол результата агента
         if: runner.os == 'Windows'
         shell: powershell
@@ -58,7 +65,7 @@ jobs:
       - run: npm run test:project
       - run: npm run build:all
       - run: npm --prefix server run test:monitor
-      - run: node --test server/tests/account-catalog-sync.test.cjs
+      - run: node --test server/tests/account-catalog-sync.test.cjs server/tests/remote-catalog.test.cjs
       - name: Install browser for interface checks
         if: runner.os == 'Linux'
         run: node server/node_modules/playwright/cli.js install --with-deps --only-shell chromium
@@ -67,4 +74,5 @@ jobs:
         run: |
           node tests/storefront.browser.mjs
           node tests/accounts.browser.cjs
+          node tests/remote-catalog.browser.mjs
           node tests/price-demo.browser.mjs

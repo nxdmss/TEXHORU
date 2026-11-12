@@ -200,11 +200,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   currentPriceUpdate() { return this.priceUpdate.current() }
   cancelPriceUpdate(id: string) { return this.priceUpdate.cancel(id) }
 
-  onModuleInit() {
+  async onModuleInit() {
     this.stopped = false
-    void this.sources().catch(error => console.error('Источники мониторинга:', error instanceof Error ? error.message : 'Ошибка'))
+    // Finish startup writes before the 1C profile bootstrap transaction starts.
+    // Fire-and-forget writes can deadlock a SQLite read-to-write transaction.
+    await this.sources().catch(error => console.error('Источники мониторинга:', error instanceof Error ? error.message : 'Ошибка'))
     // Pause old queued tasks; do not delete competitor links or price history.
-    void this.prisma.monitorJob.updateMany({
+    await this.prisma.monitorJob.updateMany({
       where: { sourceKey: { in: ['dns', 'mvideo'] }, status: { in: ['QUEUED', 'RUNNING'] } },
       data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() },
     }).catch(error => console.error('Отключение DNS/М.Видео:', error instanceof Error ? error.message : 'Ошибка'))
