@@ -931,7 +931,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (link.latestPrice === null) addReason('Нет актуальной цены 05.ru')
       else if (history && link.latestPrice !== history.price) addReason('Текущая цена 05.ru не совпадает с последней записью истории')
       if (link.inStock !== true) addReason(link.inStock === false ? 'На 05.ru товар отсутствует в наличии' : 'Наличие товара на 05.ru не подтверждено')
-      if (newPrice <= 0) addReason('Цена 05.ru минус 100 ₽ должна быть больше нуля')
+      if (newPrice <= 0 && knownPurchasePrice(product?.costPrice)) addReason('Рассчитанная розничная цена должна быть больше нуля и не превышать 5 000 000 ₽')
 
       if (product) {
         if (!knownPurchasePrice(product.costPrice)) addReason('Неизвестна закупочная цена: обновите данные из 1С')
