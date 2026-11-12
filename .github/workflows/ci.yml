@@ -37,6 +37,7 @@ jobs:
             'onec/agent/Update-TEXHORUAgent.ps1',
             'onec/agent/Set-TEXHORUCloudEndpoint.ps1',
             'onec/catalog-agent/Install-CatalogAgent.ps1',
+            'onec/catalog-agent/Update-CatalogAgent.ps1',
             'onec/catalog-agent/Run-CatalogAgent.ps1',
             'onec/catalog-agent/Read-UT103.ps1'
           )

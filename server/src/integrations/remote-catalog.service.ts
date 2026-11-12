@@ -29,6 +29,36 @@ export class RemoteCatalogService {
     ])
     return { configured: true, baseId, agent: agent ? { ...agent, online: agent.lastSeenAt.getTime() > Date.now() - 150000 } : null, groups, total, page, jobs: [...activeJobs, ...history].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) }
   }
+  async tree() {
+    const baseId = this.base()
+    const [groups, itemCount] = await Promise.all([
+      this.db.oneCRemoteGroup.findMany({
+        where: { baseId, active: true },
+        orderBy: [{ name: 'asc' }, { oneCId: 'asc' }],
+        select: { oneCId: true, parentId: true, name: true, itemCount: true, lastReceivedAt: true },
+        take: 50000,
+      }),
+      this.db.oneCNomenclatureItem.count({ where: { baseId, active: true } }),
+    ])
+    return { groups, itemCount }
+  }
+  async nomenclature(group: string, search: string, page: number) {
+    const baseId = this.base()
+    page = Number.isSafeInteger(page) ? Math.max(0, Math.min(page, 100000)) : 0
+    const query = search.trim().slice(0, 150).toLocaleLowerCase('ru-RU')
+    const where = {
+      baseId,
+      active: true,
+      ...(query ? { searchText: { contains: query } } : { parentId: group.slice(0, 100) }),
+    }
+    const [items, total, children, groupRow] = await Promise.all([
+      this.db.oneCNomenclatureItem.findMany({ where, orderBy: [{ code: 'asc' }, { name: 'asc' }, { oneCId: 'asc' }], skip: page * 100, take: 100 }),
+      this.db.oneCNomenclatureItem.count({ where }),
+      this.db.oneCRemoteGroup.findMany({ where: { baseId, active: true, ...(query ? { searchName: { contains: query } } : { parentId: group.slice(0, 100) }) }, orderBy: [{ name: 'asc' }, { oneCId: 'asc' }], take: 1000 }),
+      group ? this.db.oneCRemoteGroup.findUnique({ where: { baseId_oneCId: { baseId, oneCId: group } }, select: { oneCId: true, parentId: true, name: true } }) : Promise.resolve(null),
+    ])
+    return { items, total, children, group: groupRow, page, pageSize: 100, search: query }
+  }
   async create(dto: RemoteJobDto) {
     const baseId = this.base()
     return this.db.$transaction(async tx => {
@@ -63,6 +93,16 @@ export class RemoteCatalogService {
     // Discover groups initially, then refresh five minutes after the last completed snapshot.
     const lastGroups = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'GROUPS' }, orderBy: { createdAt: 'desc' } })
     if (!lastGroups || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 300000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
+    // Once the group tree exists, build the mirror automatically and keep it
+    // fresh. A single durable job is resumed by subsequent one-minute ticks.
+    if (lastGroups?.status === 'COMPLETED') {
+      const blockingCatalog = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'CATALOG', status: { in: [...OPEN, 'FAILED'] } } })
+      if (!blockingCatalog) {
+        const latestRoot = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'CATALOG', groupId: '' }, orderBy: { createdAt: 'desc' } })
+        if (!latestRoot) await this.create({ kind: 'CATALOG', mode: 'FULL' })
+        else if (latestRoot.status === 'COMPLETED' && latestRoot.finishedAt && latestRoot.finishedAt.getTime() < Date.now() - 45000) await this.create({ kind: 'CATALOG', mode: 'DELTA' })
+      }
+    }
     const job = await this.db.$transaction(async tx => {
       const active = await tx.catalogImportSession.findUnique({ where: { activeKey: 'catalog' } })
       const row = active
@@ -116,6 +156,35 @@ export class RemoteCatalogService {
         await tx.oneCRemoteGroup.upsert({ where: { baseId_oneCId: { baseId, oneCId: group.oneCId } }, create: { ...group, baseId, generation: id, searchName: group.name.toLocaleLowerCase('ru-RU') }, update: { ...group, generation: id, active: true, searchName: group.name.toLocaleLowerCase('ru-RU') } })
       }
       if (row.kind === 'CATALOG') await tx.oneCRemoteGroup.updateMany({ where: { baseId, oneCId: { in: dto.categories.map(c => c.oneCId) } }, data: { lastReceivedAt: new Date() } })
+      if (row.kind === 'CATALOG') {
+        const receivedAt = new Date()
+        for (const product of dto.products) {
+          const source = {
+            parentId: product.categoryOneCId,
+            code: product.sourceCode?.trim() || '',
+            article: product.sourceArticle?.trim() || product.mpn?.trim() || '',
+            name: product.name.trim(),
+            fullName: product.sourceFullName?.trim() || product.name.trim(),
+            itemKind: product.sourceKind?.trim() || 'Товар',
+            unitName: product.sourceUnit?.trim() || '',
+            retailPrice: product.price,
+            purchasePrice: product.costPrice ?? null,
+            stockQty: product.stockQty,
+            deletionMark: product.isDeleted === true,
+            active: true,
+            generation: id,
+            sourceChangedAt: product.sourceChangedAt ? new Date(product.sourceChangedAt) : null,
+            receivedAt,
+            searchText: [product.sourceCode, product.sourceArticle, product.mpn, product.name, product.sourceFullName, product.sourceKind, product.sourceUnit].filter(Boolean).join(' ').toLocaleLowerCase('ru-RU'),
+          }
+          await tx.oneCNomenclatureItem.upsert({
+            where: { baseId_oneCId: { baseId, oneCId: product.oneCId } },
+            create: { baseId, oneCId: product.oneCId, ...source },
+            update: source,
+          })
+        }
+        await tx.oneCCatalogAgent.update({ where: { baseId }, data: { nomenclatureUpdatedAt: receivedAt } })
+      }
       for (const h of dto.hashes) await tx.oneCCatalogHash.upsert({ where: { baseId_oneCId: { baseId, oneCId: h.oneCId } }, create: { ...h, baseId }, update: { hash: h.hash } })
       await tx.oneCCatalogJob.update({ where: { id }, data: { cursor: dto.cursor, lastHash: hash, nextBatch: { increment: 1 }, scanned: { increment: dto.scanned }, processed: { increment: result.products }, skipped: { increment: result.skippedDuplicates }, leaseUntil: new Date(Date.now() + 120000) } })
     }
@@ -137,6 +206,10 @@ export class RemoteCatalogService {
       if (row.kind === 'GROUPS') {
         await tx.oneCRemoteGroup.updateMany({ where: { baseId: row.baseId, generation: { not: id } }, data: { active: false } })
         await tx.oneCCatalogAgent.update({ where: { baseId: row.baseId }, data: { groupsUpdatedAt: new Date() } })
+      }
+      if (row.kind === 'CATALOG') {
+        if (row.mode === 'FULL' && !row.groupId) await tx.oneCNomenclatureItem.updateMany({ where: { baseId: row.baseId, generation: { not: id } }, data: { active: false } })
+        await tx.oneCCatalogAgent.update({ where: { baseId: row.baseId }, data: { nomenclatureUpdatedAt: new Date() } })
       }
       await tx.oneCCatalogJob.update({ where: { id }, data: { status: 'COMPLETED', finishedAt: new Date(), leaseUntil: null } })
       await tx.catalogImportSession.update({ where: { id }, data: { status: 'COMPLETED', activeKey: null, finishedAt: new Date() } })

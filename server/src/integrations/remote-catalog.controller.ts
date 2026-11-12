@@ -9,6 +9,10 @@ export class RemoteCatalogController {
   constructor(private readonly remote: RemoteCatalogService) {}
   @Get('admin/integrations/1c/remote') @UseGuards(AuthGuard, AdminGuard)
   dashboard(@Query('parent') parent = '', @Query('search') search = '', @Query('page') page = '0') { return this.remote.dashboard(parent, search, Number(page)) }
+  @Get('admin/integrations/1c/remote/tree') @UseGuards(AuthGuard, AdminGuard)
+  tree() { return this.remote.tree() }
+  @Get('admin/integrations/1c/remote/nomenclature') @UseGuards(AuthGuard, AdminGuard)
+  nomenclature(@Query('group') group = '', @Query('search') search = '', @Query('page') page = '0') { return this.remote.nomenclature(group, search, Number(page)) }
   @Post('admin/integrations/1c/remote/jobs') @UseGuards(AuthGuard, AdminGuard)
   create(@Body() dto: RemoteJobDto) { return this.remote.create(dto) }
   @Post('admin/integrations/1c/remote/jobs/:id/action') @UseGuards(AuthGuard, AdminGuard)

@@ -444,6 +444,7 @@ model OneCCatalogAgent {
   state String @default("idle")
   error String?
   groupsUpdatedAt DateTime?
+  nomenclatureUpdatedAt DateTime?
 }
 model OneCRemoteGroup {
   baseId String
@@ -486,4 +487,32 @@ model OneCCatalogHash {
   oneCId String
   hash String
   @@id([baseId, oneCId])
+}
+
+// Read-only mirror of the original 1C nomenclature. It is deliberately
+// separate from Product: unpublished, deleted and zero-stock 1C rows must
+// remain visible to managers without changing the storefront.
+model OneCNomenclatureItem {
+  baseId String
+  oneCId String
+  parentId String @default("")
+  code String @default("")
+  article String @default("")
+  name String
+  fullName String @default("")
+  itemKind String @default("Товар")
+  unitName String @default("")
+  retailPrice Int?
+  purchasePrice Int?
+  stockQty Int @default(0)
+  deletionMark Boolean @default(false)
+  active Boolean @default(true)
+  generation String
+  searchText String @default("")
+  sourceChangedAt DateTime?
+  receivedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@id([baseId, oneCId])
+  @@index([baseId, active, parentId, name])
+  @@index([baseId, active, code])
 }

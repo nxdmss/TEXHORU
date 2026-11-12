@@ -41,7 +41,7 @@ try {
         if ($null -eq $body) { $null = Invoke-AgentApi 'POST' ('jobs/' + $poll.job.id + '/finish') @{ leaseToken = $poll.job.leaseToken } }
         else { $null = Invoke-AgentApi 'POST' ('jobs/' + $poll.job.id + '/batch') $body }
         # Three calls per DELTA page stay below the shared API rate limit.
-        Start-Sleep -Milliseconds 3000
+        Start-Sleep -Milliseconds 2000
         $poll = Invoke-AgentApi 'POST' 'poll' @{ agentId = $script:config.AgentId; state = 'processing' }
     }
     $null = Invoke-AgentApi 'POST' 'poll' @{ agentId = $script:config.AgentId; state = 'idle' }

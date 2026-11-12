@@ -58,13 +58,18 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal((await req(admin + '?parent=' + groupId, undefined, 'staff')).body.groups[0].itemCount, 8000)
       assert.equal((await req(admin + '?search=apple', undefined, 'staff')).body.total, 1)
     })
+    await t.test('first full mirror starts automatically after the group snapshot', async () => {
+      const automatic = (await poll()).body.job
+      assert.equal(automatic.kind, 'CATALOG'); assert.equal(automatic.mode, 'FULL'); assert.equal(automatic.groupId, '')
+      assert.equal((await req(admin + '/jobs/' + automatic.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
+    })
     let job, batch
     await t.test('enqueue/claim FULL, persist bounded products and checkpoint in one transaction', async () => {
       const created = await req(admin + '/jobs', { kind: 'CATALOG', groupId, mode: 'FULL' }, 'staff')
       assert.equal(created.status, 201)
       assert.equal((await req(admin + '/jobs', { kind: 'CATALOG', groupId, mode: 'FULL' }, 'staff')).body.id, created.body.id)
       job = (await poll()).body.job
-      batch = { leaseToken: job.leaseToken, batch: 0, cursor: productId, scanned: 1, groups: [], hashes: [{ oneCId: productId, hash: 'a'.repeat(64) }], categories: [{ oneCId: subId, name: 'Телефоны / Apple', slug: '1c-' + subId }], products: [{ oneCId: productId, sku: '1C-' + productId, slug: '1c-' + productId, name: 'Apple iPhone 16 128GB Black', brand: 'Apple', categoryOneCId: subId, price: 50000, costPrice: 48000, stockQty: 5 }] }
+      batch = { leaseToken: job.leaseToken, batch: 0, cursor: productId, scanned: 1, groups: [], hashes: [{ oneCId: productId, hash: 'a'.repeat(64) }], categories: [{ oneCId: subId, name: 'Телефоны / Apple', slug: '1c-' + subId }], products: [{ oneCId: productId, sku: '1C-' + productId, slug: '1c-' + productId, name: 'Apple iPhone 16 128GB Black', brand: 'Apple', categoryOneCId: subId, price: 50000, costPrice: 48000, stockQty: 5, sourceCode: '0000046151', sourceArticle: 'MYE73RU/A', sourceFullName: 'Смартфон Apple iPhone 16 128GB Black', sourceKind: 'Товар', sourceUnit: 'шт' }] }
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', { ...batch, leaseToken: randomUUID() })).status, 409)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', batch)).status, 201)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', batch)).status, 201)
@@ -72,6 +77,14 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal(state.nextBatch, 1); assert.equal(state.scanned, 1); assert.equal(state.processed, 1)
       assert.equal(await db.product.count(), 1)
       assert.equal((await db.product.findFirst()).costPrice, 48000)
+      const source = await db.oneCNomenclatureItem.findFirst()
+      assert.equal(source.code, '0000046151'); assert.equal(source.article, 'MYE73RU/A'); assert.equal(source.fullName, 'Смартфон Apple iPhone 16 128GB Black')
+      const treeResponse = await req(admin + '/tree', undefined, 'staff')
+      assert.equal(treeResponse.status, 200); assert.equal(treeResponse.body.itemCount, 1); assert.equal(treeResponse.body.groups.length, 2)
+      const mirror = await req(admin + '/nomenclature?group=' + subId, undefined, 'staff')
+      assert.equal(mirror.status, 200); assert.equal(mirror.body.items[0].unitName, 'шт'); assert.equal(mirror.body.items[0].purchasePrice, 48000)
+      const found = await req(admin + '/nomenclature?search=mye73', undefined, 'staff')
+      assert.equal(found.body.total, 1)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', { ...batch, scanned: 2 })).status, 409)
     })
     await t.test('pause revokes lease, survives service restart, resume uses stored cursor; rollback on invalid data', async () => {
