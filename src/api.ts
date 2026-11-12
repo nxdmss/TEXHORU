@@ -122,7 +122,7 @@ export type PriceReadiness = {
 export type RemoteCatalogStatus = {
   configured: boolean; baseId?: string; total: number; page: number
   agent: { online: boolean; state: string; lastSeenAt: string; groupsUpdatedAt: string | null; error: string | null } | null
-  groups: { oneCId: string; parentId: string; name: string; itemCount: number }[]
+  groups: { oneCId: string; parentId: string; name: string; itemCount: number; lastReceivedAt: string | null }[]
   jobs: { id: string; kind: string; groupId: string; groupName: string; mode: string; status: string; scanned: number; processed: number; skipped: number; error: string | null; updatedAt: string }[]
 }
 export type OneCPriceSyncStatus = {

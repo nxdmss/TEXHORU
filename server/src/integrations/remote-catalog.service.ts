@@ -60,7 +60,7 @@ export class RemoteCatalogService {
   async poll(dto: RemotePollDto) {
     const baseId = this.base(), now = new Date()
     await this.db.oneCCatalogAgent.upsert({ where: { baseId }, create: { baseId, agentId: dto.agentId, state: dto.state, error: dto.error, lastSeenAt: now }, update: { agentId: dto.agentId, state: dto.state, error: dto.error || null, lastSeenAt: now } })
-    // Initial group discovery needs no catalog export. Later refreshes are explicit.
+    // Discover groups initially, then refresh five minutes after the last completed snapshot.
     const lastGroups = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'GROUPS' }, orderBy: { createdAt: 'desc' } })
     if (!lastGroups || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 300000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
     const job = await this.db.$transaction(async tx => {
@@ -115,6 +115,7 @@ export class RemoteCatalogService {
         if (group.parentId && !/^[0-9a-f-]{36}$/i.test(group.parentId) || group.parentId === group.oneCId || !group.name.trim()) throw new BadRequestException('Неверная группа')
         await tx.oneCRemoteGroup.upsert({ where: { baseId_oneCId: { baseId, oneCId: group.oneCId } }, create: { ...group, baseId, generation: id, searchName: group.name.toLocaleLowerCase('ru-RU') }, update: { ...group, generation: id, active: true, searchName: group.name.toLocaleLowerCase('ru-RU') } })
       }
+      if (row.kind === 'CATALOG') await tx.oneCRemoteGroup.updateMany({ where: { baseId, oneCId: { in: dto.categories.map(c => c.oneCId) } }, data: { lastReceivedAt: new Date() } })
       for (const h of dto.hashes) await tx.oneCCatalogHash.upsert({ where: { baseId_oneCId: { baseId, oneCId: h.oneCId } }, create: { ...h, baseId }, update: { hash: h.hash } })
       await tx.oneCCatalogJob.update({ where: { id }, data: { cursor: dto.cursor, lastHash: hash, nextBatch: { increment: 1 }, scanned: { increment: dto.scanned }, processed: { increment: result.products }, skipped: { increment: result.skippedDuplicates }, leaseUntil: new Date(Date.now() + 120000) } })
     }

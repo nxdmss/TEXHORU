@@ -112,8 +112,7 @@ function Read-RemotePage($Job) {
     if ($Job.mode -eq 'DELTA') {
         $known = Invoke-AgentApi 'POST' 'known' @{ hashes = $body.hashes }
         $body.products = @($body.products | Where-Object { $_.oneCId -in @($known.needed) })
-        $used = @($body.products | ForEach-Object { $_.categoryOneCId })
-        $body.categories = @($body.categories | Where-Object { $_.oneCId -in $used })
+        # Keep bounded category paths to confirm which folders were scanned, including unchanged cards.
     }
     return $body
 }

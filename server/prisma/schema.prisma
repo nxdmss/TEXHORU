@@ -453,6 +453,7 @@ model OneCRemoteGroup {
   itemCount Int @default(0)
   generation String
   searchName String @default("")
+  lastReceivedAt DateTime?
   active Boolean @default(true)
   @@id([baseId, oneCId])
   @@index([baseId, active, parentId, name])
