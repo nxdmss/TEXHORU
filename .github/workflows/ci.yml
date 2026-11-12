@@ -49,6 +49,10 @@ jobs:
               throw "Ошибка синтаксиса PowerShell: $script"
             }
           }
+      - name: Проверить пакеты COM-агента каталога
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tests/catalog-agent.test.ps1
       - name: Проверить протокол результата агента
         if: runner.os == 'Windows'
         shell: powershell
