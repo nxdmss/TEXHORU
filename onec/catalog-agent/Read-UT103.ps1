@@ -7,8 +7,16 @@ function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
     return $query
 }
 function Get-OneCRef([string]$Id) {
-    if (-not $Id) { return $script:connection.Справочники.Номенклатура.ПустаяСсылка() }
-    return $script:connection.Справочники.Номенклатура.ПолучитьСсылку($script:connection.NewObject('УникальныйИдентификатор', $Id))
+    if (-not $Id) { return $null }
+    # Some older UT 10.3 COMConnector builds do not expose catalog-manager
+    # methods (ПустаяСсылка/ПолучитьСсылку) to PowerShell. Resolve a selected
+    # group through a plain query instead; root jobs never need this lookup.
+    $query = New-OneCQuery 'ВЫБРАТЬ Н.Ссылка КАК Ref ИЗ Справочник.Номенклатура КАК Н ГДЕ Н.ЭтоГруппа' @{}
+    $selection = $query.Выполнить().Выбрать()
+    while ($selection.Следующий()) {
+        if ((Get-RefId $selection.Ref) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
+    }
+    throw 'GROUP_NOT_FOUND'
 }
 function Get-GroupPath($Reference) {
     $id = Get-RefId $Reference
@@ -27,22 +35,29 @@ function Get-GroupPath($Reference) {
     return $path
 }
 function Get-PriceType([string]$Name) {
-    $value = $script:connection.Справочники.ТипыЦенНоменклатуры.НайтиПоНаименованию($Name, $true)
-    if ((Get-RefId $value) -eq '00000000-0000-0000-0000-000000000000') { throw 'PRICE_TYPE_NOT_FOUND' }
-    if (([string]$value.ВалютаЦены.Код).Trim() -notin @('643', 'RUB')) { throw 'PRICE_CURRENCY' }
-    return $value
+    $query = New-OneCQuery 'ВЫБРАТЬ ПЕРВЫЕ 1 Т.Ссылка КАК Ref, Т.ВалютаЦены.Код КАК Currency ИЗ Справочник.ТипыЦенНоменклатуры КАК Т ГДЕ Т.Наименование = &Name' @{ Name = $Name }
+    $selection = $query.Выполнить().Выбрать()
+    if (-not $selection.Следующий()) { throw 'PRICE_TYPE_NOT_FOUND' }
+    if (([string]$selection.Currency).Trim() -notin @('643', 'RUB')) { throw 'PRICE_CURRENCY' }
+    return $selection.Ref
 }
 function Read-RemotePage($Job) {
     $script:paths = @{}
-    $parameters = @{ After = (Get-OneCRef ([string]$Job.cursor)) }
+    $parameters = @{}
     if ($Job.kind -eq 'GROUPS') { $condition = 'Н.ЭтоГруппа И НЕ Н.ПометкаУдаления' }
     else { $condition = 'НЕ Н.ЭтоГруппа' }
-    $text = "ВЫБРАТЬ ПЕРВЫЕ 50 Н.Ссылка КАК Ref, Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.ВидНоменклатуры КАК ItemKind, Н.БазоваяЕдиницаИзмерения КАК Unit, Н.Родитель КАК Parent, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ $condition И Н.Ссылка > &After"
+    $text = "ВЫБРАТЬ ПЕРВЫЕ 50 Н.Ссылка КАК Ref, Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.ВидНоменклатуры КАК ItemKind, Н.БазоваяЕдиницаИзмерения КАК Unit, Н.Родитель КАК Parent, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ $condition"
+    if ($Job.cursor) {
+        # Catalog codes are unique in UT 10.3 and are exposed as regular
+        # strings even when reference-manager methods are unavailable.
+        $text += ' И Н.Код > &AfterCode'
+        $parameters.AfterCode = [string]$Job.cursor
+    }
     if ($Job.groupId -and $Job.kind -eq 'CATALOG') {
         $text += ' И Н.Ссылка В ИЕРАРХИИ(&Group)'
         $parameters.Group = Get-OneCRef ([string]$Job.groupId)
     }
-    $text += ' УПОРЯДОЧИТЬ ПО Н.Ссылка'
+    $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
     $query = New-OneCQuery $text $parameters
     $selection = $query.Выполнить().Выбрать()
     $rows = @(); $refs = $script:connection.NewObject('Массив')
@@ -53,7 +68,7 @@ function Read-RemotePage($Job) {
         $null = $refs.Добавить($selection.Ref)
     }
     if ($rows.Count -eq 0) { return $null }
-    $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = (Get-RefId $rows[-1].Ref); scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @() }
+    $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $rows[-1].Code; scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @() }
     if ($Job.kind -eq 'GROUPS') {
         $counts = @{}
         $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель В (&Refs) СГРУППИРОВАТЬ ПО Н.Родитель' @{ Refs = $refs }
@@ -66,14 +81,13 @@ function Read-RemotePage($Job) {
         }
         return $body
     }
-    $empty = $script:connection.Справочники.ХарактеристикиНоменклатуры.ПустаяСсылка()
     $retail = Get-PriceType $script:config.RetailPriceName
     $purchase = Get-PriceType $script:config.PurchasePriceName
     if ((Get-RefId $retail) -eq (Get-RefId $purchase)) { throw 'PRICE_TYPES_IDENTICAL' }
     $prices = @();
     foreach ($priceType in @($retail, $purchase)) {
         $map = @{}
-        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType И Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = &Empty) КАК Ц СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; Refs = $refs; Empty = $empty }
+        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType И Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК Ц СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; Refs = $refs }
         $selection = $query.Выполнить().Выбрать()
         while ($selection.Следующий()) {
             $price = [decimal]$selection.Price
@@ -83,7 +97,7 @@ function Read-RemotePage($Job) {
         $prices += ,$map
     }
     $stocks = @{}
-    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = &Empty) КАК О СГРУППИРОВАТЬ ПО О.Номенклатура' @{ Refs = $refs; Empty = $empty }
+    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК О СГРУППИРОВАТЬ ПО О.Номенклатура' @{ Refs = $refs }
     $selection = $query.Выполнить().Выбрать()
     while ($selection.Следующий()) {
         $qty = [decimal]$selection.Qty

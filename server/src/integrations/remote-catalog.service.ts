@@ -138,7 +138,7 @@ export class RemoteCatalogService {
   async batch(id: string, dto: RemoteBatchDto) {
     const baseId = this.base(), hash = createHash('sha256').update(JSON.stringify({ ...dto, leaseToken: '' })).digest('hex')
     if (Buffer.byteLength(JSON.stringify(dto)) > 512 * 1024) throw new PayloadTooLargeException('Не более 512 КБ в пакете')
-    if (dto.products.length > 50 || dto.categories.length > 50 || dto.scanned === 0 || !/^[0-9a-f-]{36}$/i.test(dto.cursor) || dto.cursor === ZERO) throw new BadRequestException('Неверный курсор или размер пакета')
+    if (dto.products.length > 50 || dto.categories.length > 50 || dto.scanned === 0 || !dto.cursor.trim() || /[\u0000-\u001f]/.test(dto.cursor)) throw new BadRequestException('Неверный курсор или размер пакета')
     const row = await this.db.oneCCatalogJob.findUnique({ where: { id } })
     if (!row || row.baseId !== baseId) throw new NotFoundException('Задание не найдено')
     // Lost acknowledgement: replay is harmless even after pause or lease renewal.

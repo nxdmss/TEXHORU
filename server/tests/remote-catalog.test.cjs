@@ -44,7 +44,7 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       groupsJob = (await poll()).body.job
       assert.equal(groupsJob.kind, 'GROUPS')
       assert.equal((await poll(randomUUID())).body.job, null)
-      const body = { leaseToken: groupsJob.leaseToken, batch: 0, cursor: subId, scanned: 2, products: [], categories: [], hashes: [], groups: [
+      const body = { leaseToken: groupsJob.leaseToken, batch: 0, cursor: '000001', scanned: 2, products: [], categories: [], hashes: [], groups: [
         { oneCId: groupId, parentId: '', name: 'Телефоны', itemCount: 0 }, { oneCId: subId, parentId: groupId, name: 'Apple', itemCount: 8000 },
       ] }
       assert.equal((await req(remote + '/jobs/' + groupsJob.id + '/batch', body)).status, 201)
