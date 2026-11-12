@@ -30,7 +30,7 @@ function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
     $script:queryCount++
     $rows = @()
     if ($Text -match 'ПЕРВЫЕ 50') {
-        if (-not $script:fixtureEmpty) { $rows = @([pscustomobject]@{ Ref = $item; Name = 'Apple iPhone 16'; Parent = $group; Sku = 'MPN-123'; Deleted = $script:fixtureDeleted }) }
+        if (-not $script:fixtureEmpty) { $rows = @([pscustomobject]@{ Ref = $item; Code = '0000046151'; Article = 'MPN-123'; Name = 'Apple iPhone 16'; FullName = 'Смартфон Apple iPhone 16'; ItemKind = 'Товар'; Unit = (New-Reference '77777777-7777-4777-8777-777777777777' 'шт' $zero); Parent = $group; Deleted = $script:fixtureDeleted }) }
     } elseif ($Text -match 'СрезПоследних') {
         $price = if ((Get-RefId $Parameters.PriceType) -eq (Get-RefId $retail)) { 50000 } else { $script:fixtureCost }
         if ($null -ne $price) { $rows = @([pscustomobject]@{ Ref = $item; Price = $price; Variants = 1 }) }
@@ -38,7 +38,7 @@ function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
         $qty = if ($script:fixtureFraction) { 1.5 } else { 5 }
         $rows = @([pscustomobject]@{ Ref = $item; Qty = $qty })
     } else { throw 'Unexpected query' }
-    $selection = [pscustomobject]@{ Rows = $rows; Index = -1; Ref = $null; Name = ''; Parent = $null; Sku = ''; Deleted = $false; Price = 0; Variants = 0; Qty = 0 }
+    $selection = [pscustomobject]@{ Rows = $rows; Index = -1; Ref = $null; Code = ''; Article = ''; Name = ''; FullName = ''; ItemKind = ''; Unit = $null; Parent = $null; Deleted = $false; Price = 0; Variants = 0; Qty = 0 }
     $selection | Add-Member ScriptMethod Следующий {
         $this.Index++
         if ($this.Index -ge $this.Rows.Count) { return $false }
@@ -59,6 +59,7 @@ Assert-True ($full -is [hashtable]) 'Page returned stray COM/pipeline output ins
 Assert-True ($full.products.Count -eq 1 -and $full.categories.Count -eq 1) 'Product/category lost'
 Assert-True ($full.products[0].price -eq 50000 -and $full.products[0].costPrice -eq 48000 -and $full.products[0].stockQty -eq 5) 'Price, floor or quantity corrupted'
 Assert-True ($full.products[0].mpn -eq 'MPN-123') 'MPN lost'
+Assert-True ($full.products[0].sourceCode -eq '0000046151' -and $full.products[0].sourceArticle -eq 'MPN-123' -and $full.products[0].sourceFullName -eq 'Смартфон Apple iPhone 16' -and $full.products[0].sourceKind -eq 'Товар' -and $full.products[0].sourceUnit -eq 'шт') 'Original nomenclature columns lost'
 Assert-True ($script:queryCount -eq 4) 'Queries are not batched'
 $json = $full | ConvertTo-Json -Depth 15 -Compress
 $parsed = $json | ConvertFrom-Json

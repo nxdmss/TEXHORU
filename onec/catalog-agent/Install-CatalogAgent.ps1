@@ -35,6 +35,18 @@ if (Test-Path $configPath) { $agentId = (Get-Content $configPath -Raw -Encoding 
 @{ ApiHost = $hostName; BaseId = $baseId; AgentId = $agentId; KeyProtected = (ConvertFrom-SecureString $key); ConnectionProtected = (ConvertFrom-SecureString $connection); RetailPriceName = $retail; PurchasePriceName = $purchase } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
 $key.Dispose(); $connection.Dispose()
 $exe = Join-Path $PSHOME 'powershell.exe'
+# 1C 8.3 installations are often 32-bit even on 64-bit Windows Server. Pick
+# the PowerShell process that can actually create the registered COMConnector.
+$probe = 'try { $c = New-Object -ComObject V83.COMConnector; [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($c); exit 0 } catch { exit 1 }'
+$candidates = @($exe)
+$x86 = Join-Path $env:SystemRoot 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
+if ((Test-Path $x86) -and $x86 -ne $exe) { $candidates += $x86 }
+$exe = $null
+foreach ($candidate in $candidates) {
+    & $candidate -NoProfile -Command $probe
+    if ($LASTEXITCODE -eq 0) { $exe = $candidate; break }
+}
+if (-not $exe) { throw 'COMConnector 1С не зарегистрирован ни для 64-, ни для 32-разрядного PowerShell' }
 $action = New-ScheduledTaskAction -Execute $exe -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + (Join-Path $dir 'Run-CatalogAgent.ps1') + '"')
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(15) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
@@ -42,4 +54,5 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 Register-ScheduledTask -TaskName 'TEXHORU Catalog Agent' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName 'TEXHORU Catalog Agent'
 Write-Host 'Готово. Открой на сайте Управление → Обмен с 1С. Компьютер должен быть включён, пользователь Windows — в системе.'
+Write-Host ('Агент использует: ' + $exe)
 Write-Host ('Журнал без паролей: ' + (Join-Path $dir 'catalog-agent.log'))

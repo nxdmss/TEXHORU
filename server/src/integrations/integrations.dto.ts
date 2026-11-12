@@ -1,5 +1,5 @@
 import { IdentityDto } from '../price-monitor/price-monitor.dto'
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested, MaxLength, ArrayMaxSize, IsBoolean } from 'class-validator'
+import { IsArray, IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested, MaxLength, ArrayMaxSize, IsBoolean } from 'class-validator'
 import { Type } from 'class-transformer'
 import { OrderStatus } from '@prisma/client'
 
@@ -24,6 +24,14 @@ export class OneCProductDto {
   @IsOptional() @IsString() @MaxLength(100) mpn?: string
   @IsOptional() @IsInt() @Min(0) costPrice?: number
   @IsOptional() @ValidateNested() @Type(() => IdentityDto) attributes?: IdentityDto
+  // Original UT 10.3 fields used by the read-only nomenclature mirror.
+  // Optional keeps the existing EPF/catalog API backwards-compatible.
+  @IsOptional() @IsString() @MaxLength(50) sourceCode?: string
+  @IsOptional() @IsString() @MaxLength(200) sourceArticle?: string
+  @IsOptional() @IsString() @MaxLength(1000) sourceFullName?: string
+  @IsOptional() @IsString() @MaxLength(100) sourceKind?: string
+  @IsOptional() @IsString() @MaxLength(100) sourceUnit?: string
+  @IsOptional() @IsDateString() sourceChangedAt?: string
 }
 
 export class OneCCatalogDto {

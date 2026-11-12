@@ -681,7 +681,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     ? 'Идёт запись в 1С' : priceSync.agent.state === 'error' ? 'Есть ошибка обмена' : 'Агент на связи'
   const agentStateClass = !syncUnavailable && priceSync.agent?.online && priceSync.agent.state !== 'error' ? 'is-connected' : 'is-waiting'
   const unread = notifications.filter((item) => !item.isRead).length
-  const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Обмен с 1С', audit: 'Журнал' }
+  const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Номенклатура 1С', audit: 'Журнал' }
   const navigationGroups: Array<{ label: string; tabs: AdminTab[] }> = [
     { label: 'Рабочий стол', tabs: ['overview', 'prices', 'sync'] },
     { label: 'Магазин', tabs: ['products', 'orders', 'notifications', 'content'] },

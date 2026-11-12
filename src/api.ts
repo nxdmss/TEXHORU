@@ -121,9 +121,18 @@ export type PriceReadiness = {
 }
 export type RemoteCatalogStatus = {
   configured: boolean; baseId?: string; total: number; page: number
-  agent: { online: boolean; state: string; lastSeenAt: string; groupsUpdatedAt: string | null; error: string | null } | null
+  agent: { online: boolean; state: string; lastSeenAt: string; groupsUpdatedAt: string | null; nomenclatureUpdatedAt: string | null; error: string | null } | null
   groups: { oneCId: string; parentId: string; name: string; itemCount: number; lastReceivedAt: string | null }[]
   jobs: { id: string; kind: string; groupId: string; groupName: string; mode: string; status: string; scanned: number; processed: number; skipped: number; error: string | null; updatedAt: string }[]
+}
+export type OneCRemoteGroup = { oneCId: string; parentId: string; name: string; itemCount: number; lastReceivedAt: string | null }
+export type OneCNomenclatureItem = {
+  oneCId: string; parentId: string; code: string; article: string; name: string; fullName: string; itemKind: string; unitName: string
+  retailPrice: number | null; purchasePrice: number | null; stockQty: number; deletionMark: boolean; receivedAt: string; updatedAt: string
+}
+export type OneCNomenclaturePage = {
+  items: OneCNomenclatureItem[]; total: number; children: OneCRemoteGroup[]; group: Pick<OneCRemoteGroup, 'oneCId' | 'parentId' | 'name'> | null
+  page: number; pageSize: number; search: string
 }
 export type OneCPriceSyncStatus = {
   agent?: { lastSeenAt: string; online: boolean; state?: string; applied: number; failed: number } | null;
@@ -224,6 +233,8 @@ export const api = {
   forgotPassword(email: string) { return request<{ message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }) },
   resetPassword(token: string, password: string) { return request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }) },
   remoteCatalog(parent = '', search = '', page = 0) { return request<RemoteCatalogStatus>('/admin/integrations/1c/remote?' + new URLSearchParams({ parent, search, page: String(page) })) },
+  remoteCatalogTree() { return request<{ groups: OneCRemoteGroup[]; itemCount: number }>('/admin/integrations/1c/remote/tree') },
+  remoteNomenclature(group = '', search = '', page = 0) { return request<OneCNomenclaturePage>('/admin/integrations/1c/remote/nomenclature?' + new URLSearchParams({ group, search, page: String(page) })) },
   remoteCatalogCreate(dto: { kind: 'GROUPS' | 'CATALOG'; mode: 'FULL' | 'DELTA'; groupId?: string }) { return request('/admin/integrations/1c/remote/jobs', { method: 'POST', body: JSON.stringify(dto) }) },
   remoteCatalogAction(id: string, action: string) { return request('/admin/integrations/1c/remote/jobs/' + encodeURIComponent(id) + '/action', { method: 'POST', body: JSON.stringify({ action }) }) },
   catalogSyncStatus() { return request<CatalogSyncStatus>('/admin/integrations/1c/catalog-sync') },

@@ -193,7 +193,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 })
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
-    for (const name of ['Товары', 'Заказы', 'Сообщения', 'Оформление', 'Обмен с 1С']) {
+    for (const name of ['Товары', 'Заказы', 'Сообщения', 'Оформление', 'Номенклатура 1С']) {
       if (width === 390) await page.getByRole('button', { name: 'Разделы', exact: true }).click()
       await page.locator('#admin-navigation').getByRole('button', { name: name === 'Сообщения' ? /^Сообщения/ : name, exact: name !== 'Сообщения' }).click()
       assert(await page.locator('.admin-control').evaluate(el => el.scrollWidth <= el.clientWidth + 1), name + ' overflows at ' + width)

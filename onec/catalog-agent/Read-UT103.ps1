@@ -37,7 +37,7 @@ function Read-RemotePage($Job) {
     $parameters = @{ After = (Get-OneCRef ([string]$Job.cursor)) }
     if ($Job.kind -eq 'GROUPS') { $condition = 'Н.ЭтоГруппа И НЕ Н.ПометкаУдаления' }
     else { $condition = 'НЕ Н.ЭтоГруппа' }
-    $text = "ВЫБРАТЬ ПЕРВЫЕ 50 Н.Ссылка КАК Ref, Н.Наименование КАК Name, Н.Родитель КАК Parent, Н.Артикул КАК Sku, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ $condition И Н.Ссылка > &After"
+    $text = "ВЫБРАТЬ ПЕРВЫЕ 50 Н.Ссылка КАК Ref, Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.ВидНоменклатуры КАК ItemKind, Н.БазоваяЕдиницаИзмерения КАК Unit, Н.Родитель КАК Parent, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ $condition И Н.Ссылка > &After"
     if ($Job.groupId -and $Job.kind -eq 'CATALOG') {
         $text += ' И Н.Ссылка В ИЕРАРХИИ(&Group)'
         $parameters.Group = Get-OneCRef ([string]$Job.groupId)
@@ -47,7 +47,9 @@ function Read-RemotePage($Job) {
     $selection = $query.Выполнить().Выбрать()
     $rows = @(); $refs = $script:connection.NewObject('Массив')
     while ($selection.Следующий()) {
-        $rows += ,@{ Ref = $selection.Ref; Name = [string]$selection.Name; Parent = $selection.Parent; Sku = [string]$selection.Sku; Deleted = [bool]$selection.Deleted }
+        $unitName = ''
+        try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
+        $rows += ,@{ Ref = $selection.Ref; Code = ([string]$selection.Code).Trim(); Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; Deleted = [bool]$selection.Deleted }
         $null = $refs.Добавить($selection.Ref)
     }
     if ($rows.Count -eq 0) { return $null }
@@ -98,9 +100,9 @@ function Read-RemotePage($Job) {
         elseif ($row.Name -match '(?i)xiaomi|redmi|poco') { $brand = 'Xiaomi' }
         elseif ($row.Name -match '(?i)honor') { $brand = 'Honor' }
         elseif ($row.Name -match '(?i)huawei') { $brand = 'Huawei' }
-        $product = [ordered]@{ oneCId = $id; sku = '1C-' + $id; slug = '1c-' + $id; name = $row.Name.Trim(); brand = $brand; categoryOneCId = $categoryId; price = [int]$prices[0][$id]; costPrice = $prices[1][$id]; stockQty = [int]$stocks[$id]; isDeleted = $row.Deleted }
+        $product = [ordered]@{ oneCId = $id; sku = '1C-' + $id; slug = '1c-' + $id; name = $row.Name.Trim(); brand = $brand; categoryOneCId = $categoryId; price = [int]$prices[0][$id]; costPrice = $prices[1][$id]; stockQty = [int]$stocks[$id]; isDeleted = $row.Deleted; sourceCode = $row.Code; sourceArticle = $row.Article; sourceFullName = $row.FullName; sourceKind = $row.ItemKind; sourceUnit = $row.UnitName }
         if ($row.Deleted) { $product.stockQty = 0 }
-        if ($row.Sku.Trim()) { $product.mpn = $row.Sku.Trim() }
+        if ($row.Article) { $product.mpn = $row.Article }
         $category = [ordered]@{ oneCId = $categoryId; name = $path; slug = '1c-' + $categoryId }
         $json = [ordered]@{ product = $product; category = $category } | ConvertTo-Json -Depth 10 -Compress
         $sha = [Security.Cryptography.SHA256]::Create()
