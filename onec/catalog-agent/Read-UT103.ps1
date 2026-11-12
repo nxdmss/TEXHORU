@@ -2,9 +2,18 @@
 function Get-RefId($Reference) { return ([string]$Reference.УникальныйИдентификатор()).ToLowerInvariant() }
 function New-OneCObject([string]$Type) {
     # COMConnector exposes global-context method names in the configuration's
-    # script language. Standard UT 10.3 may provide either variant.
+    # script language. Some builds also hide global-context methods from
+    # PowerShell's normal COM adapter while still exposing them through
+    # IDispatch. Try both language variants and then invoke IDispatch directly.
     try { return $script:connection.NewObject($Type) }
-    catch { return $script:connection.НовыйОбъект($Type) }
+    catch {
+        try { return $script:connection.НовыйОбъект($Type) }
+        catch {
+            $aliases = @{ 'Запрос' = 'Query'; 'Массив' = 'Array' }
+            $objectType = if ($aliases.ContainsKey($Type)) { $aliases[$Type] } else { $Type }
+            return $script:connection.GetType().InvokeMember('NewObject', [Reflection.BindingFlags]::InvokeMethod, $null, $script:connection, @($objectType))
+        }
+    }
 }
 function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
     $query = New-OneCObject 'Запрос'
