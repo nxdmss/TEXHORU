@@ -1,7 +1,13 @@
 ﻿# Read-only UT 10.3 COM adapter. No documents or register writes.
 function Get-RefId($Reference) { return ([string]$Reference.УникальныйИдентификатор()).ToLowerInvariant() }
+function New-OneCObject([string]$Type) {
+    # COMConnector exposes global-context method names in the configuration's
+    # script language. Standard UT 10.3 may provide either variant.
+    try { return $script:connection.NewObject($Type) }
+    catch { return $script:connection.НовыйОбъект($Type) }
+}
 function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
-    $query = $script:connection.NewObject('Запрос')
+    $query = New-OneCObject 'Запрос'
     $query.Текст = $Text
     foreach ($key in $Parameters.Keys) { $query.УстановитьПараметр($key, $Parameters[$key]) }
     return $query
@@ -60,7 +66,7 @@ function Read-RemotePage($Job) {
     $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
     $query = New-OneCQuery $text $parameters
     $selection = $query.Выполнить().Выбрать()
-    $rows = @(); $refs = $script:connection.NewObject('Массив')
+    $rows = @(); $refs = New-OneCObject 'Массив'
     while ($selection.Следующий()) {
         $unitName = ''
         try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
