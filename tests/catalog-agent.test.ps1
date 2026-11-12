@@ -60,6 +60,7 @@ Assert-True ($full.products.Count -eq 1 -and $full.categories.Count -eq 1) 'Prod
 Assert-True ($full.products[0].price -eq 50000 -and $full.products[0].costPrice -eq 48000 -and $full.products[0].stockQty -eq 5) 'Price, floor or quantity corrupted'
 Assert-True ($full.products[0].mpn -eq 'MPN-123') 'MPN lost'
 Assert-True ($full.products[0].sourceCode -eq '0000046151' -and $full.products[0].sourceArticle -eq 'MPN-123' -and $full.products[0].sourceFullName -eq 'Смартфон Apple iPhone 16' -and $full.products[0].sourceKind -eq 'Товар' -and $full.products[0].sourceUnit -eq 'шт') 'Original nomenclature columns lost'
+Assert-True ($full.cursor -eq '0000046151') 'Catalog code cursor lost'
 Assert-True ($script:queryCount -eq 4) 'Queries are not batched'
 $json = $full | ConvertTo-Json -Depth 15 -Compress
 $parsed = $json | ConvertFrom-Json
