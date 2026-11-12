@@ -1,3 +1,4 @@
+import { priceSyncEnabled } from '../integrations/test-catalog-policy'
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
@@ -31,10 +32,10 @@ export class PriceUpdateWorkflow {
   ) {}
 
   private enabled() {
-    return process.env.ONE_C_BASE_KIND === 'TEST' && process.env.ONE_C_TEST_PRICE_SYNC_ENABLED === 'true'
+    return priceSyncEnabled()
   }
   private assertEnabled() {
-    if (!this.enabled()) throw new ForbiddenException('Обратная передача цен отключена: включи обмен только с TEST 1С')
+    if (!this.enabled()) throw new ForbiddenException('Обратная передача цен отключена: настрой и включи профиль базы 1С')
   }
   private context(job: Job): Context { return job.visitedUrls as unknown as Context }
 

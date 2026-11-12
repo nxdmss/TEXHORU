@@ -6,7 +6,7 @@ import { IntegrationsService } from './integrations.service'
 import { OneCGuard } from './onec.guard'
 import { OneCPriceSyncService } from './price-sync.service'
 import { OneCAgentHeartbeatDto, PriceSyncReceiptsDto, PriceSyncScopeDto } from './price-sync.dto'
-import { automaticTestCatalogScope } from './test-catalog-policy'
+import { automaticTestCatalogScope, priceSyncEnabled } from './test-catalog-policy'
 
 @Controller()
 export class IntegrationsController {
@@ -16,10 +16,10 @@ export class IntegrationsController {
     return automaticTestCatalogScope()
   }
 
-  /** Reverse retail-price writes are deliberately disabled unless the server is explicitly marked TEST. */
+  /** Reverse writes require an explicitly enabled TEST or named PRODUCTION profile. */
   private assertTestPriceSyncEnabled() {
-    if (process.env.ONE_C_BASE_KIND !== 'TEST' || process.env.ONE_C_TEST_PRICE_SYNC_ENABLED !== 'true') {
-      throw new ForbiddenException('Обратная передача цен отключена. Она разрешена только после явного включения для тестовой базы 1С.')
+    if (!priceSyncEnabled()) {
+      throw new ForbiddenException('Обратная передача цен отключена. Настройте и явно включите профиль базы 1С.')
     }
   }
 
@@ -42,7 +42,8 @@ export class IntegrationsController {
   async priceSyncDashboard() {
     return {
       ...await this.priceSync.dashboard(),
-      testPriceSyncEnabled: process.env.ONE_C_BASE_KIND === 'TEST' && process.env.ONE_C_TEST_PRICE_SYNC_ENABLED === 'true',
+      testPriceSyncEnabled: priceSyncEnabled(),
+      baseKind: process.env.ONE_C_BASE_KIND || 'DISABLED',
       testAutoScopeOnCatalogImport: this.testAutoPriceScopeEnabled(),
     }
   }
