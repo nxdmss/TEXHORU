@@ -102,18 +102,18 @@ function Read-RemotePage($Job) {
     $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
     $query = New-OneCQuery $text $parameters
     $selection = Select-OneCQuery $query
-    $rows = @(); $refs = New-OneCObject 'Массив'
+    $rows = @()
     while (Move-OneCSelection $selection) {
         $unitName = ''
         try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
         $rows += ,@{ Ref = $selection.Ref; Code = ([string]$selection.Code).Trim(); Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; Deleted = [bool]$selection.Deleted }
-        $null = Invoke-OneCMethod $refs @('Добавить', 'Add') @($selection.Ref)
     }
     if ($rows.Count -eq 0) { return $null }
+    $range = @{ FirstCode = $rows[0].Code; LastCode = $rows[-1].Code }
     $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $rows[-1].Code; scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @() }
     if ($Job.kind -eq 'GROUPS') {
         $counts = @{}
-        $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель В (&Refs) СГРУППИРОВАТЬ ПО Н.Родитель' @{ Refs = $refs }
+        $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель.Код >= &FirstCode И Н.Родитель.Код <= &LastCode СГРУППИРОВАТЬ ПО Н.Родитель' $range
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) { $counts[(Get-RefId $selection.Ref)] = [int]$selection.Qty }
         foreach ($row in $rows) {
@@ -129,7 +129,7 @@ function Read-RemotePage($Job) {
     $prices = @();
     foreach ($priceType in @($retail, $purchase)) {
         $map = @{}
-        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType И Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК Ц СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; Refs = $refs }
+        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType И Номенклатура.Код >= &FirstCode И Номенклатура.Код <= &LastCode И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК Ц СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
             $price = [decimal]$selection.Price
@@ -139,7 +139,7 @@ function Read-RemotePage($Job) {
         $prices += ,$map
     }
     $stocks = @{}
-    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура В (&Refs) И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК О СГРУППИРОВАТЬ ПО О.Номенклатура' @{ Refs = $refs }
+    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура.Код >= &FirstCode И Номенклатура.Код <= &LastCode И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК О СГРУППИРОВАТЬ ПО О.Номенклатура' $range
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
         $qty = [decimal]$selection.Qty
