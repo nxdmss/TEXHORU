@@ -9,7 +9,7 @@ const net = require('node:net')
 const bcrypt = require('bcryptjs')
 const { PrismaClient } = require('@prisma/client')
 
-test('real HTTP returns JSON for both no current price update and a saved operation', async () => {
+test('production HTTP validates the source profile and returns JSON for empty/saved updates', async () => {
   const database = resolve(__dirname, '../prisma/monitor-test-price-http-' + randomUUID() + '.db')
   const databaseUrl = 'file:' + database.replace(/\\/g, '/')
   writeFileSync(database, '')
@@ -22,18 +22,20 @@ test('real HTTP returns JSON for both no current price update and a saved operat
     prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } })
     const email = 'price-http@test.local', password = randomUUID()
     await prisma.user.create({ data: { email, name: 'HTTP test', role: 'DIRECTOR', passwordHash: await bcrypt.hash(password, 4) } })
-    const category = await prisma.category.create({ data: { name: 'Test', slug: 'test' } })
+    const category = await prisma.category.create({ data: { name: 'Test', slug: 'test', oneCId: randomUUID() } })
     const product = await prisma.product.create({ data: { categoryId: category.id, name: 'HTTP test product', brand: 'Test',
       sku: randomUUID(), slug: randomUUID(), oneCId: randomUUID(), price: 1000, stockQty: 1 } })
     const socket = net.createServer()
     await new Promise((done, fail) => { socket.once('error', fail); socket.listen(0, '127.0.0.1', done) })
     const port = socket.address().port
     await new Promise(done => socket.close(done))
+    const integrationKey = randomUUID()
     child = spawn(process.execPath, ['dist/main.js'], { cwd: resolve(__dirname, '..'), env: { ...process.env,
-      DATABASE_URL: databaseUrl, JWT_SECRET: randomUUID(), ONE_C_API_KEY: randomUUID(), NODE_ENV: 'test',
+      DATABASE_URL: databaseUrl, JWT_SECRET: randomUUID(), ONE_C_API_KEY: integrationKey, NODE_ENV: 'test',
       PORT: String(port), HOST: '127.0.0.1', TEXHORU_ENV_FILE: 'tests/nonexistent.env',
       MONITOR_WORKER_DISABLED: 'true', SERVE_STOREFRONT: 'false',
-      ONE_C_BASE_KIND: 'TEST', ONE_C_TEST_PRICE_SYNC_ENABLED: 'true',
+      ONE_C_BASE_KIND: 'PRODUCTION', ONE_C_TEST_PRICE_SYNC_ENABLED: 'false',
+      ONE_C_PRODUCTION_PRICE_SYNC_ENABLED: 'true', ONE_C_PRODUCTION_BASE_ID: 'http-main-ut103',
     }, stdio: ['ignore', 'pipe', 'pipe'] })
     let log = ''; child.stdout.on('data', d => { log += d }); child.stderr.on('data', d => { log += d })
     const base = 'http://127.0.0.1:' + port + '/api'
@@ -43,6 +45,23 @@ test('real HTTP returns JSON for both no current price update and a saved operat
       await new Promise(done => setTimeout(done, 100))
     }
     assert(ready, log.slice(-1500))
+    const pendingUrl = base + '/integrations/1c/price-sync/pending'
+    assert.equal((await fetch(pendingUrl)).status, 401)
+    assert.equal((await fetch(pendingUrl, {headers:{'x-1c-key':integrationKey}})).status, 403)
+    assert.equal((await fetch(pendingUrl, {headers:{'x-1c-key':integrationKey,'x-1c-base-kind':'TEST','x-1c-base-id':'http-main-ut103'}})).status, 403)
+    assert.equal((await fetch(pendingUrl, {headers:{'x-1c-key':integrationKey,'x-1c-base-kind':'PRODUCTION','x-1c-base-id':'http-main-ut103'}})).status, 200)
+
+    assert.equal((await prisma.product.findUniqueOrThrow({where:{id:product.id}})).priceSyncEnabled,false,
+      'old permissions are not inherited by the production profile')
+    const imported = await fetch(base + '/integrations/1c/catalog', {method:'POST',headers:{
+      'content-type':'application/json','x-1c-key':integrationKey,'x-1c-base-kind':'PRODUCTION','x-1c-base-id':'http-main-ut103'
+    },body:JSON.stringify({categories:[{oneCId:category.oneCId,name:category.name,slug:category.slug}],products:[{
+      oneCId:product.oneCId,sku:product.sku,slug:product.slug,name:product.name,brand:product.brand,
+      categoryOneCId:category.oneCId,price:1000,stockQty:1,costPrice:700
+    }]})})
+    assert.equal(imported.status,201,await imported.text())
+    assert.equal((await prisma.product.findUniqueOrThrow({where:{id:product.id}})).priceSyncEnabled,true,
+      'a fresh authenticated main-base import grants permission')
     const currentUrl = base + '/admin/price-monitor/price-update/current'
     assert.equal((await fetch(currentUrl)).status, 401)
     const login = await fetch(base + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) })

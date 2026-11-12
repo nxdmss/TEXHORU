@@ -1061,18 +1061,18 @@ test('Parses recorded live product data; ignores instalment and unrelated Produc
   assert.equal(fiveRuUrl(url + '?utm_source=x#foo', 'product'), url)
 })
 
-test('Recommendations ignore cost temporarily, use 05.ru minus 100, and retain the <=10% change guard', () => {
+test('Recommendations use the purchase-price floor and retain the <=10% change guard', () => {
   const input = { latestPrice: 96990, inStock: true, lastSuccessAt: new Date() }
   assert.equal(recommendation(input, { price: 99990, costPrice: 80000 }).recommendedPrice, 96890)
-  assert.equal(recommendation(input, { price: 99990 }).recommendedPrice, 96890,
-    'unknown cost must not block the temporary pricing rule')
-  assert.equal(recommendation(input, { price: 99990, costPrice: 98000 }).recommendedPrice, 96890,
-    'known cost must not change the temporary proposal')
+  assert.equal(recommendation(input, { price: 99990 }).recommendedPrice, null,
+    'unknown purchase cost blocks automatic pricing')
+  assert.equal(recommendation(input, { price: 99990, costPrice: 98000 }).recommendedPrice, 98000,
+    'purchase cost is the lower bound')
   for (const bad of [{ ...input, inStock: null }, { ...input, lastError: '403' }, { ...input, lastSuccessAt: new Date(0) }]) assert.equal(recommendation(bad, { price: 99990 }).recommendedPrice, null)
   assert.equal(recommendation(input, { price: 150000 }).recommendedPrice, null,
     'the separate 10% change guard remains active')
   for (const price of [57900, 58900, 63900]) {
-    assert.equal(recommendation({ ...input, latestPrice: 64990 }, { price }, { allowLargeChange: true }).recommendedPrice, 64890)
+    assert.equal(recommendation({ ...input, latestPrice: 64990 }, { price, costPrice: 40000 }, { allowLargeChange: true }).recommendedPrice, 64890)
   }
   assert.equal(recommendation({ ...input, inStock: false }, { price: 150000 }, { allowLargeChange: true }).recommendedPrice, null)
 })
@@ -3082,6 +3082,10 @@ test('First 05.ru scan proposes site price differences, without waiting for comp
   await addLink(fresh[2], 71000, false)
   const equal = await addLink(fresh[3], 70100)
 
+  const blockedCost = await monitor.previewBulkPrices({ categoryPath })
+  assert.equal(blockedCost.count, 0)
+  assert(blockedCost.items.find(row => row.id === diff.id).blockedReasons.some(reason => reason.includes('закупочная')))
+  await prisma.product.update({ where: { id: fresh[0].id }, data: { costPrice: 60000 } })
   const preview = await monitor.previewBulkPrices({ categoryPath })
   assert.equal(preview.items.length, 1,
     'Only 05.ru - 100 differences should become price proposals, including first scans')
@@ -3165,7 +3169,7 @@ test('Price preview scopes diagnostics to the selected section and blocks wrong 
     ['Apple iPhone 16 128GB Green', 'Apple iPhone 16 128GB Green'],
   ]
   for (const [ours, theirs] of cases) {
-    const p = await prisma.product.create({ data: { name: ours, brand: 'Apple', sku: randomUUID(), slug: randomUUID(), categoryId: category.id, oneCId: randomUUID(), price: 60000, stockQty: 1, priceSyncEnabled: true } })
+    const p = await prisma.product.create({ data: { name: ours, brand: 'Apple', sku: randomUUID(), slug: randomUUID(), categoryId: category.id, oneCId: randomUUID(), price: 60000, costPrice: 40000, stockQty: 1, priceSyncEnabled: true } })
     await prisma.competitorProduct.create({ data: { sourceId: source.id, productId: p.id, externalName: theirs, externalUrl: 'https://05.ru/cat/test/p/' + randomUUID() + '/',
       attributes: {}, matchStatus: 'CONFIRMED', latestPrice: 59990, lastSuccessAt: new Date(), inStock: true,
       confirmedProductFingerprint: fingerprint(p), confirmedFingerprint: fingerprint({ name: theirs, attributes: {} }) } })
@@ -3185,4 +3189,15 @@ test('Price preview scopes diagnostics to the selected section and blocks wrong 
   await prisma.monitorJob.updateMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() } })
   await assert.rejects(() => monitor.applyBulkPrices({ categoryPath: category.name, token: preview.token, ids: [preview.items.find(row => !row.matchVerified).id], acceptUnknownCost: false, acceptLargeChange: false }), /заблокированные или устаревшие/)
   assert.equal(await prisma.oneCPriceChange.count({ where: { product: { categoryId: category.id } } }), 0)
+})
+
+test('an explicit missing purchase price clears the old floor instead of keeping stale cost', async () => {
+  const integration = new IntegrationsService(prisma, {})
+  const category = randomUUID(), id = randomUUID()
+  const record = { oneCId: id, sku: 'COST-' + id, slug: 'cost-' + id, categoryOneCId: category,
+    name: 'Purchase cost import ' + id, brand: 'Test', price: 1000, stockQty: 1, costPrice: 700 }
+  await integration.importCatalog({ categories: [{ oneCId: category, name: 'Cost import ' + category, slug: category }], products: [record] })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).costPrice, 700)
+  await integration.importCatalog({ categories: [], products: [{ ...record, costPrice: null }] })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { oneCId: id } })).costPrice, null)
 })

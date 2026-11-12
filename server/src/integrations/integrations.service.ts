@@ -173,7 +173,7 @@ export class IntegrationsService {
             oneCId: item.oneCId,
             // Older 1C export processors send no cost price. A repeat import
             // must not silently wipe the independently verified cost already saved.
-            gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice ?? existing?.costPrice ?? null,
+            gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice === undefined ? existing?.costPrice ?? null : item.costPrice,
             attributes: item.attributes ? { ...item.attributes } : undefined,
             sku: item.sku,
             slug: item.slug,

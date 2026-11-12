@@ -48,7 +48,7 @@ async function fixture() {
     const key = randomUUID()
     const product = await prisma.product.create({ data: {
       oneCId: randomUUID(), sku: key, slug: key, name: 'Смартфон Apple iPhone 15 128 Гб черный',
-      brand: 'Apple', price: 50000, stockQty: 1, priceSyncEnabled: true, categoryId: category.id, ...overrides,
+      brand: 'Apple', price: 50000, costPrice: 40000, stockQty: 1, priceSyncEnabled: true, categoryId: category.id, ...overrides,
     } })
     const externalName = external.externalName || product.name
     const link = await prisma.competitorProduct.create({ data: {
@@ -333,4 +333,88 @@ test('selected forbidden or conflicting items never parse, grant scope or discov
   assert.equal(await prisma.monitorJob.count({ where: { kind: 'MATCH_1C' } }), 0)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: forbidden.id } })).priceSyncEnabled, false)
   assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: conflict.link.id } })).productId, conflict.id)
+})
+
+test('purchase floor is enforced at proposal, queue, stale-cost recheck and receipt', async () => {
+  const { product, monitor, sync } = await fixture()
+  const row = await product({ costPrice: 49050 })
+  const preview = await monitor.previewBulkPrices({})
+  assert.equal(preview.items.find(item => item.productId === row.id).newPrice, 49050)
+  await assert.rejects(() => monitor.applyRecommended(row.link.id, {
+    expectedCurrentPrice: 50000, expectedCompetitorPrice: 49100, targetPrice: 49000,
+  }), /Цена изменилась/)
+  await monitor.applyRecommended(row.link.id, {
+    expectedCurrentPrice: 50000, expectedCompetitorPrice: 49100, targetPrice: 49050,
+  })
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).price, 50000)
+  const packet = await sync.pending()
+  assert.equal(packet.items[0].targetPrice, 49050)
+  assert.equal(packet.items[0].purchasePrice, 49050)
+  await prisma.product.update({ where: { id: row.id }, data: { costPrice: 49500 } })
+  assert.equal((await sync.pending()).items.length, 0, 'stale below-cost task is not sent')
+  assert.equal((await prisma.oneCPriceChange.findUniqueOrThrow({ where: { id: packet.items[0].id } })).status, 'CANCELLED')
+  const noCost = await product({ costPrice: null })
+  await assert.rejects(() => monitor.applyRecommended(noCost.link.id, {
+    expectedCurrentPrice: 50000, expectedCompetitorPrice: 49100, targetPrice: 49000,
+  }), /закупочная/)
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: noCost.id } }), 0)
+})
+
+test('a purchase-price change invalidates the approved bulk snapshot', async () => {
+  const { product, monitor } = await fixture()
+  const row = await product({ costPrice: 40000 })
+  const snapshot = await monitor.previewBulkPrices({})
+  await prisma.product.update({ where: { id: row.id }, data: { costPrice: 49500 } })
+  await assert.rejects(() => monitor.applyBulkPrices({ token: snapshot.token, ids: [row.link.id] }), /изменились/)
+  assert.equal(await prisma.oneCPriceChange.count(), 0)
+})
+
+test('production needs its own switch and base ID; TEST keys cannot silently identify a main-base agent', () => {
+  const { priceSyncEnabled } = require('../dist/integrations/test-catalog-policy')
+  const { OneCGuard } = require('../dist/integrations/onec.guard')
+  const keys = ['ONE_C_BASE_KIND','ONE_C_TEST_PRICE_SYNC_ENABLED','ONE_C_PRODUCTION_PRICE_SYNC_ENABLED','ONE_C_PRODUCTION_BASE_ID']
+  const saved = keys.map(key => process.env[key])
+  try {
+    process.env.ONE_C_BASE_KIND = 'PRODUCTION'
+    process.env.ONE_C_TEST_PRICE_SYNC_ENABLED = 'true'
+    delete process.env.ONE_C_PRODUCTION_PRICE_SYNC_ENABLED
+    delete process.env.ONE_C_PRODUCTION_BASE_ID
+    assert.equal(priceSyncEnabled(), false)
+    process.env.ONE_C_PRODUCTION_PRICE_SYNC_ENABLED = 'true'
+    assert.equal(priceSyncEnabled(), false)
+    process.env.ONE_C_PRODUCTION_BASE_ID = 'main-ut103'
+    assert.equal(priceSyncEnabled(), true)
+    const config = { get: key => key === 'ONE_C_API_KEY' ? 'main-private-key' : process.env[key] }
+    const guard = new OneCGuard(config)
+    const context = headers => ({ switchToHttp: () => ({ getRequest: () => ({ headers }) }) })
+    assert.throws(() => guard.canActivate(context({ 'x-1c-key': 'main-private-key' })), /профиль/)
+    assert.throws(() => guard.canActivate(context({ 'x-1c-key': 'main-private-key', 'x-1c-base-kind': 'TEST', 'x-1c-base-id': 'main-ut103' })), /профиль/)
+    assert.throws(() => guard.canActivate(context({ 'x-1c-key': 'main-private-key', 'x-1c-base-kind': 'PRODUCTION', 'x-1c-base-id': 'other-main' })), /профиль/)
+    assert.equal(guard.canActivate(context({ 'x-1c-key': 'main-private-key', 'x-1c-base-kind': 'PRODUCTION', 'x-1c-base-id': 'main-ut103' })), true)
+  } finally { keys.forEach((key,i) => saved[i] === undefined ? delete process.env[key] : process.env[key] = saved[i]) }
+})
+
+test('switching to the main profile cancels TEST writes and waits for a fresh primary catalog', async () => {
+  const { product, monitor, sync } = await fixture()
+  const row = await product()
+  await monitor.applyRecommended(row.link.id, { expectedCurrentPrice: 50000, expectedCompetitorPrice: 49100, targetPrice: 49000 })
+  const keys = ['ONE_C_BASE_KIND','ONE_C_PRODUCTION_PRICE_SYNC_ENABLED','ONE_C_PRODUCTION_BASE_ID']
+  const saved = keys.map(key => process.env[key])
+  try {
+    process.env.ONE_C_BASE_KIND = 'PRODUCTION'
+    process.env.ONE_C_PRODUCTION_PRICE_SYNC_ENABLED = 'true'
+    process.env.ONE_C_PRODUCTION_BASE_ID = 'fresh-main-' + randomUUID()
+    process.env.ONE_C_PRODUCTION_PRICE_SYNC_ENABLED = 'false'
+    await sync.onApplicationBootstrap()
+    assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).priceSyncEnabled, false)
+    assert.equal((await prisma.oneCPriceChange.findFirstOrThrow({ where: { productId: row.id } })).status, 'CANCELLED')
+    assert.equal((await sync.pending()).items.length, 0)
+    process.env.ONE_C_PRODUCTION_PRICE_SYNC_ENABLED = 'true'
+    await prisma.product.update({ where: { id: row.id }, data: { priceSyncEnabled: true } })
+    await sync.onApplicationBootstrap()
+    assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).priceSyncEnabled, true, 'same profile keeps approvals on restart')
+    process.env.ONE_C_PRODUCTION_BASE_ID += '-different'
+    await sync.onApplicationBootstrap()
+    assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).priceSyncEnabled, false)
+  } finally { keys.forEach((key,i) => saved[i] === undefined ? delete process.env[key] : process.env[key] = saved[i]) }
 })

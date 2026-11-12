@@ -1,3 +1,4 @@
+import { knownPurchasePrice, retailPrice } from './retail-price-policy'
 import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { createHash } from 'node:crypto'
 import { Prisma, ProductStatus, StockState } from '@prisma/client'
@@ -815,7 +816,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return true
   }
 
-  // Explicitly approved price change. Only the ten opt-in 1C products enter the outbound queue.
+  // Explicitly approved price change. Only authorized 1C products enter the outbound queue.
   async applyRecommended(id: string, dto: ApplyRecommendedPriceDto) {
     const updated = await this.prisma.$transaction(async tx => {
       const link = await tx.competitorProduct.findUnique({ where: { id }, include: { product: true, source: true } })
@@ -826,11 +827,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         throw new BadRequestException('Связь с 05.ru устарела: проверь и подтверди товар заново')
       }
       if (link.lastError || !link.lastSuccessAt || Date.now() - link.lastSuccessAt.getTime() > 24 * 3600_000
-        || link.inStock !== true || !link.latestPrice || link.latestPrice <= 100) {
+        || link.inStock !== true || !link.latestPrice || link.latestPrice <= 0) {
         throw new BadRequestException('Нужна свежая проверка цены и подтверждённое наличие на 05.ru')
       }
       const product = link.product
-      const price = link.latestPrice - 100
+      const price = retailPrice(link.latestPrice, product.costPrice)
+      if (price === null) throw new BadRequestException('Неизвестна закупочная цена: обновите данные из 1С')
       if (dto.expectedCurrentPrice !== product.price || dto.expectedCompetitorPrice !== link.latestPrice || dto.targetPrice !== price) {
         throw new ConflictException('Цена изменилась. Обнови мониторинг перед применением')
       }
@@ -848,7 +850,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       await tx.auditLog.create({ data: {
         action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
         details: { monitorLinkId: id, previousPrice: product.price, competitorPrice: link.latestPrice,
-          newPrice: price, costCheck: 'disabled', largeChange,
+          newPrice: price, costCheck: 'purchase-floor', purchasePrice: product.costPrice, largeChange,
           oneCQueued: true, oneCMessageId: message.id },
       } })
       return { ok: true, productId: product.id, previousPrice: product.price, newPrice: price,
@@ -906,7 +908,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const product = link.product
       const competitorPrice = link.latestPrice ?? history?.price ?? null
       if (competitorPrice === null && !includeAll) continue
-      const newPrice = (competitorPrice ?? 0) - 100
+      const newPrice = retailPrice(competitorPrice, product?.costPrice) ?? 0
       // A price difference against TEXHORU matters even if 05.ru has never changed.
       // Unmapped cards have no site retail price: show only actual 05.ru movements.
       const differsFromSite = !!product && newPrice !== product.price
@@ -929,9 +931,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (link.latestPrice === null) addReason('Нет актуальной цены 05.ru')
       else if (history && link.latestPrice !== history.price) addReason('Текущая цена 05.ru не совпадает с последней записью истории')
       if (link.inStock !== true) addReason(link.inStock === false ? 'На 05.ru товар отсутствует в наличии' : 'Наличие товара на 05.ru не подтверждено')
-      if (newPrice <= 0) addReason('Цена 05.ru минус 100 ₽ должна быть больше нуля')
+      if (newPrice <= 0 && knownPurchasePrice(product?.costPrice)) addReason('Рассчитанная розничная цена должна быть больше нуля и не превышать 5 000 000 ₽')
 
       if (product) {
+        if (!knownPurchasePrice(product.costPrice)) addReason('Неизвестна закупочная цена: обновите данные из 1С')
         if (product.status !== ProductStatus.ACTIVE) addReason('Товар неактивен в TEXHORU')
         if (!product.oneCId) addReason('У товара отсутствует GUID 1С')
         if (!product.priceSyncEnabled) addReason('Товар не включён в разрешённую область обмена с 1С')
@@ -1085,7 +1088,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           action: 'QUEUE_MONITOR_PRICE_TO_1C', entity: 'Product', entityId: String(product.id),
           details: { bulk: true, monitorLinkId: item.id, previousPrice: item.oldPrice,
             competitorPrice: item.competitorPrice, newPrice: item.newPrice,
-            costCheck: 'disabled', largeChange: Math.abs(item.newPrice - product.price) > product.price * 0.1,
+            costCheck: 'purchase-floor', purchasePrice: product.costPrice, largeChange: Math.abs(item.newPrice - product.price) > product.price * 0.1,
             oneCQueued: true, oneCMessageId: message.id },
         } })
       }

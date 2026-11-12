@@ -173,7 +173,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       {agent && <time dateTime={agent.lastSeenAt}>{new Date(agent.lastSeenAt).toLocaleTimeString('ru-RU')}</time>}
     </div>
     {loading && <p className="pu-note">Загружаем сведения…</p>}
-    {sync && !sync.testPriceSyncEnabled && <p className="pu-error" role="alert">Обновление цен в TEST 1С выключено на сервере.</p>}
+    {sync && !sync.testPriceSyncEnabled && <p className="pu-error" role="alert">Обновление цен в 1С выключено на сервере.</p>}
     {error && <p className="pu-error" role="alert">{error}</p>}
     {notice && <p className="pu-note" role="status">{notice}</p>}
     <div className="pu-groups" aria-label="Группы товаров">
@@ -278,7 +278,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       {toolsOpen && <div className="pu-setup">
         <PriceMonitorPanel products={inventory} initialPath={category} />
         <details className="pu-import-help"><summary>Добавить товары из 1С</summary>
-          <p>Выгрузи нужную группу из TEST на этот сайт. Все товары подключатся автоматически.</p>
+          <p>Выгрузи нужную группу из подключённой базы 1С на этот сайт. Все товары подключатся автоматически.</p>
           <div className="pu-import-address"><span>Адрес</span><code>{window.location.hostname}</code></div>
           <button type="button" disabled={loading || busy} onClick={async () => {
             setBusy(true); setError('')
@@ -290,7 +290,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       </div>}
     </details>
     <details className="pu-rule"><summary>Как обновляются цены</summary>
-      <p>Все товары из TEST 1С подключены автоматически. Цена — 05.ru минус 100 ₽. Сайт обновляется после ответа 1С.</p>
+      <p>Товары подключаются через профиль базы 1С. Цена — максимум из «05.ru − 100 ₽» и закупочной. Без закупочной изменение блокируется. Сайт обновляется после ответа 1С.</p>
     </details>
   </section>
 }

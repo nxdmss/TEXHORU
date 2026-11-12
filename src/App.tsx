@@ -893,7 +893,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       <details className="admin-sync-detail">
         <summary>Диагностика и настройки</summary>
         <div className="admin-sync-diagnostics">
-          <p>Передача цен: <strong>{priceSync.testPriceSyncEnabled ? 'включена для TEST' : 'выключена'}</strong>.</p>
+          <p>Передача цен: <strong>{priceSync.testPriceSyncEnabled ? 'включена для подключённой базы' : 'выключена'}</strong>.</p>
           {priceSync.agent && <p>Последний цикл агента: подтверждено {priceSync.agent.applied}, ошибок {priceSync.agent.failed}.</p>}
           <p>Обновление считается выполненным после подтверждения 1С. При отсутствии связи очередь сохраняется.</p>
           <details>
@@ -905,7 +905,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           </details>
           <details>
             <summary>Допуск после загрузки каталога</summary>
-            <p>{priceSync.testAutoScopeOnCatalogImport ? 'Все товары из TEST 1С подключаются автоматически.'
+            <p>{priceSync.testAutoScopeOnCatalogImport ? 'Товары из подключённой базы 1С подключаются автоматически.'
               : 'Автоматический допуск при загрузке каталога выключен.'}</p>
           </details>
           <details>

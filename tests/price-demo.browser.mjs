@@ -30,7 +30,7 @@ try {
   const source = await prisma.competitorSource.create({ data: { key: '05ru', name: '05.ru', baseUrl: 'https://05.ru' } })
   const products = []
   for (const [name, price] of [['Apple iPhone 16 128GB Green', 63900], ['Apple iPhone 15 256GB Black', 61900], ['Apple iPhone 16 128GB White', 57900]]) {
-    products.push(await prisma.product.create({ data: { categoryId: category.id, name, price, oneCId: randomUUID(), brand: 'Apple', sku: randomUUID(), slug: randomUUID(), stockQty: 1, priceSyncEnabled: true } }))
+    products.push(await prisma.product.create({ data: { categoryId: category.id, name, price, costPrice: 40000, oneCId: randomUUID(), brand: 'Apple', sku: randomUUID(), slug: randomUUID(), stockQty: 1, priceSyncEnabled: true } }))
   }
   for (let i = 0; i < products.length; i++) {
     const p = products[i], externalName = i !== 1 ? p.name : 'Apple iPhone 15 128GB Black б/у'
@@ -94,6 +94,19 @@ try {
   if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH.replace('.png', '-overview.png'), fullPage: true })
   await page.getByRole('button', { name: 'Цены', exact: true }).click()
   await page.getByRole('button', { name: 'Обновить все (2)', exact: true }).waitFor()
+  // Missing purchase cost removes a matched SKU from the ready selection.
+  await prisma.product.update({where:{id:products[0].id},data:{costPrice:null}})
+  await page.reload()
+  await page.getByRole('button', {name:'Цены',exact:true}).click()
+  await page.getByRole('button', {name:'Обновить все (1)',exact:true}).waitFor()
+  await page.getByRole('button', {name:'3 Нужна проверка',exact:true}).click()
+  await page.getByText('Неизвестна закупочная цена: обновите данные из 1С', {exact:true}).waitFor()
+  assert.equal(await page.locator('.pu-product-list input[type=checkbox]').count(),0)
+  await prisma.product.update({where:{id:products[0].id},data:{costPrice:40000}})
+  await page.reload()
+  await page.getByRole('button', {name:'Цены',exact:true}).click()
+  await page.getByRole('button', {name:'Обновить все (2)',exact:true}).waitFor()
+
   assert.equal(await page.locator('.pu-selection').getAttribute('open'), null)
   assert.equal(await page.locator('.pu-advanced').getAttribute('open'), null)
   assert.equal(await page.locator('.pu-advanced .mp-shell').count(), 0)

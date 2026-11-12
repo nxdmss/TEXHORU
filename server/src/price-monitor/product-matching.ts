@@ -1,3 +1,4 @@
+import { knownPurchasePrice, retailPrice } from './retail-price-policy'
 import { createHash } from 'node:crypto'
 
 export type Identity = {
@@ -582,7 +583,8 @@ export function recommendation(input: { latestPrice?: number | null; inStock?: b
   if (input.lastError) reasons.push('последняя проверка с ошибкой')
   if (!input.lastSuccessAt || Date.now() - input.lastSuccessAt.getTime() > 24 * 3600_000) reasons.push('данные старше 24 часов')
   if (!product) reasons.push('товар не сопоставлен')
-  const proposed = input.latestPrice ? Math.max(1, input.latestPrice - 100) : null
+  if (product && !knownPurchasePrice(product.costPrice)) reasons.push('неизвестна закупочная цена')
+  const proposed = retailPrice(input.latestPrice, product?.costPrice)
   if (!options.allowLargeChange && product && proposed && Math.abs(proposed - product.price) > product.price * 0.1) reasons.push('изменение больше 10%')
   return { recommendedPrice: reasons.length ? null : proposed, recommendationReasons: reasons }
 }
