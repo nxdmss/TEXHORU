@@ -26,7 +26,21 @@ function Select-OneCQuery($Query) {
     return Invoke-OneCMethod $result @('Выбрать', 'Select')
 }
 function Move-OneCSelection($Selection) { return [bool](Invoke-OneCMethod $Selection @('Следующий', 'Next')) }
-function Get-RefId($Reference) { return ([string](Invoke-OneCMethod $Reference @('УникальныйИдентификатор', 'UUID'))).ToLowerInvariant() }
+function Get-RefId($Reference) {
+    try {
+        $id = ([string](Invoke-OneCMethod $Reference @('УникальныйИдентификатор', 'UUID'))).ToLowerInvariant()
+        if ($id -match '^[0-9a-f-]{36}$') { return $id }
+    } catch {}
+    # Old external connections can hide UUID() on references while exposing
+    # the equivalent global XMLString(reference) conversion through IDispatch.
+    foreach ($name in @('XMLString', 'XMLСтрока')) {
+        try {
+            $xml = [string]$script:connection.GetType().InvokeMember($name, [Reflection.BindingFlags]::InvokeMethod, $null, $script:connection, @($Reference))
+            if ($xml -match '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}') { return $Matches[0].ToLowerInvariant() }
+        } catch {}
+    }
+    throw 'ONEC_REFERENCE_ID'
+}
 function New-OneCObject([string]$Type) {
     # COMConnector exposes global-context method names in the configuration's
     # script language. Some builds also hide global-context methods from
