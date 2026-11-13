@@ -92,7 +92,7 @@ export class RemoteCatalogService {
     await this.db.oneCCatalogAgent.upsert({ where: { baseId }, create: { baseId, agentId: dto.agentId, state: dto.state, error: dto.error, lastSeenAt: now }, update: { agentId: dto.agentId, state: dto.state, error: dto.error || null, lastSeenAt: now } })
     // Discover groups initially, then refresh five minutes after the last completed snapshot.
     const lastGroups = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'GROUPS' }, orderBy: { createdAt: 'desc' } })
-    if (!lastGroups || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 300000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
+    if (!lastGroups || lastGroups.status === 'CANCELLED' || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 300000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
     // Once the group tree exists, build the mirror automatically and keep it
     // fresh. A single durable job is resumed by subsequent one-minute ticks.
     if (lastGroups?.status === 'COMPLETED') {
