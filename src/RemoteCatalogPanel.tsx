@@ -137,6 +137,14 @@ export function RemoteCatalogPanel() {
     if (queued) setSelectedItemIds(new Set())
   }
 
+  async function importGroup(group: OneCRemoteGroup) {
+    if (!window.confirm(`Загрузить на сайт всю группу «${group.name}» со всеми вложенными группами?\n\nАгент прочитает из 1С полные данные, цены и остатки всех товаров этой ветки.`)) return
+    await command(
+      () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: 'FULL', groupId: group.oneCId }),
+      `Группа «${group.name}» поставлена в очередь. Агент загрузит все товары и вложенные группы.`,
+    )
+  }
+
   async function excludeGroup(group: OneCRemoteGroup) {
     if (!window.confirm(`Исключить «${group.name}» и все вложенные группы из сайта?\n\nЗаписи этой ветки будут удалены из базы сайта и больше не будут загружаться из 1С. В самой 1С ничего не изменится.`)) return
     setBusy(true); setError(''); setNotice('')
@@ -199,7 +207,7 @@ export function RemoteCatalogPanel() {
       <div>
         <p className="eyebrow">Основная база · УТ 10.3</p>
         <h2>Номенклатура 1С</h2>
-        <p>Лёгкий список из 1С: выберите нужные позиции, и только после этого агент загрузит цены, остатки и создаст карточки сайта.</p>
+        <p>Лёгкий список из 1С: загружайте на сайт отдельные позиции или целую выбранную группу.</p>
       </div>
       <div className="onec-mirror__live">
         <span className={online ? 'is-online' : ''} />
@@ -249,6 +257,7 @@ export function RemoteCatalogPanel() {
             <button onClick={() => { setSelectedGroup(''); setPage(0) }}>Номенклатура</button>
             {path.map(group => <span key={group.oneCId}><i>›</i><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
             {query && <span><i>›</i><b>Поиск: {query}</b></span>}
+            {selected && <button className="onec-group-import-button" disabled={busy} onClick={() => importGroup(selected)}>Загрузить всю группу</button>}
             {selected && <button className="onec-exclude-button" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить группу</button>}
           </nav>
           <div className="onec-table-wrap">

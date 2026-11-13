@@ -72,8 +72,14 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal(picker.body.items[0].name, 'Apple iPhone 16 128GB Black'); assert.equal(picker.body.items[0].imported, false)
     })
     let job, batch
-    await t.test('only explicitly selected items are fully read and published to the site', async () => {
+    await t.test('only explicitly selected items or groups are fully read and published to the site', async () => {
       assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [] }, 'staff')).status, 400)
+      assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId, itemIds: [productId] }, 'staff')).status, 400)
+      const groupCreated = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId }, 'staff')
+      assert.equal(groupCreated.status, 201)
+      const groupJob = (await poll()).body.job
+      assert.equal(groupJob.kind, 'IMPORT'); assert.equal(groupJob.groupId, subId); assert.deepEqual(groupJob.selectedCodes, [])
+      assert.equal((await req(admin + '/jobs/' + groupJob.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
       const created = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [productId] }, 'staff')
       assert.equal(created.status, 201)
       job = (await poll()).body.job

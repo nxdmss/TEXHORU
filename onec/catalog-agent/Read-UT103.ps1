@@ -183,14 +183,16 @@ function Read-RemotePage($Job) {
     }
     if ($Job.kind -eq 'IMPORT') {
         $selected = @($Job.selectedCodes | Where-Object { ([string]$_).Trim() })
-        if (-not $selected.Count) { throw 'SELECTION_EMPTY' }
-        $conditions = @()
-        for ($selectedIndex = 0; $selectedIndex -lt $selected.Count; $selectedIndex++) {
-            $parameterName = 'SelectedCode' + $selectedIndex
-            $conditions += ('Н.Код = &' + $parameterName)
-            $parameters[$parameterName] = [string]$selected[$selectedIndex]
+        if ($selected.Count) {
+            $conditions = @()
+            for ($selectedIndex = 0; $selectedIndex -lt $selected.Count; $selectedIndex++) {
+                $parameterName = 'SelectedCode' + $selectedIndex
+                $conditions += ('Н.Код = &' + $parameterName)
+                $parameters[$parameterName] = [string]$selected[$selectedIndex]
+            }
+            $text += ' И (' + ($conditions -join ' ИЛИ ') + ')'
         }
-        $text += ' И (' + ($conditions -join ' ИЛИ ') + ')'
+        elseif (-not $Job.groupId) { throw 'SELECTION_EMPTY' }
     }
     if ($Job.kind -ne 'GROUPS') { $text = Add-RemoteScope $text $parameters $Job }
     $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
