@@ -28,7 +28,20 @@ function Select-OneCQuery($Query) {
     return Invoke-OneCMethod $result @('Выбрать', 'Select')
 }
 function Move-OneCSelection($Selection) { return [bool](Invoke-OneCMethod $Selection @('Следующий', 'Next')) }
-function Get-RefId($Reference) {
+function Get-StableOneCId([string]$Kind, [string]$Code) {
+    $value = $Code.Trim()
+    if (-not $value) { throw 'ONEC_REFERENCE_CODE' }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hex = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(([string]$script:config.BaseId + '|' + $Kind + '|' + $value))))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+    # RFC 4122-shaped, deterministic version-5 identifier. UT 10.3 catalog
+    # codes are unique and remain available even when its old COMConnector
+    # hides the native reference UUID from external connections.
+    $hex = $hex.Substring(0, 12) + '5' + $hex.Substring(13, 3) + '8' + $hex.Substring(17)
+    return $hex.Substring(0, 8) + '-' + $hex.Substring(8, 4) + '-' + $hex.Substring(12, 4) + '-' + $hex.Substring(16, 4) + '-' + $hex.Substring(20, 12)
+}
+function Get-RefId($Reference, [string]$Kind = 'REFERENCE', [string]$Code = '') {
+    if ($Code) { return Get-StableOneCId $Kind $Code }
     try {
         $id = ([string](Invoke-OneCMethod $Reference @('УникальныйИдентификатор', 'UUID'))).ToLowerInvariant()
         if ($id -match '^[0-9a-f-]{36}$') { return $id }
@@ -41,6 +54,8 @@ function Get-RefId($Reference) {
             if ($xml -match '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}') { return $Matches[0].ToLowerInvariant() }
         } catch {}
     }
+    try { $Code = ([string]$Reference.Код).Trim() } catch {}
+    if ($Code) { return Get-StableOneCId $Kind $Code }
     throw 'ONEC_REFERENCE_ID'
 }
 function New-OneCObject([string]$Type) {
@@ -69,22 +84,25 @@ function Get-OneCRef([string]$Id) {
     # Some older UT 10.3 COMConnector builds do not expose catalog-manager
     # methods (ПустаяСсылка/ПолучитьСсылку) to PowerShell. Resolve a selected
     # group through a plain query instead; root jobs never need this lookup.
-    $query = New-OneCQuery 'ВЫБРАТЬ Н.Ссылка КАК Ref ИЗ Справочник.Номенклатура КАК Н ГДЕ Н.ЭтоГруппа' @{}
+    $query = New-OneCQuery 'ВЫБРАТЬ Н.Ссылка КАК Ref, Н.Код КАК Code ИЗ Справочник.Номенклатура КАК Н ГДЕ Н.ЭтоГруппа' @{}
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
-        if ((Get-RefId $selection.Ref) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
+        if ((Get-RefId $selection.Ref 'GROUP' ([string]$selection.Code)) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
     }
     throw 'GROUP_NOT_FOUND'
 }
 function Get-GroupPath($Reference) {
-    $id = Get-RefId $Reference
+    $code = ([string]$Reference.Код).Trim()
+    if (-not $code) { return 'Без категории' }
+    $id = Get-RefId $Reference 'GROUP' $code
     if ($script:paths.ContainsKey($id)) { return $script:paths[$id] }
     $names = @(); $seen = @{}
-    while ((Get-RefId $Reference) -ne '00000000-0000-0000-0000-000000000000') {
-        $key = Get-RefId $Reference
+    while ($code) {
+        $key = Get-RefId $Reference 'GROUP' $code
         if ($seen.ContainsKey($key) -or $names.Count -ge 64) { throw 'GROUP_HIERARCHY' }
         $seen[$key] = $true; $names = @(([string]$Reference.Наименование).Trim()) + $names
         $Reference = $Reference.Родитель
+        $code = ([string]$Reference.Код).Trim()
     }
     $path = $names -join ' / '
     if (-not $path) { $path = 'Без категории' }
@@ -103,7 +121,7 @@ function Read-RemotePage($Job) {
     $parameters = @{}
     if ($Job.kind -eq 'GROUPS') { $condition = 'Н.ЭтоГруппа И НЕ Н.ПометкаУдаления' }
     else { $condition = 'НЕ Н.ЭтоГруппа' }
-    $text = "ВЫБРАТЬ ПЕРВЫЕ 50 Н.Ссылка КАК Ref, Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.ВидНоменклатуры КАК ItemKind, Н.БазоваяЕдиницаИзмерения КАК Unit, Н.Родитель КАК Parent, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ $condition"
+    $text = "ВЫБРАТЬ ПЕРВЫЕ 50 Н.Ссылка КАК Ref, Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.ВидНоменклатуры КАК ItemKind, Н.БазоваяЕдиницаИзмерения КАК Unit, Н.Родитель КАК Parent, Н.Родитель.Код КАК ParentCode, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ $condition"
     if ($Job.cursor) {
         # Catalog codes are unique in UT 10.3 and are exposed as regular
         # strings even when reference-manager methods are unavailable.
@@ -121,19 +139,19 @@ function Read-RemotePage($Job) {
     while (Move-OneCSelection $selection) {
         $unitName = ''
         try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
-        $rows += ,@{ Ref = $selection.Ref; Code = ([string]$selection.Code).Trim(); Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; Deleted = [bool]$selection.Deleted }
+        $rows += ,@{ Ref = $selection.Ref; Code = ([string]$selection.Code).Trim(); Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; ParentCode = ([string]$selection.ParentCode).Trim(); Deleted = [bool]$selection.Deleted }
     }
     if ($rows.Count -eq 0) { return $null }
     $range = @{ FirstCode = $rows[0].Code; LastCode = $rows[-1].Code }
     $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $rows[-1].Code; scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @() }
     if ($Job.kind -eq 'GROUPS') {
         $counts = @{}
-        $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель.Код >= &FirstCode И Н.Родитель.Код <= &LastCode СГРУППИРОВАТЬ ПО Н.Родитель' $range
+        $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, Н.Родитель.Код КАК Code, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель.Код >= &FirstCode И Н.Родитель.Код <= &LastCode СГРУППИРОВАТЬ ПО Н.Родитель, Н.Родитель.Код' $range
         $selection = Select-OneCQuery $query
-        while (Move-OneCSelection $selection) { $counts[(Get-RefId $selection.Ref)] = [int]$selection.Qty }
+        while (Move-OneCSelection $selection) { $counts[(Get-RefId $selection.Ref 'GROUP' ([string]$selection.Code))] = [int]$selection.Qty }
         foreach ($row in $rows) {
-            $id = Get-RefId $row.Ref; $parent = Get-RefId $row.Parent
-            if ($parent -eq '00000000-0000-0000-0000-000000000000') { $parent = '' }
+            $id = Get-RefId $row.Ref 'GROUP' $row.Code
+            $parent = if ($row.ParentCode) { Get-RefId $row.Parent 'GROUP' $row.ParentCode } else { '' }
             $body.groups += @{ oneCId = $id; parentId = $parent; name = $row.Name.Trim(); itemCount = [int]$counts[$id] }
         }
         return $body
@@ -147,26 +165,27 @@ function Read-RemotePage($Job) {
         # An omitted slice date means the latest available record. Passing a
         # .NET DateTime through the legacy COMConnector is not portable: older
         # UT 10.3 builds reject it as the first virtual-table parameter.
-        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(, ТипЦен = &PriceType) КАК Ц ГДЕ Ц.Номенклатура.Код >= &FirstCode И Ц.Номенклатура.Код <= &LastCode И Ц.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
+        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, Ц.Номенклатура.Код КАК Code, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(, ТипЦен = &PriceType) КАК Ц ГДЕ Ц.Номенклатура.Код >= &FirstCode И Ц.Номенклатура.Код <= &LastCode И Ц.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО Ц.Номенклатура, Ц.Номенклатура.Код' @{ PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
             $price = [decimal]$selection.Price
             if ($selection.Variants -gt 1 -or $price -lt 0 -or $price -ne [decimal]::Truncate($price) -or $price -gt [int]::MaxValue) { throw 'PRICE_UNIT_OR_FRACTION' }
-            $map[(Get-RefId $selection.Ref)] = [int]$price
+            $map[(Get-RefId $selection.Ref 'NOMENCLATURE' ([string]$selection.Code))] = [int]$price
         }
         $prices += ,$map
     }
     $stocks = @{}
-    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки() КАК О ГДЕ О.Номенклатура.Код >= &FirstCode И О.Номенклатура.Код <= &LastCode И О.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО О.Номенклатура' $range
+    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, О.Номенклатура.Код КАК Code, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки() КАК О ГДЕ О.Номенклатура.Код >= &FirstCode И О.Номенклатура.Код <= &LastCode И О.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО О.Номенклатура, О.Номенклатура.Код' $range
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
         $qty = [decimal]$selection.Qty
         if ($qty -ne [decimal]::Truncate($qty) -or $qty -gt [int]::MaxValue) { throw 'STOCK_FRACTION' }
-        $stocks[(Get-RefId $selection.Ref)] = [int][Math]::Max(0, $qty)
+        $stocks[(Get-RefId $selection.Ref 'NOMENCLATURE' ([string]$selection.Code))] = [int][Math]::Max(0, $qty)
     }
     $categories = @{}
     foreach ($row in $rows) {
-        $id = Get-RefId $row.Ref; $categoryId = Get-RefId $row.Parent
+        $id = Get-RefId $row.Ref 'NOMENCLATURE' $row.Code
+        $categoryId = if ($row.ParentCode) { Get-RefId $row.Parent 'GROUP' $row.ParentCode } else { Get-StableOneCId 'GROUP' '__ROOT__' }
         $path = Get-GroupPath $row.Parent
         $brand = 'Другие'
         if ($row.Name -match '(?i)iphone|apple') { $brand = 'Apple' }
