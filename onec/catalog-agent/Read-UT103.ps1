@@ -1,13 +1,15 @@
 ﻿# Read-only UT 10.3 COM adapter. No documents or register writes.
 function Invoke-OneCMethod($Object, [string[]]$Names, [object[]]$Arguments = @()) {
+    $lastError = $null
     foreach ($name in $Names) {
         try {
             $method = $Object.PSObject.Methods[$name]
             if ($method) { return $method.Invoke($Arguments) }
-        } catch {}
+        } catch { $lastError = $_ }
         try { return $Object.GetType().InvokeMember($name, [Reflection.BindingFlags]::InvokeMethod, $null, $Object, $Arguments) }
-        catch {}
+        catch { $lastError = $_ }
     }
+    if ($lastError) { throw $lastError }
     throw ('ONEC_METHOD_NOT_FOUND:' + ($Names -join '/'))
 }
 function Set-OneCProperty($Object, [string[]]$Names, $Value) {
@@ -142,7 +144,7 @@ function Read-RemotePage($Job) {
     $prices = @();
     foreach ($priceType in @($retail, $purchase)) {
         $map = @{}
-        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType И Номенклатура.Код >= &FirstCode И Номенклатура.Код <= &LastCode И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК Ц СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
+        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType) КАК Ц ГДЕ Ц.Номенклатура.Код >= &FirstCode И Ц.Номенклатура.Код <= &LastCode И Ц.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
             $price = [decimal]$selection.Price
@@ -152,7 +154,7 @@ function Read-RemotePage($Job) {
         $prices += ,$map
     }
     $stocks = @{}
-    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки(, Номенклатура.Код >= &FirstCode И Номенклатура.Код <= &LastCode И ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка)) КАК О СГРУППИРОВАТЬ ПО О.Номенклатура' $range
+    $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки() КАК О ГДЕ О.Номенклатура.Код >= &FirstCode И О.Номенклатура.Код <= &LastCode И О.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО О.Номенклатура' $range
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
         $qty = [decimal]$selection.Qty
