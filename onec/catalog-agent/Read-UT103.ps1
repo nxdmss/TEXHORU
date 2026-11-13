@@ -33,7 +33,7 @@ function Get-RefId($Reference) {
     } catch {}
     # Old external connections can hide UUID() on references while exposing
     # the equivalent global XMLString(reference) conversion through IDispatch.
-    foreach ($name in @('XMLString', 'XMLСтрока')) {
+    foreach ($name in @('XMLString', 'XMLСтрока', 'ValueToStringInternal', 'ЗначениеВСтрокуВнутр')) {
         try {
             $xml = [string]$script:connection.GetType().InvokeMember($name, [Reflection.BindingFlags]::InvokeMethod, $null, $script:connection, @($Reference))
             if ($xml -match '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}') { return $Matches[0].ToLowerInvariant() }
@@ -136,9 +136,9 @@ function Read-RemotePage($Job) {
         }
         return $body
     }
+    if ($script:config.RetailPriceName.Trim().ToLowerInvariant() -eq $script:config.PurchasePriceName.Trim().ToLowerInvariant()) { throw 'PRICE_TYPES_IDENTICAL' }
     $retail = Get-PriceType $script:config.RetailPriceName
     $purchase = Get-PriceType $script:config.PurchasePriceName
-    if ((Get-RefId $retail) -eq (Get-RefId $purchase)) { throw 'PRICE_TYPES_IDENTICAL' }
     $prices = @();
     foreach ($priceType in @($retail, $purchase)) {
         $map = @{}
