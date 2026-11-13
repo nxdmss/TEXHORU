@@ -689,7 +689,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     { label: 'Магазин', tabs: ['products', 'orders', 'notifications', 'content'] },
   ]
   const connectProducts = () => { setPriceSetup(true); setTab('prices') }
-  return <section className="admin-shell admin-control">
+  return <section className={`admin-shell admin-control${tab === 'content' ? ' admin-control--builder' : ''}`}>
     <aside className={'admin-sidebar' + (navigationOpen ? ' is-open' : '')}>
     <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><div className="admin-wordmark">TEXHO<span>RU</span><small>Управление магазином</small></div></button>
     <button type="button" className="admin-mobile-toggle" aria-expanded={navigationOpen} aria-controls="admin-navigation" onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'} />Разделы</button>
@@ -706,7 +706,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </nav>
     <div className="admin-sidebar-bottom"><button onClick={onBack}>Открыть магазин <AdminIcon name="arrow" /></button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти из аккаунта</button></div>
     </aside>
-    <div className="admin-workspace">
+    <div className={`admin-workspace${tab === 'content' ? ' admin-workspace--builder' : ''}`}>
     <div className="admin-top"><div><p className="eyebrow">Управление / {tabNames[tab]}</p><h1>{tab === 'overview' ? 'Рабочий стол' : tabNames[tab]}</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : loading ? 'Синхронизация…' : 'Сайт на связи'}</span><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
     {error && <div className="admin-error">{error}</div>}
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}

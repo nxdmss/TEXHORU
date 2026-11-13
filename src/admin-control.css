@@ -33,6 +33,12 @@
 .admin-sidebar-bottom button { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border: 1px solid #3e3e3b; border-radius: 8px; color: #c9c9c4; background: transparent; font-size: 11px; text-align: left; }
 .admin-sidebar-bottom button + button { border-color: transparent; color: #999994; }
 .admin-workspace { min-width: 0; width: 100%; max-width: 1560px; margin: 0 auto; padding: 27px clamp(20px, 3.4vw, 55px) 64px; }
+.admin-control .admin-workspace--builder { max-width: none; padding: 18px clamp(12px, 1.2vw, 24px) 48px; }
+.admin-control .admin-workspace--builder .admin-top { margin-bottom: 18px; padding-bottom: 16px; }
+@media (min-width: 1101px) {
+  .admin-control--builder { grid-template-columns: 188px minmax(0, 1fr); }
+  .admin-control--builder .admin-sidebar { padding-right: 13px; padding-left: 13px; }
+}
 .admin-control .admin-top { align-items: center; padding: 0 0 24px; border-bottom: 1px solid var(--ac-line); margin-bottom: 29px; }
 .admin-control .admin-top .eyebrow { font: 400 11px "IBM Plex Sans", sans-serif; color: var(--ac-muted); letter-spacing: 0; text-transform: none; margin: 0 0 7px; }
 .admin-control .admin-top h1 { font-size: 28px; letter-spacing: -.03em; line-height: 1.2; }
@@ -179,6 +185,7 @@
   .admin-sidebar.is-open .admin-sidebar-bottom { display: flex; flex-wrap: wrap; margin-top: 17px; padding-top: 12px; gap: 8px; border-top: 1px solid #3b3b37; }
   .admin-sidebar-bottom button { font-size: 11px; padding: 9px 11px; gap: 8px; }
   .admin-workspace { padding: 23px 20px 45px; }
+  .admin-control .admin-workspace--builder { padding: 18px 12px 40px; }
   .admin-control .admin-top { flex-direction: row; margin-bottom: 23px; gap: 8px; }.admin-control .admin-top h1 { font-size: 24px; }
   .admin-control .admin-top__actions { gap: 5px; }.admin-control .admin-top__actions button span { display: none; }.admin-control .admin-top__actions button { padding: 9px; }
   .admin-control .api-state { font-size: 10px; padding: 0 3px; }
