@@ -78,13 +78,14 @@ Assert-True ($full.hashes[0].hash -eq $again.hashes[0].hash) 'Hash is unstable'
 $job.mode = 'DELTA'
 $delta = Read-RemotePage $job
 Assert-True ($delta.products.Count -eq 0 -and $delta.scanned -eq 1 -and $delta.hashes.Count -eq 1) 'DELTA must advance the cursor without resending known cards'
+$job.mode = 'FULL'; $script:fixtureCost = 48000.5; $script:fixtureFraction = $true
+$fractional = Read-RemotePage $job
+Assert-True ($fractional.products[0].costPrice -eq 48001 -and $fractional.products[0].stockQty -eq 1) 'Fractional price/stock must be normalized without aborting the catalog'
+$script:fixtureFraction = $false
 $job.mode = 'FULL'; $script:fixtureCost = $null; $script:fixtureDeleted = $true
 $missing = Read-RemotePage $job
 Assert-True ($null -eq $missing.products[0].costPrice -and $missing.products[0].stockQty -eq 0) 'Missing floor or deleted stock is wrong'
 Assert-True (($missing | ConvertTo-Json -Depth 15 -Compress) -match '"costPrice":null') 'Unknown purchase must explicitly clear stale cost'
-$script:fixtureFraction = $true; $rejected = $false
-try { Read-RemotePage $job | Out-Null } catch { $rejected = $true }
-Assert-True $rejected 'Fractional stock must fail instead of rounding'
 $script:fixtureEmpty = $true
 Assert-True ($null -eq (Read-RemotePage $job)) 'Empty page must finish the job'
-Write-Host 'PASS: Windows adapter packet, bounded queries, stable hashes, array JSON, DELTA cursor, purchase null, deletion, fractional stock and EOF'
+Write-Host 'PASS: Windows adapter packet, bounded queries, stable hashes, array JSON, DELTA cursor, purchase null, deletion, fractional normalization and EOF'

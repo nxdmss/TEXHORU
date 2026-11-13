@@ -49,7 +49,9 @@ try {
 } catch {
     # Never persist the COM connection string, API key or provider error text.
     if (-not $stage) { $stage = 'CONFIG' }
-    Write-CatalogLog $stage
+    $logCode = $stage
+    if ($_.Exception.Message -match '^[A-Z][A-Z0-9_:-]{0,79}$') { $logCode += ':' + $_.Exception.Message }
+    Write-CatalogLog $logCode
     if ($stage -in @('COM_CONNECT', 'CATALOG_READ')) {
         try { $null = Invoke-AgentApi 'POST' 'poll' @{ agentId = $script:config.AgentId; state = 'error'; error = $stage } } catch {}
     }
