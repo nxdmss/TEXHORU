@@ -456,8 +456,10 @@ model OneCRemoteGroup {
   searchName String @default("")
   lastReceivedAt DateTime?
   active Boolean @default(true)
+  // Site-only exclusion. It never changes or deletes the source group in 1C.
+  excluded Boolean @default(false)
   @@id([baseId, oneCId])
-  @@index([baseId, active, parentId, name])
+  @@index([baseId, active, excluded, parentId, name])
 }
 model OneCCatalogJob {
   id String @id

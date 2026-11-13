@@ -127,6 +127,29 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       const huge = { ...batch, categories: [{ ...batch.categories[0], name: 'x'.repeat(600000) }] }
       assert((await req(remote + '/jobs/' + delta.id + '/batch', huge)).status >= 400)
     })
+    await t.test('excluded branches are physically removed from the mirror, hidden from the storefront and skipped by the agent until restored', async () => {
+      const excluded = await req(admin + '/groups/' + subId + '/exclude', {}, 'staff')
+      assert.equal(excluded.status, 201); assert.equal(excluded.body.removed, 1); assert.equal(excluded.body.productsDeleted, 1)
+      assert.equal(await db.oneCNomenclatureItem.count(), 0)
+      assert.equal(await db.product.count(), 0)
+      assert.equal(await db.category.findUnique({ where: { oneCId: subId } }), null)
+      const tree = (await req(admin + '/tree', undefined, 'staff')).body
+      assert.equal(tree.itemCount, 0); assert.deepEqual(tree.groups.map(group => group.oneCId), [groupId])
+      assert.equal((await req(admin + '/nomenclature?search=iphone', undefined, 'staff')).body.total, 0)
+      const excludedList = (await req(admin + '/excluded-groups', undefined, 'staff')).body
+      assert.deepEqual(excludedList.map(group => group.oneCId), [subId])
+
+      const root = await req(admin + '/jobs', { kind: 'CATALOG', mode: 'FULL' }, 'staff')
+      const leased = (await poll()).body.job
+      assert.equal(leased.id, root.body.id); assert.deepEqual(leased.excludedGroupIds, [subId])
+      assert.equal((await req(admin + '/jobs/' + leased.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
+
+      const restored = await req(admin + '/groups/' + subId + '/restore', {}, 'staff')
+      assert.equal(restored.status, 201); assert(restored.body.jobId)
+      assert.equal((await req(admin + '/tree', undefined, 'staff')).body.groups.length, 2)
+      assert.deepEqual((await req(remote + '/known', { hashes: batch.hashes })).body.needed, [productId])
+      assert.equal((await req(admin + '/jobs/' + restored.body.jobId + '/action', { action: 'cancel' }, 'staff')).status, 201)
+    })
     await t.test('a cancelled group snapshot is recreated automatically', async () => {
       const cancelled = await req(admin + '/jobs', { kind: 'GROUPS', mode: 'FULL' }, 'staff')
       assert.equal(cancelled.status, 201)
