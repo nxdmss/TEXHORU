@@ -7,7 +7,7 @@ function New-Reference([string]$Id, [string]$Name, $Parent) {
     return $ref
 }
 $zero = New-Reference '00000000-0000-0000-0000-000000000000' '' $null
-$zero.Code = ''
+$zero.Код = ''
 $group = New-Reference '11111111-1111-4111-8111-111111111111' 'Телефоны' $zero
 $item = New-Reference '22222222-2222-4222-8222-222222222222' 'Apple iPhone 16' $group
 $retail = New-Reference '33333333-3333-4333-8333-333333333333' 'Розничная' $zero
