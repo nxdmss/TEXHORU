@@ -72,6 +72,10 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal(picker.body.items[0].name, 'Apple iPhone 16 128GB Black'); assert.equal(picker.body.items[0].imported, false)
       await db.oneCCatalogJob.update({ where: { id: automatic.id }, data: { finishedAt: new Date(Date.now() - 31 * 60 * 1000) } })
       assert.equal((await poll()).body.job, null)
+      const manual = await req(admin + '/jobs', { kind: 'INDEX', mode: 'FULL' }, 'staff')
+      assert.equal(manual.status, 201)
+      assert.equal((await req(admin + '/jobs/' + manual.body.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
+      assert.equal((await poll()).body.job, null)
     })
     let job, batch
     await t.test('only explicitly selected items or groups are fully read and published to the site', async () => {
