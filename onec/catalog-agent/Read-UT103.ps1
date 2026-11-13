@@ -144,7 +144,10 @@ function Read-RemotePage($Job) {
     $prices = @();
     foreach ($priceType in @($retail, $purchase)) {
         $map = @{}
-        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(&Now, ТипЦен = &PriceType) КАК Ц ГДЕ Ц.Номенклатура.Код >= &FirstCode И Ц.Номенклатура.Код <= &LastCode И Ц.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ Now = (Get-Date); PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
+        # An omitted slice date means the latest available record. Passing a
+        # .NET DateTime through the legacy COMConnector is not portable: older
+        # UT 10.3 builds reject it as the first virtual-table parameter.
+        $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(, ТипЦен = &PriceType) КАК Ц ГДЕ Ц.Номенклатура.Код >= &FirstCode И Ц.Номенклатура.Код <= &LastCode И Ц.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО Ц.Номенклатура' @{ PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
             $price = [decimal]$selection.Price

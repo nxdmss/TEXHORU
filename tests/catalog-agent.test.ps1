@@ -13,7 +13,7 @@ $retail = New-Reference '33333333-3333-4333-8333-333333333333' 'Рознична
 $purchase = New-Reference '44444444-4444-4444-8444-444444444444' 'Закупочная' $zero
 $script:config = [pscustomobject]@{ RetailPriceName = 'Розничная'; PurchasePriceName = 'Закупочная' }
 $script:fixtureDeleted = $false; $script:fixtureCost = 48000; $script:fixtureFraction = $false; $script:fixtureEmpty = $false
-$script:priceTypeCalls = 0; $script:queryCount = 0
+$script:priceTypeCalls = 0; $script:queryCount = 0; $script:priceQueries = @()
 function Get-OneCRef([string]$Id) { return $zero }
 function Get-PriceType([string]$Name) { if ($Name -eq 'Розничная') { return $retail }; return $purchase }
 $characteristics = [pscustomobject]@{}
@@ -32,6 +32,7 @@ function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
     if ($Text -match 'ПЕРВЫЕ 50') {
         if (-not $script:fixtureEmpty) { $rows = @([pscustomobject]@{ Ref = $item; Code = '0000046151'; Article = 'MPN-123'; Name = 'Apple iPhone 16'; FullName = 'Смартфон Apple iPhone 16'; ItemKind = 'Товар'; Unit = (New-Reference '77777777-7777-4777-8777-777777777777' 'шт' $zero); Parent = $group; Deleted = $script:fixtureDeleted }) }
     } elseif ($Text -match 'СрезПоследних') {
+        $script:priceQueries += ,@{ Text = $Text; Parameters = $Parameters }
         $price = if ((Get-RefId $Parameters.PriceType) -eq (Get-RefId $retail)) { 50000 } else { $script:fixtureCost }
         if ($null -ne $price) { $rows = @([pscustomobject]@{ Ref = $item; Price = $price; Variants = 1 }) }
     } elseif ($Text -match 'КоличествоОстаток') {
@@ -62,6 +63,7 @@ Assert-True ($full.products[0].mpn -eq 'MPN-123') 'MPN lost'
 Assert-True ($full.products[0].sourceCode -eq '0000046151' -and $full.products[0].sourceArticle -eq 'MPN-123' -and $full.products[0].sourceFullName -eq 'Смартфон Apple iPhone 16' -and $full.products[0].sourceKind -eq 'Товар' -and $full.products[0].sourceUnit -eq 'шт') 'Original nomenclature columns lost'
 Assert-True ($full.cursor -eq '0000046151') 'Catalog code cursor lost'
 Assert-True ($script:queryCount -eq 4) 'Queries are not batched'
+Assert-True ($script:priceQueries.Count -eq 2 -and $script:priceQueries[0].Text -match 'СрезПоследних\(, ТипЦен = &PriceType\)' -and -not $script:priceQueries[0].Parameters.ContainsKey('Now')) 'Latest price slice must not pass an incompatible .NET DateTime to legacy UT 10.3'
 $json = $full | ConvertTo-Json -Depth 15 -Compress
 $parsed = $json | ConvertFrom-Json
 Assert-True ($parsed.products -is [array] -and $parsed.hashes -is [array]) 'Single product became scalar JSON'
