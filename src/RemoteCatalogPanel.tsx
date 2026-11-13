@@ -261,17 +261,22 @@ export function RemoteCatalogPanel() {
             {!selected.fullyImportedAt && <><button className="is-primary" disabled={busy} onClick={() => importGroup(selected, true)}>Только в наличии</button><button disabled={busy} onClick={() => importGroup(selected, false)}>Все товары</button></>}
             <button className="is-danger" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить</button>
           </section>}
-          {groupRows.length > 0 && <div className="onec-subgroups"><strong>Подгруппы</strong><div>{groupRows.map(group => <button key={group.oneCId} onClick={() => openGroup(group)}><span className="onec-folder" />{group.name}{group.fullyImportedAt && <i>На сайте</i>}</button>)}</div></div>}
-          {itemRows.length > 0 && <div className="onec-table-wrap">
+          {(groupRows.length > 0 || itemRows.length > 0) && <div className="onec-table-wrap">
             <div className="onec-table">
               <div className="onec-table__row is-head">
-                <span /><span>Товар</span><span>Код / артикул</span><span>Цена / остаток</span><span>Статус</span>
+                <span /><span>Код</span><span>Артикул</span><span>Наименование</span><span>Вид / единица</span><span>Розничная / закупочная</span><span>Остаток</span><span>Статус</span>
               </div>
+              {groupRows.map(group => <button className="onec-table__row is-group" key={group.oneCId} onClick={() => openGroup(group)}>
+                <span><span className="onec-folder" /><b>{group.name}</b><small>{group.itemCount.toLocaleString('ru-RU')} позиций</small>{group.fullyImportedAt && <i>На сайте</i>}<em aria-hidden="true">›</em></span>
+              </button>)}
               {itemRows.map(item => <div className={'onec-table__row is-item' + (item.deletionMark ? ' is-deleted' : '')} key={item.oneCId}>
                 <span><input type="checkbox" aria-label={`Выбрать ${item.name}`} disabled={item.deletionMark} checked={selectedItemIds.has(item.oneCId)} onChange={() => toggleItem(item.oneCId)} /></span>
+                <span><b>{item.code || 'Без кода'}</b></span>
+                <span>{item.article || <small>Без артикула</small>}</span>
                 <span title={item.name}><b>{item.name}</b>{item.fullName && item.fullName !== item.name && <small>{item.fullName}</small>}{item.deletionMark && <small>Пометка удаления</small>}</span>
-                <span><b>{item.code || '—'}</b><small>{item.article || 'Без артикула'}</small></span>
-                <span>{item.imported ? <><b>{item.retailPrice == null ? 'Цена не задана' : money.format(item.retailPrice) + ' ₽'}</b><small>Остаток: {money.format(item.stockQty)} {item.unitName}</small></> : <small>После загрузки</small>}</span>
+                <span>{item.imported ? <><b>{item.itemKind || 'Товар'}</b><small>{item.unitName || 'Единица не указана'}</small></> : <small>После загрузки</small>}</span>
+                <span>{item.imported ? <><b>{item.retailPrice == null ? 'Розничная не задана' : money.format(item.retailPrice) + ' ₽'}</b><small>{item.purchasePrice == null ? 'Закупочная не задана' : 'Закупочная: ' + money.format(item.purchasePrice) + ' ₽'}</small></> : <small>После загрузки</small>}</span>
+                <span>{item.imported ? <><b>{money.format(item.stockQty)}</b><small>{item.unitName || 'шт.'}</small></> : <small>После загрузки</small>}</span>
                 <span><b className={item.imported ? 'onec-status is-imported' : 'onec-status'}>{item.imported ? 'На сайте' : 'Только список'}</b></span>
               </div>)}
             </div>
