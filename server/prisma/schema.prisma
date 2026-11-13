@@ -248,6 +248,14 @@ model PromoBanner {
   @@index([isActive, sortOrder])
 }
 
+model StorefrontLayout {
+  id             String    @id @default("home")
+  draft          Json      @default("{}")
+  published      Json      @default("{}")
+  draftUpdatedAt DateTime  @default(now())
+  publishedAt    DateTime?
+}
+
 model Notification {
   id        String   @id @default(cuid())
   type      String

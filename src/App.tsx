@@ -11,6 +11,7 @@ import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
 import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { PriceApprovalDashboard } from './PriceApprovalDashboard'
+import { PageBuilder } from './PageBuilder'
 import { AdminIcon } from './AdminIcon'
 import { AdminCategoryTree } from './AdminCategoryTree'
 import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSmartphone } from './SmartphoneJourney'
@@ -18,6 +19,7 @@ import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
+import { defaultStorefrontLayout, normalizeStorefrontLayout, type StorefrontBlock, type StorefrontLayout } from './page-layout'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -790,7 +792,9 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </div>
     </div>}
 
-    {tab === 'content' && <div className="promo-manager">
+    {tab === 'content' && <div className="admin-content-editor">
+      <PageBuilder onEditPromos={() => document.getElementById('promo-library')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
+      <div className="promo-manager" id="promo-library">
       <div className="promo-manager__head">
         <div><p className="eyebrow">Главная страница</p><h2>Акционный слайдер</h2><span>{promos.filter((item) => item.isActive).length} активных · {promos.length} всего</span></div>
         <button className="promo-manager__add" onClick={openCreatePromo}>+ Добавить слайд</button>
@@ -848,6 +852,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           <div className="promo-editor__footer"><button type="button" onClick={() => setPromoEditorOpen(false)}>Отмена</button><button className="promo-editor__save" disabled={promoSaving || promoUploading}>{promoSaving ? 'Сохраняем…' : 'Сохранить слайд'}</button></div>
         </form>
       </div>}
+      </div>
     </div>}
     {tab === 'prices' && <PriceApprovalDashboard products={products} initialSetup={priceSetup} onInventoryRefresh={load} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
@@ -978,6 +983,7 @@ function App() {
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [promosLoaded, setPromosLoaded] = useState(false)
+  const [homeLayout, setHomeLayout] = useState<StorefrontLayout>(() => defaultStorefrontLayout())
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
   const [cartOpen, setCartOpen] = useState(false)
@@ -991,6 +997,7 @@ function App() {
   const sliderDrag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
+  const refreshHomeLayout = () => api.storefrontLayout().then((state) => setHomeLayout(normalizeStorefrontLayout(state.layout))).catch(() => setHomeLayout(defaultStorefrontLayout()))
 
   useEffect(() => {
     api.products().then(async items => {
@@ -1003,9 +1010,12 @@ function App() {
     }).catch(() => { setApiOnline(false); setCatalogError('Не удалось загрузить каталог. Проверьте соединение и попробуйте ещё раз.') }).finally(() => setCatalogLoading(false))
     void api.catalogSummary().then(data => setCatalogGroups(data.groups)).catch(() => undefined)
     void refreshPromos()
+    void refreshHomeLayout()
     const onPromosChanged = () => { void refreshPromos() }
+    const onLayoutChanged = () => { void refreshHomeLayout() }
     window.addEventListener('texhoru:promos-changed', onPromosChanged)
-    return () => window.removeEventListener('texhoru:promos-changed', onPromosChanged)
+    window.addEventListener('texhoru:layout-changed', onLayoutChanged)
+    return () => { window.removeEventListener('texhoru:promos-changed', onPromosChanged); window.removeEventListener('texhoru:layout-changed', onLayoutChanged) }
   }, [])
   useEffect(() => { try { localStorage.setItem('texhoru_cart', JSON.stringify(cart)) } catch { /* Shopping remains available when storage is blocked. */ } }, [cart])
   useEffect(() => { const onPopState = () => animateCatalog(() => setPath(window.location.pathname)); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState) }, [])
@@ -1205,13 +1215,14 @@ function App() {
     moveSlide(delta < 0 ? 1 : -1)
   }
 
-  const renderHome = () => <>
-    {isFeaturedView && <HomeCollections products={catalogProducts} roots={categoryRoots}
-      onSelect={selection => animateCatalog(() => jumpToStoreSection(selection))}
-      onSmartphones={() => openJourney('/catalog/smartphones')} />}
-    {isFeaturedView && sliderItems.length === 0 && catalogProducts.some(product => isSmartphone(product) && (product.stockQty ?? 0) > 0) &&
-      <SmartphonePortal onOpen={openJourney} featured={catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)} />}
-    {isFeaturedView && sliderItems.length > 0 && <section className="storefront-carousel" aria-label="Предложения TEXHORU">
+  const renderCollectionsBlock = (block?: StorefrontBlock) => <HomeCollections products={catalogProducts} roots={categoryRoots}
+    title={block?.title} onSelect={selection => animateCatalog(() => jumpToStoreSection(selection))}
+    onSmartphones={() => openJourney('/catalog/smartphones')} />
+
+  const featuredPhone = catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)
+  const renderSmartphoneBlock = () => featuredPhone ? <SmartphonePortal onOpen={openJourney} featured={featuredPhone} /> : null
+
+  const renderPromoBlock = () => sliderItems.length === 0 ? renderSmartphoneBlock() : <section className="storefront-carousel" aria-label="Предложения TEXHORU">
       <div className="storefront-carousel__layout">
         <div
           className={sliderIsDragging ? 'storefront-carousel__viewport is-dragging' : 'storefront-carousel__viewport'}
@@ -1235,10 +1246,11 @@ function App() {
           </>}
         </div>
       </div>
-    </section>}
-    <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id="catalog">
+    </section>
+
+  const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id={anchor ? 'catalog' : undefined}>
       <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
-        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
+        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? block?.title || 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
       </div></div>
 
       {!folderOnly && <>
@@ -1254,7 +1266,28 @@ function App() {
         {!catalogLoading && !catalogError && !(useRemoteCatalog && (remoteLoading || remoteError)) && filtered.length === 0 && <div className="empty-search">Товары не найдены. Попробуйте другое название или выберите другой раздел.</div>}
       </>}
     </section>
-  </>
+
+  const renderTextBlock = (block: StorefrontBlock) => <section className="storefront-text-block">
+    <div><span>{block.eyebrow || 'TEXHORU'}</span><h2>{block.title || 'Новый заголовок'}</h2><p>{block.body}</p></div>
+    {block.ctaLabel && <button type="button" onClick={() => jumpToCatalog((block.category || 'Все') as Category)}>{block.ctaLabel}<Icon name="arrow" /></button>}
+  </section>
+
+  const visibleHomeBlocks = homeLayout.blocks.filter((block) => block.visible)
+  const firstProductBlock = visibleHomeBlocks.find((block) => block.type === 'products')?.id
+  const renderFeaturedBlock = (block: StorefrontBlock) => {
+    const content = block.type === 'collections' ? renderCollectionsBlock(block)
+      : block.type === 'promo' ? renderPromoBlock()
+      : block.type === 'products' ? renderCatalogBlock(block, block.id === firstProductBlock)
+      : block.type === 'smartphones' ? renderSmartphoneBlock()
+      : renderTextBlock(block)
+    if (!content) return null
+    return <div key={block.id} className={`storefront-layout__block storefront-layout__block--${block.type}`} data-width={block.width}
+      style={{ '--storefront-block-span': block.width } as CSSProperties}>{content}</div>
+  }
+
+  const renderHome = () => isFeaturedView
+    ? <div className="storefront-page-grid">{visibleHomeBlocks.map(renderFeaturedBlock)}</div>
+    : renderCatalogBlock(undefined, true)
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} />)}</div></div>}</section> }
 

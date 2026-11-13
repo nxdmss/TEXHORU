@@ -1,4 +1,5 @@
 import type { Product } from './types'
+import type { StorefrontLayout } from './page-layout'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
@@ -43,6 +44,13 @@ export type PromoBanner = {
   tone: string
   sortOrder: number
   isActive: boolean
+}
+
+export type StorefrontLayoutState = {
+  draft: StorefrontLayout
+  published?: StorefrontLayout
+  draftUpdatedAt: string | null
+  publishedAt: string | null
 }
 
 
@@ -250,6 +258,7 @@ export const api = {
   async catalogPage(input: Record<string, string | number | undefined>) { const params = new URLSearchParams(); for (const [key,value] of Object.entries(input)) if (value !== undefined && value !== '') params.set(key, String(value)); const result = await request<{ items: ApiProduct[]; total: number; hasMore: boolean }>('/catalog/products?' + params); return { ...result, items: result.items.map(mapProduct) } },
   categories() { return request<ApiCategory[]>('/categories') },
   promos() { return request<PromoBanner[]>('/content/promos') },
+  storefrontLayout() { return request<{ layout: StorefrontLayout; publishedAt: string | null }>('/content/layout') },
   createOrder(input: {
     customerName: string
     customerPhone: string
@@ -349,6 +358,9 @@ export const api = {
   },
   adminClearFiveRuTestImport() { return request<{ ok: boolean; deleted: number; archived: number; categoriesDeleted: number }>('/admin/price-monitor/test-import-05ru', { method: 'DELETE' }) },
   adminPromos() { return request<PromoBanner[]>('/admin/content/promos') },
+  adminStorefrontLayout() { return request<StorefrontLayoutState>('/admin/content/layout') },
+  saveStorefrontDraft(layout: StorefrontLayout) { return request<StorefrontLayoutState>('/admin/content/layout/draft', { method: 'PUT', body: JSON.stringify({ layout }) }) },
+  publishStorefrontLayout(layout: StorefrontLayout) { return request<StorefrontLayoutState>('/admin/content/layout/publish', { method: 'POST', body: JSON.stringify({ layout }) }) },
   adminCreatePromo(input: Record<string, unknown>) { return request('/admin/content/promos', { method: 'POST', body: JSON.stringify(input) }) },
   adminUpdatePromo(id: string, input: Record<string, unknown>) { return request(`/admin/content/promos/${id}`, { method: 'PATCH', body: JSON.stringify(input) }) },
   adminDeletePromo(id: string) { return request(`/admin/content/promos/${id}`, { method: 'DELETE' }) },

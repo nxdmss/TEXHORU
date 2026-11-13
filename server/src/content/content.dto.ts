@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Min } from 'class-validator'
 
 export class PromoDto {
   @IsString() kicker!: string
@@ -22,4 +22,8 @@ export class UpdatePromoDto {
   @IsOptional() @IsString() tone?: string
   @IsOptional() @IsInt() @Min(0) sortOrder?: number
   @IsOptional() @IsBoolean() isActive?: boolean
+}
+
+export class StorefrontLayoutDto {
+  @IsObject() layout!: Record<string, unknown>
 }
