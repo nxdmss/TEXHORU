@@ -62,6 +62,10 @@ try {
   await panel.getByText('Очередь и диагностика', { exact: false }).click()
   await panel.getByRole('button', { name: 'Отменить', exact: true }).click()
   page.once('dialog', dialog => dialog.accept())
+  await panel.getByRole('button', { name: 'Загрузить всю группу', exact: true }).click()
+  await panel.getByText(/Загрузка группы: Apple: В очереди/).waitFor()
+  await panel.getByRole('button', { name: 'Отменить', exact: true }).click()
+  page.once('dialog', dialog => dialog.accept())
   await panel.getByRole('button', { name: 'Исключить группу', exact: true }).click()
   await panel.getByText(/Группа «Apple» исключена\. Удалено из зеркала: 125/).waitFor()
   assert.equal(await prisma.oneCNomenclatureItem.count(), 0)
@@ -81,7 +85,7 @@ try {
     await panel.screenshot({ path: resolve('artifacts/remote-catalog/panel-' + width + '.png') })
   }
   assert.deepEqual(errors, [])
-  console.log('PASS: lightweight 1C picker, explicit selected import, exclusions, pagination, search, queue controls and responsive layout.')
+  console.log('PASS: lightweight 1C picker, selected and whole-group imports, exclusions, pagination, search, queue controls and responsive layout.')
 } catch (error) {
   console.error(error)
   if (browser) { const page = browser.contexts()[0]?.pages()[0]; if (page) console.error((await page.locator('body').innerText()).slice(-5000)) }

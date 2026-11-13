@@ -193,24 +193,26 @@ export class RemoteCatalogService {
     const baseId = this.base()
     return this.db.$transaction(async tx => {
       if (await tx.oneCCatalogJob.count({ where: { baseId, status: { in: [...OPEN, 'FAILED'] } } }) >= 200) throw new ConflictException('В очереди уже 200 заданий')
-      const groupId = dto.kind === 'INDEX' ? dto.groupId || '' : ''
+      const groupId = ['INDEX', 'IMPORT'].includes(dto.kind) ? dto.groupId || '' : ''
       const group = groupId ? await tx.oneCRemoteGroup.findUnique({ where: { baseId_oneCId: { baseId, oneCId: groupId } } }) : null
       if (groupId && !group?.active) throw new BadRequestException('Обновите список групп и выберите существующую группу')
       if (groupId && this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } })).has(groupId)) throw new BadRequestException('Эта группа исключена из загрузки на сайт')
       const itemIds = [...new Set(dto.itemIds || [])]
       if (dto.kind === 'IMPORT') {
-        if (!itemIds.length) throw new BadRequestException('Выберите хотя бы один товар')
-        const items = await tx.oneCNomenclatureItem.findMany({ where: { baseId, active: true, oneCId: { in: itemIds } }, select: { oneCId: true, parentId: true, code: true } })
-        if (items.length !== itemIds.length) throw new BadRequestException('Часть выбранных товаров больше не найдена в списке 1С')
-        if (items.some(item => !item.code.trim())) throw new BadRequestException('У одной из выбранных позиций нет кода 1С; её нельзя однозначно запросить')
-        const excluded = this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } }))
-        if (items.some(item => excluded.has(item.parentId))) throw new BadRequestException('Выбран товар из исключённой группы')
+        if (Boolean(groupId) === Boolean(itemIds.length)) throw new BadRequestException('Выберите товары или одну группу')
+        if (itemIds.length) {
+          const items = await tx.oneCNomenclatureItem.findMany({ where: { baseId, active: true, oneCId: { in: itemIds } }, select: { oneCId: true, parentId: true, code: true } })
+          if (items.length !== itemIds.length) throw new BadRequestException('Часть выбранных товаров больше не найдена в списке 1С')
+          if (items.some(item => !item.code.trim())) throw new BadRequestException('У одной из выбранных позиций нет кода 1С; её нельзя однозначно запросить')
+          const excluded = this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } }))
+          if (items.some(item => excluded.has(item.parentId))) throw new BadRequestException('Выбран товар из исключённой группы')
+        }
       } else if (itemIds.length) throw new BadRequestException('Список товаров разрешён только для загрузки выбранных позиций')
       const same = dto.kind === 'IMPORT' ? null : await tx.oneCCatalogJob.findFirst({ where: { baseId, kind: dto.kind, groupId, status: { in: [...OPEN, 'FAILED'] } } })
       if (same) return { id: same.id }
       const groupName = dto.kind === 'GROUPS' ? 'Обновление групп'
         : dto.kind === 'INDEX' ? group?.name ? `Обновление списка: ${group.name}` : 'Обновление списка товаров'
-          : `Загрузка выбранных товаров: ${itemIds.length}`
+          : group ? `Загрузка группы: ${group.name}` : `Загрузка выбранных товаров: ${itemIds.length}`
       const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, itemIds, mode: dto.kind === 'IMPORT' ? 'FULL' : dto.mode, groupName } })
       await tx.auditLog.create({ data: { action: 'ONEC_CATALOG_QUEUE', entity: 'OneCCatalogJob', entityId: row.id, details: { kind: row.kind, groupId, items: itemIds.length, mode: row.mode, baseId } } })
       return { id: row.id }
