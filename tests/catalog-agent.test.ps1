@@ -20,6 +20,9 @@ function Get-PriceType([string]$Name) { if ($Name -eq 'Розничная') { re
 $characteristics = [pscustomobject]@{}
 $characteristics | Add-Member ScriptMethod ПустаяСсылка { return $zero }
 $script:connection = [pscustomobject]@{ Справочники = [pscustomobject]@{ ХарактеристикиНоменклатуры = $characteristics } }
+$hiddenColumns = [pscustomobject]@{ Values = @{ Code = '0000046151' } }
+$hiddenColumns | Add-Member ScriptMethod Get { param($Name); return $this.Values[$Name] }
+Assert-True ((Get-OneCProperty $hiddenColumns @('Code')) -eq '0000046151') 'Hidden COM selection column is not readable through Get'
 $script:connection | Add-Member ScriptMethod NewObject {
     param($Type)
     if ($Type -ne 'Массив') { throw 'Unexpected NewObject' }
