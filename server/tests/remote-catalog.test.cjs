@@ -75,10 +75,11 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
     await t.test('only explicitly selected items or groups are fully read and published to the site', async () => {
       assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [] }, 'staff')).status, 400)
       assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId, itemIds: [productId] }, 'staff')).status, 400)
-      const groupCreated = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId }, 'staff')
+      assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [productId], stockOnly: true }, 'staff')).status, 400)
+      const groupCreated = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId, stockOnly: true }, 'staff')
       assert.equal(groupCreated.status, 201)
       const groupJob = (await poll()).body.job
-      assert.equal(groupJob.kind, 'IMPORT'); assert.equal(groupJob.groupId, subId); assert.deepEqual(groupJob.selectedCodes, [])
+      assert.equal(groupJob.kind, 'IMPORT'); assert.equal(groupJob.groupId, subId); assert.equal(groupJob.stockOnly, true); assert.deepEqual(groupJob.selectedCodes, [])
       assert.equal((await req(admin + '/jobs/' + groupJob.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
       const created = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [productId] }, 'staff')
       assert.equal(created.status, 201)
@@ -120,6 +121,22 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       const known = await req(remote + '/known', { hashes: batch.hashes })
       assert.deepEqual(known.body.needed, [])
       assert.deepEqual((await req(remote + '/known', { hashes: [{ oneCId: productId, hash: 'b'.repeat(64) }] })).body.needed, [productId])
+    })
+    await t.test('a parent group skips child branches that were already fully imported', async () => {
+      const created = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId, stockOnly: false }, 'staff')
+      assert.equal(created.status, 201)
+      const childJob = (await poll()).body.job
+      assert.equal((await req(remote + '/jobs/' + childJob.id + '/batch', { ...batch, leaseToken: childJob.leaseToken })).status, 201)
+      assert.equal((await db.oneCRemoteGroup.findUniqueOrThrow({ where: { baseId_oneCId: { baseId, oneCId: subId } } })).fullyImportedAt, null)
+      assert.equal((await req(remote + '/jobs/' + childJob.id + '/finish', { leaseToken: childJob.leaseToken })).status, 201)
+      assert((await db.oneCRemoteGroup.findUniqueOrThrow({ where: { baseId_oneCId: { baseId, oneCId: subId } } })).fullyImportedAt)
+      assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId }, 'staff')).status, 409)
+
+      const parent = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId }, 'staff')
+      assert.equal(parent.status, 201)
+      const parentJob = (await poll()).body.job
+      assert.deepEqual(parentJob.excludedGroupIds, [subId])
+      assert.equal((await req(admin + '/jobs/' + parentJob.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
     })
     await t.test('a selected import survives lease takeover, failure, retry and cancellation', async () => {
       await req(admin + '/jobs', { kind: 'IMPORT', itemIds: [productId], mode: 'FULL' }, 'staff')

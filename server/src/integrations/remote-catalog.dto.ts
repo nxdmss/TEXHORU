@@ -5,6 +5,7 @@ export class RemoteJobDto {
   @IsIn(['GROUPS', 'INDEX', 'IMPORT']) kind!: string
   @IsOptional() @IsUUID() groupId?: string
   @IsOptional() @IsArray() @ArrayMaxSize(100) @IsUUID('all', { each: true }) itemIds?: string[]
+  @IsOptional() @IsBoolean() stockOnly?: boolean
   @IsIn(['FULL', 'DELTA']) mode!: string
 }
 export class RemotePollDto {
