@@ -10,6 +10,7 @@
 .onec-search{height:44px;min-width:280px;flex:1;border:1px solid #d7d7d1;border-radius:12px;display:flex;align-items:center;gap:8px;padding:0 13px;background:#fafaf8}
 .onec-search span{font-size:24px;color:#777}.onec-search input{border:0;outline:0;background:transparent;width:100%;font:inherit}
 .onec-mirror__toolbar>button,.onec-exchange button,.onec-pagination button{border:0;border-radius:11px;background:#151515;color:#fff;font-weight:750;padding:13px 17px;cursor:pointer}
+.onec-mirror__toolbar>button.onec-import-button{background:#e60023;min-width:190px}
 .onec-mirror__toolbar>button:disabled,.onec-exchange button:disabled,.onec-pagination button:disabled{opacity:.45;cursor:not-allowed}
 .onec-mirror__toolbar-stats{display:flex;align-items:center;gap:16px;color:#777;font-size:12px;white-space:nowrap}.onec-mirror__toolbar-stats b{color:#222}
 .onec-mirror__window{min-height:620px;border:1px solid #d8d8d2;border-radius:18px;display:grid;grid-template-columns:290px minmax(0,1fr);overflow:hidden;background:#fff;box-shadow:0 18px 55px rgba(22,22,18,.06)}
@@ -29,13 +30,14 @@
 .onec-breadcrumbs{min-height:52px;border-bottom:1px solid #e4e4df;padding:0 17px;display:flex;align-items:center;gap:7px;overflow:auto;white-space:nowrap}
 .onec-breadcrumbs button{border:0;background:transparent;color:#333;font:inherit;font-size:13px;cursor:pointer;padding:5px}.onec-breadcrumbs i{font-style:normal;color:#aaa}.onec-breadcrumbs b{font-size:13px}
 .onec-breadcrumbs .onec-exclude-button{margin-left:auto;border:1px solid #e0bcbc;border-radius:9px;background:#fff5f5;color:#a52020;padding:8px 11px;font-weight:750;white-space:nowrap}.onec-breadcrumbs .onec-exclude-button:hover{background:#a52020;color:#fff}.onec-breadcrumbs .onec-exclude-button:disabled{opacity:.45;cursor:not-allowed}
-.onec-table-wrap{overflow:auto;flex:1}.onec-table{min-width:1420px}
-.onec-table__row{display:grid;grid-template-columns:115px 145px minmax(280px,1.6fr) minmax(260px,1.3fr) 150px 125px 125px 125px 90px;min-height:42px;border-bottom:1px solid #ecece8;color:#373733}
+.onec-table-wrap{overflow:auto;flex:1}.onec-table{min-width:1600px}
+.onec-table__row{display:grid;grid-template-columns:58px 115px 145px minmax(280px,1.6fr) minmax(260px,1.3fr) 150px 125px 125px 125px 90px 110px;min-height:42px;border-bottom:1px solid #ecece8;color:#373733}
 .onec-table__row>span{padding:8px 10px;border-right:1px solid #eeeeea;display:flex;align-items:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .onec-table__row.is-head{position:sticky;top:0;z-index:2;min-height:38px;background:#f4f4f1;color:#676762;font-weight:750}.onec-table__row.is-head>span{font-size:11px}
 button.onec-table__row{width:100%;border-left:0;border-top:0;border-right:0;background:#fff;text-align:left;cursor:pointer}
-.onec-table__row.is-group:hover,.onec-table__row.is-item:hover{background:#fff9ec}.onec-table__row.is-group>span:nth-child(3){gap:9px;font-weight:750}
+.onec-table__row.is-group:hover,.onec-table__row.is-item:hover{background:#fff9ec}.onec-table__row.is-group>span:nth-child(4){gap:9px;font-weight:750}
 .onec-table__row.is-item b{overflow:hidden;text-overflow:ellipsis}.onec-table__row.is-item small{margin-left:8px;color:#b22;font-size:10px}.onec-table__row.is-deleted{opacity:.55}.onec-table__row .is-number{justify-content:flex-end;font-variant-numeric:tabular-nums}
+.onec-table__row input[type=checkbox]{width:17px;height:17px;accent-color:#e60023;cursor:pointer}.onec-status{font-size:10px;color:#777;background:#efefeb;border-radius:20px;padding:5px 8px}.onec-status.is-imported{color:#08714d;background:#e4f5ed}
 .onec-list__empty{margin:auto;text-align:center;display:grid;justify-items:center;gap:9px;padding:50px;color:#777}.onec-list__empty strong{color:#222;font-size:18px}.onec-list__empty p{margin:0;max-width:470px}
 .onec-pagination{border-top:1px solid #e5e5df;padding:10px 14px;display:flex;align-items:center;justify-content:center;gap:18px}.onec-pagination span{font-size:12px;color:#666}.onec-pagination button{padding:9px 13px}
 .onec-exchange{border:1px solid #deded8;border-radius:16px;background:#fff;overflow:hidden}.onec-exchange__summary{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px}

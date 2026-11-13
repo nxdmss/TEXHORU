@@ -58,17 +58,26 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal((await req(admin + '?parent=' + groupId, undefined, 'staff')).body.groups[0].itemCount, 8000)
       assert.equal((await req(admin + '?search=apple', undefined, 'staff')).body.total, 1)
     })
-    await t.test('first full mirror starts automatically after the group snapshot', async () => {
+    await t.test('only the lightweight name index starts automatically after the group snapshot', async () => {
       const automatic = (await poll()).body.job
-      assert.equal(automatic.kind, 'CATALOG'); assert.equal(automatic.mode, 'FULL'); assert.equal(automatic.groupId, '')
-      assert.equal((await req(admin + '/jobs/' + automatic.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
+      assert.equal(automatic.kind, 'INDEX'); assert.equal(automatic.mode, 'FULL'); assert.equal(automatic.groupId, '')
+      const indexBatch = { leaseToken: automatic.leaseToken, batch: 0, cursor: '0000046151', scanned: 1, products: [], categories: [], hashes: [], groups: [], indexItems: [
+        { oneCId: productId, parentId: subId, code: '0000046151', article: 'MYE73RU/A', name: 'Apple iPhone 16 128GB Black', deletionMark: false },
+      ] }
+      assert.equal((await req(remote + '/jobs/' + automatic.id + '/batch', indexBatch)).status, 201)
+      assert.equal((await req(remote + '/jobs/' + automatic.id + '/finish', { leaseToken: automatic.leaseToken })).status, 201)
+      assert.equal(await db.product.count(), 0)
+      assert.equal(await db.oneCNomenclatureItem.count(), 1)
+      const picker = await req(admin + '/nomenclature?group=' + subId, undefined, 'staff')
+      assert.equal(picker.body.items[0].name, 'Apple iPhone 16 128GB Black'); assert.equal(picker.body.items[0].imported, false)
     })
     let job, batch
-    await t.test('enqueue/claim FULL, persist bounded products and checkpoint in one transaction', async () => {
-      const created = await req(admin + '/jobs', { kind: 'CATALOG', groupId, mode: 'FULL' }, 'staff')
+    await t.test('only explicitly selected items are fully read and published to the site', async () => {
+      assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [] }, 'staff')).status, 400)
+      const created = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', itemIds: [productId] }, 'staff')
       assert.equal(created.status, 201)
-      assert.equal((await req(admin + '/jobs', { kind: 'CATALOG', groupId, mode: 'FULL' }, 'staff')).body.id, created.body.id)
       job = (await poll()).body.job
+      assert.equal(job.kind, 'IMPORT'); assert.deepEqual(job.selectedCodes, ['0000046151'])
       batch = { leaseToken: job.leaseToken, batch: 0, cursor: productId, scanned: 1, groups: [], hashes: [{ oneCId: productId, hash: 'a'.repeat(64) }], categories: [{ oneCId: subId, name: 'Телефоны / Apple', slug: '1c-' + subId }], products: [{ oneCId: productId, sku: '1C-' + productId, slug: '1c-' + productId, name: 'Apple iPhone 16 128GB Black', brand: 'Apple', categoryOneCId: subId, price: 50000, costPrice: 48000, stockQty: 5, sourceCode: '0000046151', sourceArticle: 'MYE73RU/A', sourceFullName: 'Смартфон Apple iPhone 16 128GB Black', sourceKind: 'Товар', sourceUnit: 'шт' }] }
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', { ...batch, leaseToken: randomUUID() })).status, 409)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', batch)).status, 201)
@@ -82,7 +91,7 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       const treeResponse = await req(admin + '/tree', undefined, 'staff')
       assert.equal(treeResponse.status, 200); assert.equal(treeResponse.body.itemCount, 1); assert.equal(treeResponse.body.groups.length, 2)
       const mirror = await req(admin + '/nomenclature?group=' + subId, undefined, 'staff')
-      assert.equal(mirror.status, 200); assert.equal(mirror.body.items[0].unitName, 'шт'); assert.equal(mirror.body.items[0].purchasePrice, 48000)
+      assert.equal(mirror.status, 200); assert.equal(mirror.body.items[0].unitName, 'шт'); assert.equal(mirror.body.items[0].purchasePrice, 48000); assert.equal(mirror.body.items[0].imported, true)
       const found = await req(admin + '/nomenclature?search=mye73', undefined, 'staff')
       assert.equal(found.body.total, 1)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', { ...batch, scanned: 2 })).status, 409)
@@ -106,8 +115,8 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.deepEqual(known.body.needed, [])
       assert.deepEqual((await req(remote + '/known', { hashes: [{ oneCId: productId, hash: 'b'.repeat(64) }] })).body.needed, [productId])
     })
-    await t.test('DELTA advances over unchanged rows; expired leases revoked; failure/retry/cancel releases queue', async () => {
-      await req(admin + '/jobs', { kind: 'CATALOG', groupId, mode: 'DELTA' }, 'staff')
+    await t.test('a selected import survives lease takeover, failure, retry and cancellation', async () => {
+      await req(admin + '/jobs', { kind: 'IMPORT', itemIds: [productId], mode: 'FULL' }, 'staff')
       const delta = (await poll()).body.job
       assert.equal((await req(remote + '/jobs/' + delta.id + '/batch', { ...batch, leaseToken: delta.leaseToken, products: [], categories: [] })).status, 201)
       assert.equal((await db.oneCCatalogJob.findUnique({ where: { id: delta.id } })).processed, 0)
@@ -139,7 +148,7 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       const excludedList = (await req(admin + '/excluded-groups', undefined, 'staff')).body
       assert.deepEqual(excludedList.map(group => group.oneCId), [subId])
 
-      const root = await req(admin + '/jobs', { kind: 'CATALOG', mode: 'FULL' }, 'staff')
+      const root = await req(admin + '/jobs', { kind: 'INDEX', mode: 'FULL' }, 'staff')
       const leased = (await poll()).body.job
       assert.equal(leased.id, root.body.id); assert.deepEqual(leased.excludedGroupIds, [subId])
       assert.equal((await req(admin + '/jobs/' + leased.id + '/action', { action: 'cancel' }, 'staff')).status, 201)

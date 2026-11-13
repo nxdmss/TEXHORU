@@ -23,6 +23,7 @@ export function RemoteCatalogPanel() {
   const [excludedGroups, setExcludedGroups] = useState<OneCExcludedGroup[]>([])
   const [mirrorCount, setMirrorCount] = useState(0)
   const [pageData, setPageData] = useState<OneCNomenclaturePage | null>(null)
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [selectedGroup, setSelectedGroup] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
@@ -99,8 +100,10 @@ export function RemoteCatalogPanel() {
         api.remoteCatalog(), api.remoteCatalogTree(), api.remoteNomenclature(selectedGroup, query, page), api.remoteExcludedGroups(),
       ])
       setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setPageData(nextPage); setExcludedGroups(nextExcluded)
+      return true
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Команда не выполнена')
+      return false
     } finally {
       setBusy(false)
     }
@@ -110,6 +113,28 @@ export function RemoteCatalogPanel() {
     setSelectedGroup(group.oneCId)
     setExpanded(current => new Set(current).add(group.oneCId))
     setSearch(''); setPage(0)
+  }
+
+  function toggleItem(id: string) {
+    if (!selectedItemIds.has(id) && selectedItemIds.size >= 100) {
+      setError('За один раз можно загрузить до 100 позиций. Запустите их, затем выберите следующие.')
+      return
+    }
+    setSelectedItemIds(current => {
+      const next = new Set(current)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function importSelected() {
+    const ids = [...selectedItemIds]
+    if (!ids.length) return
+    const queued = await command(
+      () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: 'FULL', itemIds: ids }),
+      `${ids.length.toLocaleString('ru-RU')} выбранных позиций поставлено в очередь. Агент загрузит полные данные только для них.`,
+    )
+    if (queued) setSelectedItemIds(new Set())
   }
 
   async function excludeGroup(group: OneCRemoteGroup) {
@@ -135,7 +160,7 @@ export function RemoteCatalogPanel() {
       const result = await api.remoteRestoreGroup(group.oneCId)
       const [nextStatus, nextTree, nextExcluded] = await Promise.all([api.remoteCatalog(), api.remoteCatalogTree(), api.remoteExcludedGroups()])
       setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setExcludedGroups(nextExcluded)
-      setNotice(`Группа «${result.name}» возвращена. Повторная загрузка из 1С поставлена в очередь.`)
+      setNotice(`Группа «${result.name}» возвращена. Обновление списка названий поставлено в очередь.`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Не удалось вернуть группу')
     } finally { setBusy(false) }
@@ -174,7 +199,7 @@ export function RemoteCatalogPanel() {
       <div>
         <p className="eyebrow">Основная база · УТ 10.3</p>
         <h2>Номенклатура 1С</h2>
-        <p>Современное зеркало справочника: те же группы, названия и товары без изменения данных в 1С.</p>
+        <p>Лёгкий список из 1С: выберите нужные позиции, и только после этого агент загрузит цены, остатки и создаст карточки сайта.</p>
       </div>
       <div className="onec-mirror__live">
         <span className={online ? 'is-online' : ''} />
@@ -191,13 +216,16 @@ export function RemoteCatalogPanel() {
         <div className="onec-search"><span aria-hidden="true">⌕</span><input aria-label="Поиск по номенклатуре"
           placeholder="Найти по коду, артикулу или названию…" value={search} onChange={event => setSearch(event.target.value)} /></div>
         <div className="onec-mirror__toolbar-stats">
-          <span><b>{mirrorCount.toLocaleString('ru-RU')}</b> позиций получено</span>
-          <span>Обновлено: <b>{shortDate(agent?.nomenclatureUpdatedAt)}</b></span>
+          <span><b>{mirrorCount.toLocaleString('ru-RU')}</b> названий в списке</span>
+          <span>Список обновлён: <b>{shortDate(agent?.nomenclatureUpdatedAt)}</b></span>
         </div>
         <button disabled={busy || !status?.configured} onClick={() => command(
-          () => api.remoteCatalogCreate({ kind: 'CATALOG', mode: mirrorCount ? 'DELTA' : 'FULL' }),
-          'Сверка поставлена в очередь. Агент заберёт её автоматически.',
-        )}>{busy ? 'Отправляем…' : 'Обновить сейчас'}</button>
+          () => api.remoteCatalogCreate({ kind: 'INDEX', mode: 'FULL' }),
+          'Обновление лёгкого списка поставлено в очередь. Цены и остатки не загружаются.',
+        )}>{busy ? 'Отправляем…' : 'Обновить список'}</button>
+        <button className="onec-import-button" disabled={busy || !selectedItemIds.size} onClick={importSelected}>
+          Загрузить выбранное{selectedItemIds.size ? ` (${selectedItemIds.size})` : ''}
+        </button>
       </div>
 
       <div className="onec-mirror__window">
@@ -226,13 +254,14 @@ export function RemoteCatalogPanel() {
           <div className="onec-table-wrap">
             <div className="onec-table">
               <div className="onec-table__row is-head">
-                <span>Код</span><span>Артикул</span><span>Наименование</span><span>Полное наименование</span>
-                <span>Вид номенклатуры</span><span>Базовая единица</span><span>Розничная</span><span>Закупочная</span><span>Остаток</span>
+                <span>Выбор</span><span>Код</span><span>Артикул</span><span>Наименование</span><span>Полное наименование</span>
+                <span>Вид номенклатуры</span><span>Базовая единица</span><span>Розничная</span><span>Закупочная</span><span>Остаток</span><span>Статус</span>
               </div>
               {groupRows.map(group => <button className="onec-table__row is-group" key={'g-' + group.oneCId} onClick={() => openGroup(group)}>
-                <span /><span /><span><i className="onec-folder" />{group.name}</span><span /><span>Группа</span><span /><span /><span /><span>{group.itemCount}</span>
+                <span /><span /><span /><span><i className="onec-folder" />{group.name}</span><span /><span>Группа</span><span /><span /><span /><span>{group.itemCount}</span><span />
               </button>)}
               {itemRows.map(item => <div className={'onec-table__row is-item' + (item.deletionMark ? ' is-deleted' : '')} key={item.oneCId}>
+                <span><input type="checkbox" aria-label={`Выбрать ${item.name}`} disabled={item.deletionMark} checked={selectedItemIds.has(item.oneCId)} onChange={() => toggleItem(item.oneCId)} /></span>
                 <span title={item.code}>{item.code || '—'}</span>
                 <span title={item.article}>{item.article || '—'}</span>
                 <span title={item.name}><b>{item.name}</b>{item.deletionMark && <small>Пометка удаления</small>}</span>
@@ -242,12 +271,13 @@ export function RemoteCatalogPanel() {
                 <span className="is-number">{item.retailPrice == null ? '—' : money.format(item.retailPrice) + ' ₽'}</span>
                 <span className="is-number">{item.purchasePrice == null ? '—' : money.format(item.purchasePrice) + ' ₽'}</span>
                 <span className="is-number">{money.format(item.stockQty)}</span>
+                <span><b className={item.imported ? 'onec-status is-imported' : 'onec-status'}>{item.imported ? 'На сайте' : 'Только список'}</b></span>
               </div>)}
             </div>
           </div>
           {!groupRows.length && !itemRows.length && <div className="onec-list__empty">
-            <span className="onec-folder is-large" /><strong>{query ? 'Ничего не найдено' : mirrorCount ? 'В этой группе пока нет позиций' : 'Идёт первая загрузка номенклатуры'}</strong>
-            <p>{mirrorCount ? 'Выберите другую группу или измените запрос.' : 'Агент сначала прочитает группы, затем автоматически перенесёт все товары. Окно можно закрыть.'}</p>
+            <span className="onec-folder is-large" /><strong>{query ? 'Ничего не найдено' : mirrorCount ? 'В этой группе пока нет позиций' : 'Идёт загрузка списка названий'}</strong>
+            <p>{mirrorCount ? 'Выберите другую группу или измените запрос.' : 'Агент перенесёт только названия, коды и группы. Полные данные загружаются после вашего выбора.'}</p>
           </div>}
           {pageData && pageData.total > pageData.pageSize && <div className="onec-pagination">
             <button disabled={page === 0} onClick={() => setPage(value => value - 1)}>← Назад</button>
@@ -261,7 +291,7 @@ export function RemoteCatalogPanel() {
         <div className="onec-exchange__summary">
           <div><span className={activeJob?.status === 'FAILED' ? 'is-error' : activeJob ? 'is-working' : online ? 'is-ok' : ''} />
             <p><strong>{activeJob ? activeJob.groupName + ': ' + jobLabels[activeJob.status] : online ? 'Автоматическая синхронизация включена' : 'Синхронизация продолжится после связи с агентом'}</strong>
-              <small>{activeJob?.kind === 'CATALOG' ? 'Просмотрено ' + activeJob.scanned.toLocaleString('ru-RU') + ' · обновлено ' + activeJob.processed.toLocaleString('ru-RU') : 'Агент проверяет 1С раз в минуту, экран обновляется каждые 5 секунд.'}</small></p>
+              <small>{activeJob?.kind === 'INDEX' ? 'Просмотрено ' + activeJob.scanned.toLocaleString('ru-RU') + ' · добавлено названий ' + activeJob.processed.toLocaleString('ru-RU') : activeJob?.kind === 'IMPORT' ? 'Прочитано ' + activeJob.scanned.toLocaleString('ru-RU') + ' · загружено на сайт ' + activeJob.processed.toLocaleString('ru-RU') : 'Агент проверяет 1С раз в минуту, экран обновляется каждые 5 секунд.'}</small></p>
           </div>
           {activeJob?.status === 'FAILED' && <button disabled={busy} onClick={() => command(() => api.remoteCatalogAction(activeJob.id, 'retry'), 'Повтор запущен с сохранённого места.')}>Повторить</button>}
         </div>
@@ -269,7 +299,7 @@ export function RemoteCatalogPanel() {
           <summary>Очередь и диагностика <b>{status?.jobs.length || 0}</b></summary>
           <div className="onec-jobs">{status?.jobs.slice(0, 20).map(job => <article key={job.id} className={'is-' + job.status.toLowerCase()}>
             <div><strong>{job.groupName}</strong><span>{jobLabels[job.status]}</span></div>
-            <p>{job.kind === 'GROUPS' ? 'Прочитано групп: ' + job.scanned : 'Просмотрено: ' + job.scanned + ' · принято: ' + job.processed + ' · пропущено: ' + job.skipped}</p>
+            <p>{job.kind === 'GROUPS' ? 'Прочитано групп: ' + job.scanned : job.kind === 'INDEX' ? 'Названий просмотрено: ' + job.scanned + ' · добавлено: ' + job.processed : 'Полных карточек прочитано: ' + job.scanned + ' · загружено: ' + job.processed + ' · пропущено: ' + job.skipped}</p>
             <small>{shortDate(job.updatedAt)}</small>
             {job.error && <p className="is-error">{agentErrors[job.error] || 'Ошибка обмена с 1С.'}</p>}
             <div>{job.status === 'PAUSED' && <button onClick={() => command(() => api.remoteCatalogAction(job.id, 'resume'), 'Загрузка продолжена.')}>Продолжить</button>}

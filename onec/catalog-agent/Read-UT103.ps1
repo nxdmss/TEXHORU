@@ -126,8 +126,51 @@ function Get-PriceType([string]$Name) {
     if (-not (Move-OneCSelection $selection)) { throw 'PRICE_TYPE_NOT_FOUND' }
     return Get-OneCProperty $selection @('Ref')
 }
+function Add-RemoteScope([string]$Text, [hashtable]$Parameters, $Job) {
+    if ($Job.groupId) {
+        $Text += ' И Н.Ссылка В ИЕРАРХИИ(&Group)'
+        $Parameters.Group = Get-OneCRef ([string]$Job.groupId)
+    }
+    $excludedIndex = 0
+    foreach ($excludedId in @($Job.excludedGroupIds)) {
+        if (-not ([string]$excludedId).Trim()) { continue }
+        $parameterName = 'ExcludedGroup' + $excludedIndex
+        $Text += (' И НЕ Н.Ссылка В ИЕРАРХИИ(&' + $parameterName + ')')
+        $Parameters[$parameterName] = Get-OneCRef ([string]$excludedId)
+        $excludedIndex++
+    }
+    return $Text
+}
+function Read-RemoteIndexPage($Job) {
+    $parameters = @{}
+    $text = 'ВЫБРАТЬ ПЕРВЫЕ 200 Н.Ссылка КАК Ref, Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.Родитель КАК Parent, Н.Родитель.Код КАК ParentCode, Н.ПометкаУдаления КАК Deleted ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа'
+    if ($Job.cursor) { $text += ' И Н.Код > &AfterCode'; $parameters.AfterCode = [string]$Job.cursor }
+    $text = Add-RemoteScope $text $parameters $Job
+    $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
+    $selection = Select-OneCQuery (New-OneCQuery $text $parameters)
+    $items = @(); $lastCode = ''
+    while (Move-OneCSelection $selection) {
+        $ref = Get-OneCProperty $selection @('Ref')
+        $parent = Get-OneCProperty $selection @('Parent')
+        $code = ([string](Get-OneCProperty $selection @('Code'))).Trim()
+        $parentCode = ([string](Get-OneCProperty $selection @('ParentCode'))).Trim()
+        if (-not $code) { $code = ([string](Get-OneCProperty $ref @('Код', 'Code') $true)).Trim() }
+        if (-not $parentCode) { $parentCode = ([string](Get-OneCProperty $parent @('Код', 'Code') $true)).Trim() }
+        $article = ([string](Get-OneCProperty $selection @('Article'))).Trim()
+        $name = ([string](Get-OneCProperty $selection @('Name'))).Trim()
+        $fullName = ([string](Get-OneCProperty $selection @('FullName'))).Trim()
+        $identityKey = Get-NomenclatureKey $code $article $name $fullName $parentCode
+        $id = Get-StableOneCId 'NOMENCLATURE' $identityKey
+        $parentId = if ($parentCode) { Get-StableOneCId 'GROUP' $parentCode } else { Get-StableOneCId 'GROUP' '__ROOT__' }
+        $items += @{ oneCId = $id; parentId = $parentId; code = $code; article = $article; name = $name; deletionMark = [bool](Get-OneCProperty $selection @('Deleted')) }
+        $lastCode = $code
+    }
+    if (-not $items.Count) { return $null }
+    return @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $lastCode; scanned = $items.Count; products = @(); categories = @(); groups = @(); hashes = @(); indexItems = $items }
+}
 function Read-RemotePage($Job) {
     $script:paths = @{}
+    if ($Job.kind -eq 'INDEX') { return Read-RemoteIndexPage $Job }
     $parameters = @{}
     if ($Job.kind -eq 'GROUPS') { $condition = 'Н.ЭтоГруппа И НЕ Н.ПометкаУдаления' }
     else { $condition = 'НЕ Н.ЭтоГруппа' }
@@ -138,22 +181,18 @@ function Read-RemotePage($Job) {
         $text += ' И Н.Код > &AfterCode'
         $parameters.AfterCode = [string]$Job.cursor
     }
-    if ($Job.groupId -and $Job.kind -eq 'CATALOG') {
-        $text += ' И Н.Ссылка В ИЕРАРХИИ(&Group)'
-        $parameters.Group = Get-OneCRef ([string]$Job.groupId)
-    }
-    if ($Job.kind -eq 'CATALOG') {
-        $excludedIndex = 0
-        foreach ($excludedId in @($Job.excludedGroupIds)) {
-            if (-not ([string]$excludedId).Trim()) { continue }
-            $parameterName = 'ExcludedGroup' + $excludedIndex
-            # Exclusions are evaluated inside 1C, before TOP 50. Large archive
-            # branches therefore never enter price/stock queries or HTTP batches.
-            $text += (' И НЕ Н.Ссылка В ИЕРАРХИИ(&' + $parameterName + ')')
-            $parameters[$parameterName] = Get-OneCRef ([string]$excludedId)
-            $excludedIndex++
+    if ($Job.kind -eq 'IMPORT') {
+        $selected = @($Job.selectedCodes | Where-Object { ([string]$_).Trim() })
+        if (-not $selected.Count) { throw 'SELECTION_EMPTY' }
+        $conditions = @()
+        for ($selectedIndex = 0; $selectedIndex -lt $selected.Count; $selectedIndex++) {
+            $parameterName = 'SelectedCode' + $selectedIndex
+            $conditions += ('Н.Код = &' + $parameterName)
+            $parameters[$parameterName] = [string]$selected[$selectedIndex]
         }
+        $text += ' И (' + ($conditions -join ' ИЛИ ') + ')'
     }
+    if ($Job.kind -ne 'GROUPS') { $text = Add-RemoteScope $text $parameters $Job }
     $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
     $query = New-OneCQuery $text $parameters
     $selection = Select-OneCQuery $query
@@ -171,7 +210,7 @@ function Read-RemotePage($Job) {
     }
     if ($rows.Count -eq 0) { return $null }
     $range = @{ FirstCode = $rows[0].Code; LastCode = $rows[-1].Code }
-    $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $rows[-1].Code; scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @() }
+    $body = @{ leaseToken = [string]$Job.leaseToken; batch = [int]$Job.nextBatch; cursor = $rows[-1].Code; scanned = $rows.Count; products = @(); categories = @(); groups = @(); hashes = @(); indexItems = @() }
     if ($Job.kind -eq 'GROUPS') {
         $counts = @{}
         $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, Н.Родитель.Код КАК Code, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель.Код >= &FirstCode И Н.Родитель.Код <= &LastCode СГРУППИРОВАТЬ ПО Н.Родитель, Н.Родитель.Код' $range
