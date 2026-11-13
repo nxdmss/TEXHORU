@@ -467,6 +467,8 @@ model OneCCatalogJob {
   kind String
   groupId String @default("")
   groupName String
+  // Selected mirror item IDs for an on-demand IMPORT job.
+  itemIds Json @default("[]")
   mode String @default("FULL")
   status String @default("QUEUED")
   cursor String @default("")

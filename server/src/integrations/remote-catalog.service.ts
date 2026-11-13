@@ -57,8 +57,8 @@ export class RemoteCatalogService {
       this.db.oneCCatalogAgent.findUnique({ where: { baseId } }),
       this.db.oneCRemoteGroup.findMany({ where, orderBy: [{ name: 'asc' }, { oneCId: 'asc' }], take: 100, skip: page * 100 }),
       this.db.oneCRemoteGroup.count({ where }),
-      this.db.oneCCatalogJob.findMany({ where: { baseId, status: { in: [...OPEN, 'FAILED'] } }, orderBy: { createdAt: 'desc' }, take: 200, omit: { leaseToken: true, lastHash: true, agentId: true } }),
-      this.db.oneCCatalogJob.findMany({ where: { baseId, status: { notIn: [...OPEN, 'FAILED'] } }, orderBy: { createdAt: 'desc' }, take: 50, omit: { leaseToken: true, lastHash: true, agentId: true } }),
+      this.db.oneCCatalogJob.findMany({ where: { baseId, status: { in: [...OPEN, 'FAILED'] } }, orderBy: { createdAt: 'desc' }, take: 200, omit: { leaseToken: true, lastHash: true, agentId: true, itemIds: true } }),
+      this.db.oneCCatalogJob.findMany({ where: { baseId, status: { notIn: [...OPEN, 'FAILED'] } }, orderBy: { createdAt: 'desc' }, take: 50, omit: { leaseToken: true, lastHash: true, agentId: true, itemIds: true } }),
     ])
     return { configured: true, baseId, agent: agent ? { ...agent, online: agent.lastSeenAt.getTime() > Date.now() - 150000 } : null, groups, total, page, jobs: [...activeJobs, ...history].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) }
   }
@@ -95,7 +95,10 @@ export class RemoteCatalogService {
       this.db.oneCRemoteGroup.findMany({ where: { baseId, active: true, oneCId: { notIn: excluded }, ...(query ? { searchName: { contains: query } } : { parentId: group.slice(0, 100) }) }, orderBy: [{ name: 'asc' }, { oneCId: 'asc' }], take: 1000 }),
       group && !excluded.includes(group) ? this.db.oneCRemoteGroup.findUnique({ where: { baseId_oneCId: { baseId, oneCId: group } }, select: { oneCId: true, parentId: true, name: true } }) : Promise.resolve(null),
     ])
-    return { items, total, children, group: groupRow, page, pageSize: 100, search: query }
+    const imported = new Set((await this.db.product.findMany({
+      where: { oneCId: { in: items.map(item => item.oneCId) }, status: 'ACTIVE' }, select: { oneCId: true },
+    })).map(item => item.oneCId))
+    return { items: items.map(item => ({ ...item, imported: imported.has(item.oneCId) })), total, children, group: groupRow, page, pageSize: 100, search: query }
   }
   async excludedGroups() {
     const baseId = this.base()
@@ -183,21 +186,33 @@ export class RemoteCatalogService {
       details: { baseId, name: group.name, groups: subtree.length },
     } })
     const stillExcluded = this.effectiveExcluded(groups.map(row => row.oneCId === oneCId ? { ...row, excluded: false } : row)).has(oneCId)
-    const job = stillExcluded ? null : await this.create({ kind: 'CATALOG', mode: 'FULL', groupId: oneCId })
+    const job = stillExcluded ? null : await this.create({ kind: 'INDEX', mode: 'FULL', groupId: oneCId })
     return { ok: true, name: group.name, groups: subtree.length, jobId: job?.id || null }
   }
   async create(dto: RemoteJobDto) {
     const baseId = this.base()
     return this.db.$transaction(async tx => {
       if (await tx.oneCCatalogJob.count({ where: { baseId, status: { in: [...OPEN, 'FAILED'] } } }) >= 200) throw new ConflictException('В очереди уже 200 заданий')
-      const groupId = dto.kind === 'CATALOG' ? dto.groupId || '' : ''
+      const groupId = dto.kind === 'INDEX' ? dto.groupId || '' : ''
       const group = groupId ? await tx.oneCRemoteGroup.findUnique({ where: { baseId_oneCId: { baseId, oneCId: groupId } } }) : null
       if (groupId && !group?.active) throw new BadRequestException('Обновите список групп и выберите существующую группу')
       if (groupId && this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } })).has(groupId)) throw new BadRequestException('Эта группа исключена из загрузки на сайт')
-      const same = await tx.oneCCatalogJob.findFirst({ where: { baseId, kind: dto.kind, groupId, status: { in: [...OPEN, 'FAILED'] } } })
+      const itemIds = [...new Set(dto.itemIds || [])]
+      if (dto.kind === 'IMPORT') {
+        if (!itemIds.length) throw new BadRequestException('Выберите хотя бы один товар')
+        const items = await tx.oneCNomenclatureItem.findMany({ where: { baseId, active: true, oneCId: { in: itemIds } }, select: { oneCId: true, parentId: true, code: true } })
+        if (items.length !== itemIds.length) throw new BadRequestException('Часть выбранных товаров больше не найдена в списке 1С')
+        if (items.some(item => !item.code.trim())) throw new BadRequestException('У одной из выбранных позиций нет кода 1С; её нельзя однозначно запросить')
+        const excluded = this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } }))
+        if (items.some(item => excluded.has(item.parentId))) throw new BadRequestException('Выбран товар из исключённой группы')
+      } else if (itemIds.length) throw new BadRequestException('Список товаров разрешён только для загрузки выбранных позиций')
+      const same = dto.kind === 'IMPORT' ? null : await tx.oneCCatalogJob.findFirst({ where: { baseId, kind: dto.kind, groupId, status: { in: [...OPEN, 'FAILED'] } } })
       if (same) return { id: same.id }
-      const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, mode: dto.mode, groupName: dto.kind === 'GROUPS' ? 'Обновление групп' : group?.name || 'Весь каталог' } })
-      await tx.auditLog.create({ data: { action: 'ONEC_CATALOG_QUEUE', entity: 'OneCCatalogJob', entityId: row.id, details: { kind: row.kind, groupId, mode: row.mode, baseId } } })
+      const groupName = dto.kind === 'GROUPS' ? 'Обновление групп'
+        : dto.kind === 'INDEX' ? group?.name ? `Обновление списка: ${group.name}` : 'Обновление списка товаров'
+          : `Загрузка выбранных товаров: ${itemIds.length}`
+      const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, itemIds, mode: dto.kind === 'IMPORT' ? 'FULL' : dto.mode, groupName } })
+      await tx.auditLog.create({ data: { action: 'ONEC_CATALOG_QUEUE', entity: 'OneCCatalogJob', entityId: row.id, details: { kind: row.kind, groupId, items: itemIds.length, mode: row.mode, baseId } } })
       return { id: row.id }
     })
   }
@@ -218,17 +233,24 @@ export class RemoteCatalogService {
   async poll(dto: RemotePollDto) {
     const baseId = this.base(), now = new Date()
     await this.db.oneCCatalogAgent.upsert({ where: { baseId }, create: { baseId, agentId: dto.agentId, state: dto.state, error: dto.error, lastSeenAt: now }, update: { agentId: dto.agentId, state: dto.state, error: dto.error || null, lastSeenAt: now } })
-    // Discover groups initially, then refresh five minutes after the last completed snapshot.
+    // Retire pre-selective full-catalog jobs. They must never resume and start
+    // publishing every 1C card after the deployment of on-demand imports.
+    const legacy = await this.db.oneCCatalogJob.findMany({ where: { baseId, kind: 'CATALOG', status: { in: [...OPEN, 'FAILED'] } }, select: { id: true } })
+    if (legacy.length) await this.db.$transaction([
+      this.db.oneCCatalogJob.updateMany({ where: { id: { in: legacy.map(job => job.id) } }, data: { status: 'CANCELLED', leaseToken: null, leaseUntil: null, finishedAt: now } }),
+      this.db.catalogImportSession.updateMany({ where: { id: { in: legacy.map(job => job.id) } }, data: { status: 'CANCELLED', activeKey: null, finishedAt: now } }),
+    ])
+    // Discover groups initially, then periodically refresh their names only.
     const lastGroups = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'GROUPS' }, orderBy: { createdAt: 'desc' } })
-    if (!lastGroups || lastGroups.status === 'CANCELLED' || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 300000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
-    // Once the group tree exists, build the mirror automatically and keep it
-    // fresh. A single durable job is resumed by subsequent one-minute ticks.
+    if (!lastGroups || lastGroups.status === 'CANCELLED' || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 1800000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
+    // Build only the lightweight picker index. Prices, stock and storefront
+    // cards are read later, exclusively for explicitly selected items.
     if (lastGroups?.status === 'COMPLETED') {
-      const blockingCatalog = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'CATALOG', status: { in: [...OPEN, 'FAILED'] } } })
+      const blockingCatalog = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: { in: ['INDEX', 'IMPORT'] }, status: { in: [...OPEN, 'FAILED'] } } })
       if (!blockingCatalog) {
-        const latestRoot = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'CATALOG', groupId: '' }, orderBy: { createdAt: 'desc' } })
-        if (!latestRoot) await this.create({ kind: 'CATALOG', mode: 'FULL' })
-        else if (latestRoot.status === 'COMPLETED' && latestRoot.finishedAt && latestRoot.finishedAt.getTime() < Date.now() - 45000) await this.create({ kind: 'CATALOG', mode: 'DELTA' })
+        const latestRoot = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'INDEX', groupId: '' }, orderBy: { createdAt: 'desc' } })
+        if (!latestRoot || latestRoot.status === 'CANCELLED') await this.create({ kind: 'INDEX', mode: 'FULL' })
+        else if (latestRoot.status === 'COMPLETED' && latestRoot.finishedAt && latestRoot.finishedAt.getTime() < Date.now() - 1800000) await this.create({ kind: 'INDEX', mode: 'FULL' })
       }
     }
     const job = await this.db.$transaction(async tx => {
@@ -246,14 +268,19 @@ export class RemoteCatalogService {
       return tx.oneCCatalogJob.update({ where: { id: row.id }, data: { status: 'RUNNING', agentId: dto.agentId, leaseToken, leaseUntil: new Date(Date.now() + 120000) } })
     })
     if (job) {
-      const { lastHash, ...safe } = job
-      if (job.kind !== 'CATALOG') return { job: safe, pauseMs: 3000 }
+      const { lastHash, itemIds, ...safe } = job
+      if (job.kind === 'GROUPS') return { job: safe, pauseMs: 3000 }
       const state = await this.exclusionState(baseId)
       const excludedGroupIds = state.groups
         .filter(group => group.excluded && !state.ids.has(group.parentId))
         .map(group => group.oneCId)
         .slice(0, 100)
-      return { job: { ...safe, excludedGroupIds }, pauseMs: 3000 }
+      if (job.kind === 'INDEX') return { job: { ...safe, excludedGroupIds }, pauseMs: 300 }
+      const selectedIds = Array.isArray(itemIds) ? itemIds.filter((value): value is string => typeof value === 'string') : []
+      const selectedCodes = (await this.db.oneCNomenclatureItem.findMany({
+        where: { baseId, active: true, oneCId: { in: selectedIds } }, select: { code: true }, take: 100,
+      })).map(item => item.code).filter(Boolean)
+      return { job: { ...safe, excludedGroupIds, selectedCodes }, pauseMs: 1000 }
     }
     return { job: null, pauseMs: 5000 }
   }
@@ -274,31 +301,55 @@ export class RemoteCatalogService {
   }
   async batch(id: string, dto: RemoteBatchDto) {
     const baseId = this.base(), hash = createHash('sha256').update(JSON.stringify({ ...dto, leaseToken: '' })).digest('hex')
+    const indexItems = dto.indexItems || []
     if (Buffer.byteLength(JSON.stringify(dto)) > 512 * 1024) throw new PayloadTooLargeException('Не более 512 КБ в пакете')
     if (dto.products.length > 50 || dto.categories.length > 50 || dto.scanned === 0 || !dto.cursor.trim() || /[\u0000-\u001f]/.test(dto.cursor)) throw new BadRequestException('Неверный курсор или размер пакета')
     const row = await this.db.oneCCatalogJob.findUnique({ where: { id } })
     if (!row || row.baseId !== baseId) throw new NotFoundException('Задание не найдено')
-    const excludedIds = row.kind === 'CATALOG' ? (await this.exclusionState(baseId)).ids : new Set<string>()
+    const excludedIds = ['INDEX', 'IMPORT', 'CATALOG'].includes(row.kind) ? (await this.exclusionState(baseId)).ids : new Set<string>()
     const rejectedProductIds = new Set(dto.products.filter(product => excludedIds.has(product.categoryOneCId)).map(product => product.oneCId))
     const acceptedProducts = dto.products.filter(product => !rejectedProductIds.has(product.oneCId))
     const acceptedCategories = dto.categories.filter(category => !excludedIds.has(category.oneCId))
     const acceptedHashes = dto.hashes.filter(item => !rejectedProductIds.has(item.oneCId))
+    const acceptedIndexItems = indexItems.filter(item => !excludedIds.has(item.parentId))
     // Lost acknowledgement: replay is harmless even after pause or lease renewal.
     if (row.nextBatch === dto.batch + 1 && row.lastHash === hash) return { ok: true, nextBatch: row.nextBatch }
     const before = async (tx: Prisma.TransactionClient) => {
       const locked = await this.lock(tx, id, dto.leaseToken)
       if (locked.nextBatch !== dto.batch || locked.cursor === dto.cursor) throw new ConflictException('Неверный номер пакета или курсор')
-      if (locked.kind === 'GROUPS' ? dto.products.length || dto.categories.length || dto.hashes.length || dto.groups.length !== dto.scanned
-        : dto.groups.length || dto.hashes.length !== dto.scanned || dto.products.some(p => !dto.hashes.some(h => h.oneCId === p.oneCId))) throw new BadRequestException('Пакет не соответствует заданию')
-      if (new Set(dto.hashes.map(h => h.oneCId)).size !== dto.hashes.length || new Set(dto.groups.map(g => g.oneCId)).size !== dto.groups.length) throw new BadRequestException('Повторяющиеся GUID')
+      const valid = locked.kind === 'GROUPS'
+        ? !dto.products.length && !dto.categories.length && !dto.hashes.length && !indexItems.length && dto.groups.length === dto.scanned
+        : locked.kind === 'INDEX'
+          ? !dto.products.length && !dto.categories.length && !dto.hashes.length && !dto.groups.length && indexItems.length === dto.scanned
+          : ['IMPORT', 'CATALOG'].includes(locked.kind)
+            ? !dto.groups.length && !indexItems.length && dto.hashes.length === dto.scanned && dto.products.every(p => dto.hashes.some(h => h.oneCId === p.oneCId))
+            : false
+      if (!valid) throw new BadRequestException('Пакет не соответствует заданию')
+      if (new Set(dto.hashes.map(h => h.oneCId)).size !== dto.hashes.length || new Set(dto.groups.map(g => g.oneCId)).size !== dto.groups.length || new Set(indexItems.map(item => item.oneCId)).size !== indexItems.length) throw new BadRequestException('Повторяющиеся GUID')
     }
     const after = async (tx: Prisma.TransactionClient, result: { products: number; skippedDuplicates: number }) => {
       for (const group of dto.groups) {
         if (group.parentId && !/^[0-9a-f-]{36}$/i.test(group.parentId) || group.parentId === group.oneCId || !group.name.trim()) throw new BadRequestException('Неверная группа')
         await tx.oneCRemoteGroup.upsert({ where: { baseId_oneCId: { baseId, oneCId: group.oneCId } }, create: { ...group, baseId, generation: id, searchName: group.name.toLocaleLowerCase('ru-RU') }, update: { ...group, generation: id, active: true, searchName: group.name.toLocaleLowerCase('ru-RU') } })
       }
-      if (row.kind === 'CATALOG') await tx.oneCRemoteGroup.updateMany({ where: { baseId, oneCId: { in: acceptedCategories.map(c => c.oneCId) } }, data: { lastReceivedAt: new Date() } })
-      if (row.kind === 'CATALOG') {
+      if (row.kind === 'INDEX') {
+        const receivedAt = new Date()
+        for (const item of acceptedIndexItems) {
+          const basic = {
+            parentId: item.parentId, code: item.code.trim(), article: item.article.trim(), name: item.name.trim(),
+            deletionMark: item.deletionMark, active: true, generation: id, receivedAt,
+            searchText: [item.code, item.article, item.name].filter(Boolean).join(' ').toLocaleLowerCase('ru-RU'),
+          }
+          await tx.oneCNomenclatureItem.upsert({
+            where: { baseId_oneCId: { baseId, oneCId: item.oneCId } },
+            create: { baseId, oneCId: item.oneCId, fullName: item.name.trim(), ...basic },
+            update: basic,
+          })
+        }
+        await tx.oneCCatalogAgent.update({ where: { baseId }, data: { nomenclatureUpdatedAt: receivedAt } })
+      }
+      if (['IMPORT', 'CATALOG'].includes(row.kind)) await tx.oneCRemoteGroup.updateMany({ where: { baseId, oneCId: { in: acceptedCategories.map(c => c.oneCId) } }, data: { lastReceivedAt: new Date() } })
+      if (['IMPORT', 'CATALOG'].includes(row.kind)) {
         const receivedAt = new Date()
         for (const product of acceptedProducts) {
           const source = {
@@ -328,14 +379,16 @@ export class RemoteCatalogService {
         await tx.oneCCatalogAgent.update({ where: { baseId }, data: { nomenclatureUpdatedAt: receivedAt } })
       }
       for (const h of acceptedHashes) await tx.oneCCatalogHash.upsert({ where: { baseId_oneCId: { baseId, oneCId: h.oneCId } }, create: { ...h, baseId }, update: { hash: h.hash } })
-      await tx.oneCCatalogJob.update({ where: { id }, data: { cursor: dto.cursor, lastHash: hash, nextBatch: { increment: 1 }, scanned: { increment: dto.scanned }, processed: { increment: result.products }, skipped: { increment: result.skippedDuplicates + rejectedProductIds.size }, leaseUntil: new Date(Date.now() + 120000) } })
+      const rejectedIndexItems = indexItems.length - acceptedIndexItems.length
+      await tx.oneCCatalogJob.update({ where: { id }, data: { cursor: dto.cursor, lastHash: hash, nextBatch: { increment: 1 }, scanned: { increment: dto.scanned }, processed: { increment: result.products }, skipped: { increment: result.skippedDuplicates + rejectedProductIds.size + rejectedIndexItems }, leaseUntil: new Date(Date.now() + 120000) } })
     }
-    if (row.kind === 'GROUPS') return this.db.$transaction(async tx => {
+    if (['GROUPS', 'INDEX'].includes(row.kind)) return this.db.$transaction(async tx => {
       await before(tx)
       const session = await tx.catalogImportSession.findUnique({ where: { id } })
-      if (session?.status !== 'RUNNING' || session.nextBatch !== dto.batch) throw new ConflictException('Сеанс групп уже закрыт')
-      await after(tx, { products: 0, skippedDuplicates: 0 })
-      await tx.catalogImportSession.update({ where: { id }, data: { nextBatch: { increment: 1 }, lastBatchHash: hash } })
+      if (session?.status !== 'RUNNING' || session.nextBatch !== dto.batch) throw new ConflictException('Сеанс чтения уже закрыт')
+      const processed = row.kind === 'INDEX' ? acceptedIndexItems.length : 0
+      await after(tx, { products: processed, skippedDuplicates: 0 })
+      await tx.catalogImportSession.update({ where: { id }, data: { nextBatch: { increment: 1 }, processed: { increment: processed }, skipped: { increment: indexItems.length - acceptedIndexItems.length }, lastBatchHash: hash } })
       return { ok: true }
     })
     return this.integrations.importCatalog({ categories: acceptedCategories, products: acceptedProducts }, { sessionId: id, batch: dto.batch, hash }, { before, after })
@@ -349,7 +402,7 @@ export class RemoteCatalogService {
         await tx.oneCRemoteGroup.updateMany({ where: { baseId: row.baseId, generation: { not: id } }, data: { active: false } })
         await tx.oneCCatalogAgent.update({ where: { baseId: row.baseId }, data: { groupsUpdatedAt: new Date() } })
       }
-      if (row.kind === 'CATALOG') {
+      if (row.kind === 'INDEX') {
         if (row.mode === 'FULL' && !row.groupId) await tx.oneCNomenclatureItem.updateMany({ where: { baseId: row.baseId, generation: { not: id } }, data: { active: false } })
         await tx.oneCCatalogAgent.update({ where: { baseId: row.baseId }, data: { nomenclatureUpdatedAt: new Date() } })
       }

@@ -129,7 +129,7 @@ export type OneCRemoteGroup = { oneCId: string; parentId: string; name: string; 
 export type OneCExcludedGroup = OneCRemoteGroup
 export type OneCNomenclatureItem = {
   oneCId: string; parentId: string; code: string; article: string; name: string; fullName: string; itemKind: string; unitName: string
-  retailPrice: number | null; purchasePrice: number | null; stockQty: number; deletionMark: boolean; receivedAt: string; updatedAt: string
+  retailPrice: number | null; purchasePrice: number | null; stockQty: number; deletionMark: boolean; imported: boolean; receivedAt: string; updatedAt: string
 }
 export type OneCNomenclaturePage = {
   items: OneCNomenclatureItem[]; total: number; children: OneCRemoteGroup[]; group: Pick<OneCRemoteGroup, 'oneCId' | 'parentId' | 'name'> | null
@@ -239,7 +239,7 @@ export const api = {
   remoteExcludedGroups() { return request<OneCExcludedGroup[]>('/admin/integrations/1c/remote/excluded-groups') },
   remoteExcludeGroup(id: string) { return request<{ ok: boolean; name: string; groups: number; removed: number; productsDeleted: number; productsArchived: number; categoriesDeleted: number }>('/admin/integrations/1c/remote/groups/' + encodeURIComponent(id) + '/exclude', { method: 'POST' }) },
   remoteRestoreGroup(id: string) { return request<{ ok: boolean; name: string; groups: number; jobId: string | null }>('/admin/integrations/1c/remote/groups/' + encodeURIComponent(id) + '/restore', { method: 'POST' }) },
-  remoteCatalogCreate(dto: { kind: 'GROUPS' | 'CATALOG'; mode: 'FULL' | 'DELTA'; groupId?: string }) { return request('/admin/integrations/1c/remote/jobs', { method: 'POST', body: JSON.stringify(dto) }) },
+  remoteCatalogCreate(dto: { kind: 'GROUPS' | 'INDEX' | 'IMPORT'; mode: 'FULL' | 'DELTA'; groupId?: string; itemIds?: string[] }) { return request('/admin/integrations/1c/remote/jobs', { method: 'POST', body: JSON.stringify(dto) }) },
   remoteCatalogAction(id: string, action: string) { return request('/admin/integrations/1c/remote/jobs/' + encodeURIComponent(id) + '/action', { method: 'POST', body: JSON.stringify({ action }) }) },
   catalogSyncStatus() { return request<CatalogSyncStatus>('/admin/integrations/1c/catalog-sync') },
   cancelCatalogSync(id: string) { return request('/admin/integrations/1c/catalog-sync/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }) },
