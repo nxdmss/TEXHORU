@@ -137,11 +137,10 @@ export function RemoteCatalogPanel() {
     if (queued) setSelectedItemIds(new Set())
   }
 
-  async function importGroup(group: OneCRemoteGroup) {
-    if (!window.confirm(`Загрузить на сайт всю группу «${group.name}» со всеми вложенными группами?\n\nАгент прочитает из 1С полные данные, цены и остатки всех товаров этой ветки.`)) return
+  async function importGroup(group: OneCRemoteGroup, stockOnly: boolean) {
     await command(
-      () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: 'FULL', groupId: group.oneCId }),
-      `Группа «${group.name}» поставлена в очередь. Агент загрузит все товары и вложенные группы.`,
+      () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: 'FULL', groupId: group.oneCId, stockOnly }),
+      `Группа «${group.name}» поставлена в очередь: ${stockOnly ? 'только товары в наличии' : 'все товары'}.`,
     )
   }
 
@@ -207,7 +206,7 @@ export function RemoteCatalogPanel() {
       <div>
         <p className="eyebrow">Основная база · УТ 10.3</p>
         <h2>Номенклатура 1С</h2>
-        <p>Лёгкий список из 1С: загружайте на сайт отдельные позиции или целую выбранную группу.</p>
+        <p>Выберите группу или отметьте нужные товары.</p>
       </div>
       <div className="onec-mirror__live">
         <span className={online ? 'is-online' : ''} />
@@ -224,16 +223,15 @@ export function RemoteCatalogPanel() {
         <div className="onec-search"><span aria-hidden="true">⌕</span><input aria-label="Поиск по номенклатуре"
           placeholder="Найти по коду, артикулу или названию…" value={search} onChange={event => setSearch(event.target.value)} /></div>
         <div className="onec-mirror__toolbar-stats">
-          <span><b>{mirrorCount.toLocaleString('ru-RU')}</b> названий в списке</span>
-          <span>Список обновлён: <b>{shortDate(agent?.nomenclatureUpdatedAt)}</b></span>
+          <span><b>{mirrorCount.toLocaleString('ru-RU')}</b> позиций из 1С</span>
         </div>
         <button disabled={busy || !status?.configured} onClick={() => command(
           () => api.remoteCatalogCreate({ kind: 'INDEX', mode: 'FULL' }),
           'Обновление лёгкого списка поставлено в очередь. Цены и остатки не загружаются.',
-        )}>{busy ? 'Отправляем…' : 'Обновить список'}</button>
-        <button className="onec-import-button" disabled={busy || !selectedItemIds.size} onClick={importSelected}>
-          Загрузить выбранное{selectedItemIds.size ? ` (${selectedItemIds.size})` : ''}
-        </button>
+        )}>{busy ? 'Отправляем…' : 'Обновить'}</button>
+        {selectedItemIds.size > 0 && <button className="onec-import-button" disabled={busy} onClick={importSelected}>
+          Загрузить {selectedItemIds.size}
+        </button>}
       </div>
 
       <div className="onec-mirror__window">
@@ -257,33 +255,27 @@ export function RemoteCatalogPanel() {
             <button onClick={() => { setSelectedGroup(''); setPage(0) }}>Номенклатура</button>
             {path.map(group => <span key={group.oneCId}><i>›</i><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
             {query && <span><i>›</i><b>Поиск: {query}</b></span>}
-            {selected && <button className="onec-group-import-button" disabled={busy} onClick={() => importGroup(selected)}>Загрузить всю группу</button>}
-            {selected && <button className="onec-exclude-button" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить группу</button>}
           </nav>
-          <div className="onec-table-wrap">
+          {selected && <section className={'onec-group-actions' + (selected.fullyImportedAt ? ' is-complete' : '')}>
+            <div><strong>{selected.name}</strong><span>{selected.fullyImportedAt ? 'Группа уже загружена на сайт' : 'Какие товары добавить на сайт?'}</span></div>
+            {!selected.fullyImportedAt && <><button className="is-primary" disabled={busy} onClick={() => importGroup(selected, true)}>Только в наличии</button><button disabled={busy} onClick={() => importGroup(selected, false)}>Все товары</button></>}
+            <button className="is-danger" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить</button>
+          </section>}
+          {groupRows.length > 0 && <div className="onec-subgroups"><strong>Подгруппы</strong><div>{groupRows.map(group => <button key={group.oneCId} onClick={() => openGroup(group)}><span className="onec-folder" />{group.name}{group.fullyImportedAt && <i>На сайте</i>}</button>)}</div></div>}
+          {itemRows.length > 0 && <div className="onec-table-wrap">
             <div className="onec-table">
               <div className="onec-table__row is-head">
-                <span>Выбор</span><span>Код</span><span>Артикул</span><span>Наименование</span><span>Полное наименование</span>
-                <span>Вид номенклатуры</span><span>Базовая единица</span><span>Розничная</span><span>Закупочная</span><span>Остаток</span><span>Статус</span>
+                <span /><span>Товар</span><span>Код / артикул</span><span>Цена / остаток</span><span>Статус</span>
               </div>
-              {groupRows.map(group => <button className="onec-table__row is-group" key={'g-' + group.oneCId} onClick={() => openGroup(group)}>
-                <span /><span /><span /><span><i className="onec-folder" />{group.name}</span><span /><span>Группа</span><span /><span /><span /><span>{group.itemCount}</span><span />
-              </button>)}
               {itemRows.map(item => <div className={'onec-table__row is-item' + (item.deletionMark ? ' is-deleted' : '')} key={item.oneCId}>
                 <span><input type="checkbox" aria-label={`Выбрать ${item.name}`} disabled={item.deletionMark} checked={selectedItemIds.has(item.oneCId)} onChange={() => toggleItem(item.oneCId)} /></span>
-                <span title={item.code}>{item.code || '—'}</span>
-                <span title={item.article}>{item.article || '—'}</span>
-                <span title={item.name}><b>{item.name}</b>{item.deletionMark && <small>Пометка удаления</small>}</span>
-                <span title={item.fullName}>{item.fullName || item.name}</span>
-                <span>{item.itemKind || 'Товар'}</span>
-                <span>{item.unitName || '—'}</span>
-                <span className="is-number">{item.retailPrice == null ? '—' : money.format(item.retailPrice) + ' ₽'}</span>
-                <span className="is-number">{item.purchasePrice == null ? '—' : money.format(item.purchasePrice) + ' ₽'}</span>
-                <span className="is-number">{money.format(item.stockQty)}</span>
+                <span title={item.name}><b>{item.name}</b>{item.fullName && item.fullName !== item.name && <small>{item.fullName}</small>}{item.deletionMark && <small>Пометка удаления</small>}</span>
+                <span><b>{item.code || '—'}</b><small>{item.article || 'Без артикула'}</small></span>
+                <span>{item.imported ? <><b>{item.retailPrice == null ? 'Цена не задана' : money.format(item.retailPrice) + ' ₽'}</b><small>Остаток: {money.format(item.stockQty)} {item.unitName}</small></> : <small>После загрузки</small>}</span>
                 <span><b className={item.imported ? 'onec-status is-imported' : 'onec-status'}>{item.imported ? 'На сайте' : 'Только список'}</b></span>
               </div>)}
             </div>
-          </div>
+          </div>}
           {!groupRows.length && !itemRows.length && <div className="onec-list__empty">
             <span className="onec-folder is-large" /><strong>{query ? 'Ничего не найдено' : mirrorCount ? 'В этой группе пока нет позиций' : 'Идёт загрузка списка названий'}</strong>
             <p>{mirrorCount ? 'Выберите другую группу или измените запрос.' : 'Агент перенесёт только названия, коды и группы. Полные данные загружаются после вашего выбора.'}</p>

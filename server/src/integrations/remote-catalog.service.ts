@@ -41,7 +41,7 @@ export class RemoteCatalogService {
   private async exclusionState(baseId: string) {
     const groups = await this.db.oneCRemoteGroup.findMany({
       where: { baseId, active: true },
-      select: { oneCId: true, parentId: true, excluded: true },
+      select: { oneCId: true, parentId: true, excluded: true, fullyImportedAt: true },
       take: 50000,
     })
     return { groups, ids: this.effectiveExcluded(groups) }
@@ -70,7 +70,7 @@ export class RemoteCatalogService {
       this.db.oneCRemoteGroup.findMany({
         where: { baseId, active: true, oneCId: { notIn: excluded } },
         orderBy: [{ name: 'asc' }, { oneCId: 'asc' }],
-        select: { oneCId: true, parentId: true, name: true, itemCount: true, lastReceivedAt: true },
+        select: { oneCId: true, parentId: true, name: true, itemCount: true, lastReceivedAt: true, fullyImportedAt: true },
         take: 50000,
       }),
       this.db.oneCNomenclatureItem.count({ where: { baseId, active: true, parentId: { notIn: excluded } } }),
@@ -105,7 +105,7 @@ export class RemoteCatalogService {
     return this.db.oneCRemoteGroup.findMany({
       where: { baseId, active: true, excluded: true },
       orderBy: [{ name: 'asc' }, { oneCId: 'asc' }],
-      select: { oneCId: true, parentId: true, name: true, itemCount: true, lastReceivedAt: true },
+      select: { oneCId: true, parentId: true, name: true, itemCount: true, lastReceivedAt: true, fullyImportedAt: true },
       take: 1000,
     })
   }
@@ -179,7 +179,11 @@ export class RemoteCatalogService {
     const subtree = this.subtree(groups, oneCId)
     await this.db.oneCRemoteGroup.update({ where: { baseId_oneCId: { baseId, oneCId } }, data: { excluded: false } })
     for (let offset = 0; offset < subtree.length; offset += 300) {
-      await this.db.category.updateMany({ where: { oneCId: { in: subtree.slice(offset, offset + 300) } }, data: { isActive: true } })
+      const groupIds = subtree.slice(offset, offset + 300)
+      await this.db.$transaction([
+        this.db.category.updateMany({ where: { oneCId: { in: groupIds } }, data: { isActive: true } }),
+        this.db.oneCRemoteGroup.updateMany({ where: { baseId, oneCId: { in: groupIds } }, data: { fullyImportedAt: null } }),
+      ])
     }
     await this.db.auditLog.create({ data: {
       action: 'ONEC_CATALOG_RESTORE', entity: 'OneCRemoteGroup', entityId: oneCId,
@@ -198,8 +202,11 @@ export class RemoteCatalogService {
       if (groupId && !group?.active) throw new BadRequestException('Обновите список групп и выберите существующую группу')
       if (groupId && this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } })).has(groupId)) throw new BadRequestException('Эта группа исключена из загрузки на сайт')
       const itemIds = [...new Set(dto.itemIds || [])]
+      const stockOnly = dto.stockOnly === true
       if (dto.kind === 'IMPORT') {
         if (Boolean(groupId) === Boolean(itemIds.length)) throw new BadRequestException('Выберите товары или одну группу')
+        if (stockOnly && !groupId) throw new BadRequestException('Фильтр наличия доступен только для загрузки группы')
+        if (group?.fullyImportedAt) throw new ConflictException('Эта группа уже полностью загружена на сайт')
         if (itemIds.length) {
           const items = await tx.oneCNomenclatureItem.findMany({ where: { baseId, active: true, oneCId: { in: itemIds } }, select: { oneCId: true, parentId: true, code: true } })
           if (items.length !== itemIds.length) throw new BadRequestException('Часть выбранных товаров больше не найдена в списке 1С')
@@ -207,14 +214,14 @@ export class RemoteCatalogService {
           const excluded = this.effectiveExcluded(await tx.oneCRemoteGroup.findMany({ where: { baseId, active: true }, select: { oneCId: true, parentId: true, excluded: true } }))
           if (items.some(item => excluded.has(item.parentId))) throw new BadRequestException('Выбран товар из исключённой группы')
         }
-      } else if (itemIds.length) throw new BadRequestException('Список товаров разрешён только для загрузки выбранных позиций')
+      } else if (itemIds.length || stockOnly) throw new BadRequestException('Список товаров и фильтр наличия разрешены только для загрузки товаров')
       const same = dto.kind === 'IMPORT' ? null : await tx.oneCCatalogJob.findFirst({ where: { baseId, kind: dto.kind, groupId, status: { in: [...OPEN, 'FAILED'] } } })
       if (same) return { id: same.id }
       const groupName = dto.kind === 'GROUPS' ? 'Обновление групп'
         : dto.kind === 'INDEX' ? group?.name ? `Обновление списка: ${group.name}` : 'Обновление списка товаров'
-          : group ? `Загрузка группы: ${group.name}` : `Загрузка выбранных товаров: ${itemIds.length}`
-      const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, itemIds, mode: dto.kind === 'IMPORT' ? 'FULL' : dto.mode, groupName } })
-      await tx.auditLog.create({ data: { action: 'ONEC_CATALOG_QUEUE', entity: 'OneCCatalogJob', entityId: row.id, details: { kind: row.kind, groupId, items: itemIds.length, mode: row.mode, baseId } } })
+          : group ? `Загрузка группы: ${group.name}${stockOnly ? ' · в наличии' : ''}` : `Загрузка выбранных товаров: ${itemIds.length}`
+      const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, itemIds, stockOnly: dto.kind === 'IMPORT' && stockOnly, mode: dto.kind === 'IMPORT' ? 'FULL' : dto.mode, groupName } })
+      await tx.auditLog.create({ data: { action: 'ONEC_CATALOG_QUEUE', entity: 'OneCCatalogJob', entityId: row.id, details: { kind: row.kind, groupId, items: itemIds.length, stockOnly: row.stockOnly, mode: row.mode, baseId } } })
       return { id: row.id }
     })
   }
@@ -273,10 +280,20 @@ export class RemoteCatalogService {
       const { lastHash, itemIds, ...safe } = job
       if (job.kind === 'GROUPS') return { job: safe, pauseMs: 3000 }
       const state = await this.exclusionState(baseId)
-      const excludedGroupIds = state.groups
+      const excludedRoots = state.groups
         .filter(group => group.excluded && !state.ids.has(group.parentId))
         .map(group => group.oneCId)
-        .slice(0, 100)
+      let loadedRoots: string[] = []
+      if (job.kind === 'IMPORT' && job.groupId) {
+        const branch = new Set(this.subtree(state.groups, job.groupId))
+        const loaded = new Set(state.groups
+          .filter(group => group.oneCId !== job.groupId && branch.has(group.oneCId) && group.fullyImportedAt)
+          .map(group => group.oneCId))
+        loadedRoots = state.groups
+          .filter(group => loaded.has(group.oneCId) && !loaded.has(group.parentId))
+          .map(group => group.oneCId)
+      }
+      const excludedGroupIds = [...new Set([...excludedRoots, ...loadedRoots])].slice(0, 100)
       if (job.kind === 'INDEX') return { job: { ...safe, excludedGroupIds }, pauseMs: 300 }
       const selectedIds = Array.isArray(itemIds) ? itemIds.filter((value): value is string => typeof value === 'string') : []
       const selectedCodes = (await this.db.oneCNomenclatureItem.findMany({
@@ -407,6 +424,22 @@ export class RemoteCatalogService {
       if (row.kind === 'INDEX') {
         if (row.mode === 'FULL' && !row.groupId) await tx.oneCNomenclatureItem.updateMany({ where: { baseId: row.baseId, generation: { not: id } }, data: { active: false } })
         await tx.oneCCatalogAgent.update({ where: { baseId: row.baseId }, data: { nomenclatureUpdatedAt: new Date() } })
+      }
+      if (row.kind === 'IMPORT' && row.groupId && !row.stockOnly) {
+        const groups = await tx.oneCRemoteGroup.findMany({
+          where: { baseId: row.baseId, active: true },
+          select: { oneCId: true, parentId: true, excluded: true },
+          take: 50000,
+        })
+        const excluded = this.effectiveExcluded(groups)
+        const imported = this.subtree(groups, row.groupId).filter(oneCId => !excluded.has(oneCId))
+        const finishedAt = new Date()
+        for (let offset = 0; offset < imported.length; offset += 300) {
+          await tx.oneCRemoteGroup.updateMany({
+            where: { baseId: row.baseId, oneCId: { in: imported.slice(offset, offset + 300) } },
+            data: { fullyImportedAt: finishedAt },
+          })
+        }
       }
       await tx.oneCCatalogJob.update({ where: { id }, data: { status: 'COMPLETED', finishedAt: new Date(), leaseUntil: null } })
       await tx.catalogImportSession.update({ where: { id }, data: { status: 'COMPLETED', activeKey: null, finishedAt: new Date() } })

@@ -293,7 +293,13 @@ function Read-RemotePage($Job) {
         $body.hashes += @{ oneCId = $id; hash = $hash }; $body.products += $product
         $categories[$categoryId] = $category
     }
-    $body.categories = @($categories.Values)
+    if ($Job.stockOnly) {
+        $body.products = @($body.products | Where-Object { [int]$_.stockQty -gt 0 })
+        $neededCategories = @{}
+        foreach ($product in $body.products) { $neededCategories[[string]$product.categoryOneCId] = $true }
+        $body.categories = @($categories.Values | Where-Object { $neededCategories.ContainsKey([string]$_.oneCId) })
+    }
+    else { $body.categories = @($categories.Values) }
     if ($Job.mode -eq 'DELTA') {
         $known = Invoke-AgentApi 'POST' 'known' @{ hashes = $body.hashes }
         $body.products = @($body.products | Where-Object { $_.oneCId -in @($known.needed) })

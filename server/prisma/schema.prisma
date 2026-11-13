@@ -455,6 +455,9 @@ model OneCRemoteGroup {
   generation String
   searchName String @default("")
   lastReceivedAt DateTime?
+  // Set only after an explicit whole-branch import has completed.
+  // Parent imports can then skip this branch instead of reading it again.
+  fullyImportedAt DateTime?
   active Boolean @default(true)
   // Site-only exclusion. It never changes or deletes the source group in 1C.
   excluded Boolean @default(false)
@@ -469,6 +472,7 @@ model OneCCatalogJob {
   groupName String
   // Selected mirror item IDs for an on-demand IMPORT job.
   itemIds Json @default("[]")
+  stockOnly Boolean @default(false)
   mode String @default("FULL")
   status String @default("QUEUED")
   cursor String @default("")
