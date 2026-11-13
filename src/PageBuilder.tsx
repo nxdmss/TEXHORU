@@ -48,6 +48,7 @@ export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [publishedAt, setPublishedAt] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -60,6 +61,18 @@ export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (!expanded) return
+    const previousOverflow = document.body.style.overflow
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setExpanded(false) }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [expanded])
 
   const selected = blocks.find((block) => block.id === selectedId) || null
   const dirty = useMemo(() => JSON.stringify(blocks) !== JSON.stringify(savedBlocks), [blocks, savedBlocks])
@@ -139,12 +152,12 @@ export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
 
   if (loading) return <div className="page-builder-loading">Открываем редактор страницы…</div>
 
-  return <section className="page-builder" aria-label="Редактор главной страницы">
+  return <section className={`page-builder${expanded ? ' is-expanded' : ''}`} aria-label="Редактор главной страницы">
     <header className="page-builder__topbar">
       <div><span className="page-builder__kicker">Главная страница</span><h2>Редактор витрины</h2></div>
       <div className="page-builder__history"><button type="button" onClick={undo} disabled={!past.length} aria-label="Отменить">↶</button><button type="button" onClick={redo} disabled={!future.length} aria-label="Повторить">↷</button></div>
       <div className="page-builder__devices" aria-label="Размер предпросмотра">{(['desktop','tablet','mobile'] as const).map((item) => <button type="button" key={item} className={device === item ? 'active' : ''} onClick={() => setDevice(item)} aria-label={item === 'desktop' ? 'Компьютер' : item === 'tablet' ? 'Планшет' : 'Телефон'}>{item === 'desktop' ? '▱' : item === 'tablet' ? '▯' : '▯'}</button>)}</div>
-      <div className="page-builder__actions"><span className={dirty ? 'is-dirty' : ''}>{dirty ? 'Есть изменения' : publishedAt ? 'Всё сохранено' : 'Ещё не опубликовано'}</span><button type="button" onClick={save} disabled={saving || publishing || !dirty}>{saving ? 'Сохраняем…' : 'Сохранить'}</button><button type="button" className="primary" onClick={publish} disabled={saving || publishing}>{publishing ? 'Публикуем…' : 'Опубликовать'}</button></div>
+      <div className="page-builder__actions"><button type="button" className="page-builder__expand" onClick={() => setExpanded((value) => !value)} aria-pressed={expanded}>{expanded ? 'Свернуть' : 'На весь экран'} <b aria-hidden="true">{expanded ? '×' : '⛶'}</b></button><span className={dirty ? 'is-dirty' : ''}>{dirty ? 'Есть изменения' : publishedAt ? 'Всё сохранено' : 'Ещё не опубликовано'}</span><button type="button" onClick={save} disabled={saving || publishing || !dirty}>{saving ? 'Сохраняем…' : 'Сохранить'}</button><button type="button" className="primary" onClick={publish} disabled={saving || publishing}>{publishing ? 'Публикуем…' : 'Опубликовать'}</button></div>
     </header>
     {(notice || error) && <div className={error ? 'page-builder__message is-error' : 'page-builder__message'} role={error ? 'alert' : 'status'}>{error || notice}</div>}
     <div className="page-builder__workspace">
@@ -177,7 +190,6 @@ export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
             <label className="page-builder__field"><span>Описание</span><textarea rows={4} value={selected.body || ''} onChange={(event) => updateSelected({ body: event.target.value })} /></label>
             <label className="page-builder__field"><span>Текст кнопки</span><input value={selected.ctaLabel || ''} onChange={(event) => updateSelected({ ctaLabel: event.target.value })} /></label>
           </>}
-          <div className="page-builder__field"><span>Ширина</span><div className="page-builder__widths">{widths.map((item) => <button type="button" key={item.value} className={selected.width === item.value ? 'active' : ''} onClick={() => updateSelected({ width: item.value })}>{item.label}</button>)}</div><small>На телефоне блок всегда занимает всю ширину.</small></div>
           {selected.type === 'promo' && <button type="button" className="page-builder__secondary" onClick={onEditPromos}>Настроить рекламные слайды</button>}
           <div className="page-builder__inspector-actions"><button type="button" onClick={duplicateSelected}>Дублировать</button><button type="button" className="danger" onClick={removeSelected} disabled={blocks.length === 1}>Удалить</button></div>
         </> : <p>Выберите блок на холсте.</p>}
