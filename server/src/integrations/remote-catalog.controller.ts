@@ -13,6 +13,12 @@ export class RemoteCatalogController {
   tree() { return this.remote.tree() }
   @Get('admin/integrations/1c/remote/nomenclature') @UseGuards(AuthGuard, AdminGuard)
   nomenclature(@Query('group') group = '', @Query('search') search = '', @Query('page') page = '0') { return this.remote.nomenclature(group, search, Number(page)) }
+  @Get('admin/integrations/1c/remote/excluded-groups') @UseGuards(AuthGuard, AdminGuard)
+  excludedGroups() { return this.remote.excludedGroups() }
+  @Post('admin/integrations/1c/remote/groups/:id/exclude') @UseGuards(AuthGuard, AdminGuard)
+  excludeGroup(@Param('id', ParseUUIDPipe) id: string) { return this.remote.excludeGroup(id) }
+  @Post('admin/integrations/1c/remote/groups/:id/restore') @UseGuards(AuthGuard, AdminGuard)
+  restoreGroup(@Param('id', ParseUUIDPipe) id: string) { return this.remote.restoreGroup(id) }
   @Post('admin/integrations/1c/remote/jobs') @UseGuards(AuthGuard, AdminGuard)
   create(@Body() dto: RemoteJobDto) { return this.remote.create(dto) }
   @Post('admin/integrations/1c/remote/jobs/:id/action') @UseGuards(AuthGuard, AdminGuard)

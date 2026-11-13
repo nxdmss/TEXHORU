@@ -142,6 +142,18 @@ function Read-RemotePage($Job) {
         $text += ' И Н.Ссылка В ИЕРАРХИИ(&Group)'
         $parameters.Group = Get-OneCRef ([string]$Job.groupId)
     }
+    if ($Job.kind -eq 'CATALOG') {
+        $excludedIndex = 0
+        foreach ($excludedId in @($Job.excludedGroupIds)) {
+            if (-not ([string]$excludedId).Trim()) { continue }
+            $parameterName = 'ExcludedGroup' + $excludedIndex
+            # Exclusions are evaluated inside 1C, before TOP 50. Large archive
+            # branches therefore never enter price/stock queries or HTTP batches.
+            $text += (' И НЕ Н.Ссылка В ИЕРАРХИИ(&' + $parameterName + ')')
+            $parameters[$parameterName] = Get-OneCRef ([string]$excludedId)
+            $excludedIndex++
+        }
+    }
     $text += ' УПОРЯДОЧИТЬ ПО Н.Код'
     $query = New-OneCQuery $text $parameters
     $selection = Select-OneCQuery $query

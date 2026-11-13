@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { api, type OneCNomenclaturePage, type OneCRemoteGroup, type RemoteCatalogStatus } from './api'
+import { api, type OneCExcludedGroup, type OneCNomenclaturePage, type OneCRemoteGroup, type RemoteCatalogStatus } from './api'
 import './RemoteCatalogPanel.css'
 
 const jobLabels: Record<string, string> = {
@@ -20,6 +20,7 @@ function shortDate(value?: string | null) {
 export function RemoteCatalogPanel() {
   const [status, setStatus] = useState<RemoteCatalogStatus | null>(null)
   const [tree, setTree] = useState<OneCRemoteGroup[]>([])
+  const [excludedGroups, setExcludedGroups] = useState<OneCExcludedGroup[]>([])
   const [mirrorCount, setMirrorCount] = useState(0)
   const [pageData, setPageData] = useState<OneCNomenclaturePage | null>(null)
   const [selectedGroup, setSelectedGroup] = useState('')
@@ -68,11 +69,14 @@ export function RemoteCatalogPanel() {
         setStatus(nextStatus)
         if (!nextStatus.configured) { setPageData(null); return }
         const nextPagePromise = api.remoteNomenclature(selectedGroup, query, page)
-        const nextTreePromise = withTree || tree.length === 0 ? api.remoteCatalogTree() : null
-        const [nextPage, nextTree] = await Promise.all([nextPagePromise, nextTreePromise])
+        const loadTree = withTree || tree.length === 0
+        const nextTreePromise = loadTree ? api.remoteCatalogTree() : null
+        const excludedPromise = loadTree ? api.remoteExcludedGroups() : null
+        const [nextPage, nextTree, nextExcluded] = await Promise.all([nextPagePromise, nextTreePromise, excludedPromise])
         if (!alive) return
         setPageData(nextPage)
         if (nextTree) { setTree(nextTree.groups); setMirrorCount(nextTree.itemCount) }
+        if (nextExcluded) setExcludedGroups(nextExcluded)
         setError('')
       } catch (cause) {
         if (alive) setError(cause instanceof Error ? cause.message : 'Не удалось получить номенклатуру')
@@ -91,10 +95,10 @@ export function RemoteCatalogPanel() {
     try {
       await work()
       setNotice(message)
-      const [nextStatus, nextTree, nextPage] = await Promise.all([
-        api.remoteCatalog(), api.remoteCatalogTree(), api.remoteNomenclature(selectedGroup, query, page),
+      const [nextStatus, nextTree, nextPage, nextExcluded] = await Promise.all([
+        api.remoteCatalog(), api.remoteCatalogTree(), api.remoteNomenclature(selectedGroup, query, page), api.remoteExcludedGroups(),
       ])
-      setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setPageData(nextPage)
+      setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setPageData(nextPage); setExcludedGroups(nextExcluded)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Команда не выполнена')
     } finally {
@@ -106,6 +110,35 @@ export function RemoteCatalogPanel() {
     setSelectedGroup(group.oneCId)
     setExpanded(current => new Set(current).add(group.oneCId))
     setSearch(''); setPage(0)
+  }
+
+  async function excludeGroup(group: OneCRemoteGroup) {
+    if (!window.confirm(`Исключить «${group.name}» и все вложенные группы из сайта?\n\nЗаписи этой ветки будут удалены из базы сайта и больше не будут загружаться из 1С. В самой 1С ничего не изменится.`)) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api.remoteExcludeGroup(group.oneCId)
+      const [nextStatus, nextTree, nextPage, nextExcluded] = await Promise.all([
+        api.remoteCatalog(), api.remoteCatalogTree(), api.remoteNomenclature('', '', 0), api.remoteExcludedGroups(),
+      ])
+      setSelectedGroup(''); setSearch(''); setQuery(''); setPage(0)
+      setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setPageData(nextPage); setExcludedGroups(nextExcluded)
+      const protectedText = result.productsArchived ? ` Защищено историей заказов/цен и архивировано: ${result.productsArchived.toLocaleString('ru-RU')}.` : ''
+      setNotice(`Группа «${result.name}» исключена. Удалено из зеркала: ${result.removed.toLocaleString('ru-RU')}; карточек сайта: ${result.productsDeleted.toLocaleString('ru-RU')}; категорий: ${result.categoriesDeleted.toLocaleString('ru-RU')}.${protectedText} 1С не изменялась.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось исключить группу')
+    } finally { setBusy(false) }
+  }
+
+  async function restoreGroup(group: OneCExcludedGroup) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api.remoteRestoreGroup(group.oneCId)
+      const [nextStatus, nextTree, nextExcluded] = await Promise.all([api.remoteCatalog(), api.remoteCatalogTree(), api.remoteExcludedGroups()])
+      setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setExcludedGroups(nextExcluded)
+      setNotice(`Группа «${result.name}» возвращена. Повторная загрузка из 1С поставлена в очередь.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось вернуть группу')
+    } finally { setBusy(false) }
   }
 
   function renderTree(parentId: string, depth = 0): ReactNode {
@@ -129,6 +162,7 @@ export function RemoteCatalogPanel() {
   }
 
   const agent = status?.agent
+  const selected = selectedGroup ? byId.get(selectedGroup) : null
   const online = Boolean(agent?.online && agent.state !== 'error')
   const activeJob = status?.jobs.find(job => ['QUEUED', 'RUNNING', 'PAUSED', 'FAILED'].includes(job.status))
   const groupRows = pageData?.children || []
@@ -173,6 +207,13 @@ export function RemoteCatalogPanel() {
             <span className="onec-folder" />Номенклатура <b>{mirrorCount.toLocaleString('ru-RU')}</b>
           </button>
           <div className="onec-tree__scroll">{tree.length ? renderTree('') : <p>Группы появятся после первого чтения 1С.</p>}</div>
+          <details className="onec-excluded">
+            <summary>Исключённые группы <b>{excludedGroups.length}</b></summary>
+            <div>{excludedGroups.length ? excludedGroups.map(group => <article key={group.oneCId}>
+              <span><strong>{group.name}</strong><small>Не загружается из 1С</small></span>
+              <button disabled={busy} onClick={() => restoreGroup(group)}>Вернуть</button>
+            </article>) : <p>Исключённых веток нет.</p>}</div>
+          </details>
         </aside>
 
         <main className="onec-list">
@@ -180,6 +221,7 @@ export function RemoteCatalogPanel() {
             <button onClick={() => { setSelectedGroup(''); setPage(0) }}>Номенклатура</button>
             {path.map(group => <span key={group.oneCId}><i>›</i><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
             {query && <span><i>›</i><b>Поиск: {query}</b></span>}
+            {selected && <button className="onec-exclude-button" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить группу</button>}
           </nav>
           <div className="onec-table-wrap">
             <div className="onec-table">
