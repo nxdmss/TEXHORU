@@ -23,6 +23,24 @@ function Set-OneCProperty($Object, [string[]]$Names, $Value) {
     }
     throw ('ONEC_PROPERTY_NOT_FOUND:' + ($Names -join '/'))
 }
+function Get-OneCProperty($Object, [string[]]$Names, [bool]$Optional = $false) {
+    $lastError = $null
+    foreach ($name in $Names) {
+        try {
+            $property = $Object.PSObject.Properties[$name]
+            if ($property) { return $property.Value }
+        } catch { $lastError = $_ }
+        try { return $Object.GetType().InvokeMember($name, [Reflection.BindingFlags]::GetProperty, $null, $Object, @()) }
+        catch { $lastError = $_ }
+        # Query selections in several old COMConnector builds publish columns
+        # only through Получить/Get rather than normal automation properties.
+        try { return Invoke-OneCMethod $Object @('Получить', 'Get') @($name) }
+        catch { $lastError = $_ }
+    }
+    if ($Optional) { return $null }
+    if ($lastError) { throw $lastError }
+    throw ('ONEC_PROPERTY_NOT_FOUND:' + ($Names -join '/'))
+}
 function Select-OneCQuery($Query) {
     $result = Invoke-OneCMethod $Query @('Выполнить', 'Execute')
     return Invoke-OneCMethod $result @('Выбрать', 'Select')
@@ -75,14 +93,15 @@ function Get-OneCRef([string]$Id) {
     $query = New-OneCQuery 'ВЫБРАТЬ Н.Ссылка КАК Ref, Н.Код КАК Code ИЗ Справочник.Номенклатура КАК Н ГДЕ Н.ЭтоГруппа' @{}
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
-        $code = ([string]$selection.Code).Trim()
-        if (-not $code) { try { $code = ([string]$selection.Ref.Код).Trim() } catch {} }
-        if ($code -and (Get-StableOneCId 'GROUP' $code) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
+        $ref = Get-OneCProperty $selection @('Ref')
+        $code = ([string](Get-OneCProperty $selection @('Code'))).Trim()
+        if (-not $code) { $code = ([string](Get-OneCProperty $ref @('Код', 'Code') $true)).Trim() }
+        if ($code -and (Get-StableOneCId 'GROUP' $code) -eq $Id.ToLowerInvariant()) { return $ref }
     }
     throw 'GROUP_NOT_FOUND'
 }
 function Get-GroupPath($Reference) {
-    $code = ([string]$Reference.Код).Trim()
+    $code = ([string](Get-OneCProperty $Reference @('Код', 'Code') $true)).Trim()
     if (-not $code) { return 'Без категории' }
     $id = Get-StableOneCId 'GROUP' $code
     if ($script:paths.ContainsKey($id)) { return $script:paths[$id] }
@@ -90,9 +109,10 @@ function Get-GroupPath($Reference) {
     while ($code) {
         $key = Get-StableOneCId 'GROUP' $code
         if ($seen.ContainsKey($key) -or $names.Count -ge 64) { throw 'GROUP_HIERARCHY' }
-        $seen[$key] = $true; $names = @(([string]$Reference.Наименование).Trim()) + $names
-        $Reference = $Reference.Родитель
-        $code = ([string]$Reference.Код).Trim()
+        $name = ([string](Get-OneCProperty $Reference @('Наименование', 'Description') $true)).Trim()
+        $seen[$key] = $true; $names = @($name) + $names
+        $Reference = Get-OneCProperty $Reference @('Родитель', 'Parent') $true
+        $code = ([string](Get-OneCProperty $Reference @('Код', 'Code') $true)).Trim()
     }
     $path = $names -join ' / '
     if (-not $path) { $path = 'Без категории' }
@@ -104,7 +124,7 @@ function Get-PriceType([string]$Name) {
     $query = New-OneCQuery 'ВЫБРАТЬ ПЕРВЫЕ 1 Т.Ссылка КАК Ref ИЗ Справочник.ТипыЦенНоменклатуры КАК Т ГДЕ Т.Наименование = &Name' @{ Name = $Name }
     $selection = Select-OneCQuery $query
     if (-not (Move-OneCSelection $selection)) { throw 'PRICE_TYPE_NOT_FOUND' }
-    return $selection.Ref
+    return Get-OneCProperty $selection @('Ref')
 }
 function Read-RemotePage($Job) {
     $script:paths = @{}
@@ -127,12 +147,15 @@ function Read-RemotePage($Job) {
     $selection = Select-OneCQuery $query
     $rows = @()
     while (Move-OneCSelection $selection) {
+        $ref = Get-OneCProperty $selection @('Ref')
+        $unit = Get-OneCProperty $selection @('Unit')
+        $parent = Get-OneCProperty $selection @('Parent')
         $unitName = ''
-        try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
-        $code = ([string]$selection.Code).Trim(); $parentCode = ([string]$selection.ParentCode).Trim()
-        if (-not $code) { try { $code = ([string]$selection.Ref.Код).Trim() } catch {} }
-        if (-not $parentCode) { try { $parentCode = ([string]$selection.Parent.Код).Trim() } catch {} }
-        $rows += ,@{ Ref = $selection.Ref; Code = $code; Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; ParentCode = $parentCode; Deleted = [bool]$selection.Deleted }
+        try { $unitName = ([string](Get-OneCProperty $unit @('Наименование', 'Description'))).Trim() } catch { $unitName = ([string]$unit).Trim() }
+        $code = ([string](Get-OneCProperty $selection @('Code'))).Trim(); $parentCode = ([string](Get-OneCProperty $selection @('ParentCode'))).Trim()
+        if (-not $code) { $code = ([string](Get-OneCProperty $ref @('Код', 'Code') $true)).Trim() }
+        if (-not $parentCode) { $parentCode = ([string](Get-OneCProperty $parent @('Код', 'Code') $true)).Trim() }
+        $rows += ,@{ Ref = $ref; Code = $code; Article = ([string](Get-OneCProperty $selection @('Article'))).Trim(); Name = [string](Get-OneCProperty $selection @('Name')); FullName = ([string](Get-OneCProperty $selection @('FullName'))).Trim(); ItemKind = ([string](Get-OneCProperty $selection @('ItemKind'))).Trim(); UnitName = $unitName; Parent = $parent; ParentCode = $parentCode; Deleted = [bool](Get-OneCProperty $selection @('Deleted')) }
     }
     if ($rows.Count -eq 0) { return $null }
     $range = @{ FirstCode = $rows[0].Code; LastCode = $rows[-1].Code }
@@ -142,9 +165,10 @@ function Read-RemotePage($Job) {
         $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, Н.Родитель.Код КАК Code, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель.Код >= &FirstCode И Н.Родитель.Код <= &LastCode СГРУППИРОВАТЬ ПО Н.Родитель, Н.Родитель.Код' $range
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
-            $countCode = ([string]$selection.Code).Trim()
-            if (-not $countCode) { try { $countCode = ([string]$selection.Ref.Код).Trim() } catch {} }
-            $counts[$countCode] = [int]$selection.Qty
+            $countRef = Get-OneCProperty $selection @('Ref')
+            $countCode = ([string](Get-OneCProperty $selection @('Code'))).Trim()
+            if (-not $countCode) { $countCode = ([string](Get-OneCProperty $countRef @('Код', 'Code') $true)).Trim() }
+            $counts[$countCode] = [int](Get-OneCProperty $selection @('Qty'))
         }
         foreach ($row in $rows) {
             $groupKey = if ($row.Code) { $row.Code } else { 'NO_CODE|' + $row.Name.Trim() + '|' + $row.ParentCode }
@@ -166,10 +190,12 @@ function Read-RemotePage($Job) {
         $query = New-OneCQuery 'ВЫБРАТЬ Ц.Номенклатура КАК Ref, Ц.Номенклатура.Код КАК Code, МАКСИМУМ(Ц.Цена) КАК Price, КОЛИЧЕСТВО(РАЗЛИЧНЫЕ Ц.Цена) КАК Variants ИЗ РегистрСведений.ЦеныНоменклатуры.СрезПоследних(, ТипЦен = &PriceType) КАК Ц ГДЕ Ц.Номенклатура.Код >= &FirstCode И Ц.Номенклатура.Код <= &LastCode И Ц.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО Ц.Номенклатура, Ц.Номенклатура.Код' @{ PriceType = $priceType; FirstCode = $range.FirstCode; LastCode = $range.LastCode }
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
-            $price = [decimal]$selection.Price
-            if ($selection.Variants -gt 1 -or $price -lt 0 -or $price -ne [decimal]::Truncate($price) -or $price -gt [int]::MaxValue) { throw 'PRICE_UNIT_OR_FRACTION' }
-            $priceCode = ([string]$selection.Code).Trim()
-            if (-not $priceCode) { try { $priceCode = ([string]$selection.Ref.Код).Trim() } catch {} }
+            $price = [decimal](Get-OneCProperty $selection @('Price'))
+            $variants = [int](Get-OneCProperty $selection @('Variants'))
+            if ($variants -gt 1 -or $price -lt 0 -or $price -ne [decimal]::Truncate($price) -or $price -gt [int]::MaxValue) { throw 'PRICE_UNIT_OR_FRACTION' }
+            $priceRef = Get-OneCProperty $selection @('Ref')
+            $priceCode = ([string](Get-OneCProperty $selection @('Code'))).Trim()
+            if (-not $priceCode) { $priceCode = ([string](Get-OneCProperty $priceRef @('Код', 'Code') $true)).Trim() }
             $map[$priceCode] = [int]$price
         }
         $prices += ,$map
@@ -178,10 +204,11 @@ function Read-RemotePage($Job) {
     $query = New-OneCQuery 'ВЫБРАТЬ О.Номенклатура КАК Ref, О.Номенклатура.Код КАК Code, СУММА(О.КоличествоОстаток) КАК Qty ИЗ РегистрНакопления.ТоварыНаСкладах.Остатки() КАК О ГДЕ О.Номенклатура.Код >= &FirstCode И О.Номенклатура.Код <= &LastCode И О.ХарактеристикаНоменклатуры = ЗНАЧЕНИЕ(Справочник.ХарактеристикиНоменклатуры.ПустаяСсылка) СГРУППИРОВАТЬ ПО О.Номенклатура, О.Номенклатура.Код' $range
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
-        $qty = [decimal]$selection.Qty
+        $qty = [decimal](Get-OneCProperty $selection @('Qty'))
         if ($qty -ne [decimal]::Truncate($qty) -or $qty -gt [int]::MaxValue) { throw 'STOCK_FRACTION' }
-        $stockCode = ([string]$selection.Code).Trim()
-        if (-not $stockCode) { try { $stockCode = ([string]$selection.Ref.Код).Trim() } catch {} }
+        $stockRef = Get-OneCProperty $selection @('Ref')
+        $stockCode = ([string](Get-OneCProperty $selection @('Code'))).Trim()
+        if (-not $stockCode) { $stockCode = ([string](Get-OneCProperty $stockRef @('Код', 'Code') $true)).Trim() }
         $stocks[$stockCode] = [int][Math]::Max(0, $qty)
     }
     $categories = @{}
