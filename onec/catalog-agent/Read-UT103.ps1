@@ -191,8 +191,12 @@ function Read-RemotePage($Job) {
         $selection = Select-OneCQuery $query
         while (Move-OneCSelection $selection) {
             $price = [decimal](Get-OneCProperty $selection @('Price'))
-            $variants = [int](Get-OneCProperty $selection @('Variants'))
-            if ($variants -gt 1 -or $price -lt 0 -or $price -ne [decimal]::Truncate($price) -or $price -gt [int]::MaxValue) { throw 'PRICE_UNIT_OR_FRACTION' }
+            # Real UT 10.3 databases can contain kopecks or several historical
+            # representations for the same base price. The site stores whole
+            # rubles, so use the maximum selected value and round it safely.
+            $price = [decimal]::Round($price, 0, [MidpointRounding]::AwayFromZero)
+            if ($price -lt 0) { $price = 0 }
+            if ($price -gt [int]::MaxValue) { $price = [int]::MaxValue }
             $priceRef = Get-OneCProperty $selection @('Ref')
             $priceCode = ([string](Get-OneCProperty $selection @('Code'))).Trim()
             if (-not $priceCode) { $priceCode = ([string](Get-OneCProperty $priceRef @('Код', 'Code') $true)).Trim() }
@@ -205,7 +209,10 @@ function Read-RemotePage($Job) {
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
         $qty = [decimal](Get-OneCProperty $selection @('Qty'))
-        if ($qty -ne [decimal]::Truncate($qty) -or $qty -gt [int]::MaxValue) { throw 'STOCK_FRACTION' }
+        # The web mirror exposes sellable whole units. Fractional balances are
+        # rounded down instead of aborting the complete catalog transfer.
+        $qty = [decimal]::Floor($qty)
+        if ($qty -gt [int]::MaxValue) { $qty = [int]::MaxValue }
         $stockRef = Get-OneCProperty $selection @('Ref')
         $stockCode = ([string](Get-OneCProperty $selection @('Code'))).Trim()
         if (-not $stockCode) { $stockCode = ([string](Get-OneCProperty $stockRef @('Код', 'Code') $true)).Trim() }
