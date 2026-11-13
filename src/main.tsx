@@ -14,6 +14,7 @@ import './brand-system.css'
 import './admin-control.css'
 import './product-image.css'
 import './storefront-refresh.css'
+import './storefront-layout.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

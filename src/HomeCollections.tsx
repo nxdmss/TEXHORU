@@ -6,17 +6,18 @@ import { ALL_CATALOG, categorySelection, categoryMenuRoot, type OneCNode } from 
 import { storefrontPath, browseLabel } from './catalog-navigation'
 import type { Product } from './types'
 
-export function HomeCollections({ products, roots, onSelect, onSmartphones }: {
+export function HomeCollections({ products, roots, onSelect, onSmartphones, title }: {
   products: Product[]
   roots: OneCNode[]
   onSelect: (selection: string) => void
   onSmartphones: () => void
+  title?: string
 }) {
   const categories = categoryMenuRoot(roots).nodes.slice(0, 6)
   if (!categories.length) return null
   return <section className="home-collections" aria-label="Категории магазина">
     <header className="home-collections__head">
-      <h2>Категории</h2>
+      <h2>{title || 'Категории'}</h2>
       <button type="button" onClick={() => onSelect(ALL_CATALOG)}>Весь каталог <Icon name="arrow" /></button>
     </header>
     <div className="home-collections__grid">{categories.map((node, index) => {

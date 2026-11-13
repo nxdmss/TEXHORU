@@ -1,0 +1,66 @@
+.storefront-page-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 24px 20px;
+  width: min(var(--storefront-frame), calc(100% - (var(--storefront-gutter) * 2)));
+  margin: 0 auto;
+  padding: 8px 0 20px;
+}
+.storefront-layout__block { grid-column: span var(--storefront-block-span); min-width: 0; }
+.storefront-page-grid .storefront-layout__block > :is(.home-collections, .phone-portal, .storefront-carousel, .catalog) {
+  width: 100% !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+}
+.storefront-page-grid .storefront-layout__block > :first-child { margin-top: 0 !important; }
+.storefront-page-grid .storefront-layout__block > :last-child { margin-bottom: 0 !important; }
+.storefront-layout__block[data-width="8"] :is(.product-grid, .catalog-featured .product-grid) { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap-inline: 18px !important; }
+.storefront-layout__block[data-width="6"] :is(.product-grid, .catalog-featured .product-grid),
+.storefront-layout__block[data-width="4"] :is(.product-grid, .catalog-featured .product-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap-inline: 15px !important; }
+.storefront-layout__block:not([data-width="12"]) .catalog-toolbar { align-items: flex-start; flex-direction: column; margin-bottom: 22px; }
+.storefront-layout__block:not([data-width="12"]) .catalog-more { width: 100%; }
+.storefront-layout__block:not([data-width="12"]) .home-collections__grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.storefront-layout__block:not([data-width="12"]) .home-collections__grid > button { padding: 14px; }
+.storefront-layout__block:not([data-width="12"]) .home-collection-image { height: 86px; }
+.storefront-layout__block:not([data-width="12"]) .storefront-carousel__viewport { aspect-ratio: 16 / 10 !important; }
+.storefront-layout__block[data-width="4"] .storefront-carousel__viewport { aspect-ratio: 4 / 5 !important; }
+.storefront-layout__block:not([data-width="12"]) .phone-portal__button { grid-template-columns: 1fr; grid-template-areas: 'visual' 'copy'; min-height: 100%; padding: 24px; }
+.storefront-layout__block:not([data-width="12"]) .phone-portal__visual { min-height: 210px; }
+.storefront-layout__block:not([data-width="12"]) .phone-portal__copy > strong { font-size: clamp(30px, 4vw, 52px); }
+
+.storefront-text-block {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  padding: clamp(28px, 4vw, 58px);
+  border-radius: 5px;
+  background: #17171a;
+  color: #fff;
+}
+.storefront-text-block > div { max-width: 760px; }
+.storefront-text-block span { color: #ff496c; font: 600 10px var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+.storefront-text-block h2 { margin: 12px 0 0; font-size: clamp(32px, 5vw, 72px); font-weight: 500; line-height: .98; letter-spacing: -.055em; }
+.storefront-text-block p { max-width: 58ch; margin: 18px 0 0; color: #bdbdc5; font-size: 15px; line-height: 1.6; }
+.storefront-text-block > button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 16px; min-height: 48px; padding: 0 18px; border: 0; border-radius: 4px; background: #fff; color: #17171a; font-size: 13px; font-weight: 600; }
+.storefront-text-block > button:hover { background: #ff496c; color: #fff; }
+.storefront-layout__block[data-width="4"] .storefront-text-block,
+.storefront-layout__block[data-width="6"] .storefront-text-block { align-items: flex-start; flex-direction: column; }
+.storefront-layout__block[data-width="4"] .storefront-text-block h2 { font-size: 34px; }
+
+.admin-content-editor { display: grid; gap: 30px; }
+.admin-content-editor .promo-manager { scroll-margin-top: 24px; }
+
+@media (max-width: 900px) {
+  .storefront-page-grid { gap: 18px; }
+  .storefront-layout__block { grid-column: 1 / -1 !important; }
+  .storefront-layout__block :is(.product-grid, .catalog-featured .product-grid) { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 620px) {
+  .storefront-page-grid { padding-top: 4px; gap: 12px; }
+  .storefront-layout__block :is(.product-grid, .catalog-featured .product-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .storefront-layout__block:not([data-width="12"]) .home-collections__grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .storefront-text-block { align-items: flex-start; flex-direction: column; gap: 24px; padding: 28px 22px; }
+  .storefront-text-block h2 { font-size: 36px; }
+}
