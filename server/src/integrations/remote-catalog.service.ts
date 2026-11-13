@@ -259,7 +259,7 @@ export class RemoteCatalogService {
       const blockingCatalog = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: { in: ['INDEX', 'IMPORT'] }, status: { in: [...OPEN, 'FAILED'] } } })
       if (!blockingCatalog) {
         const latestRoot = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'INDEX', groupId: '' }, orderBy: { createdAt: 'desc' } })
-        if (!latestRoot || latestRoot.status === 'CANCELLED') await this.create({ kind: 'INDEX', mode: 'FULL' })
+        if (!latestRoot) await this.create({ kind: 'INDEX', mode: 'FULL' })
       }
     }
     const job = await this.db.$transaction(async tx => {
