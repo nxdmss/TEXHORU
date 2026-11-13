@@ -34,7 +34,7 @@ function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
         if (-not $script:fixtureEmpty) { $rows = @([pscustomobject]@{ Ref = $item; Code = '0000046151'; Article = 'MPN-123'; Name = 'Apple iPhone 16'; FullName = 'Смартфон Apple iPhone 16'; ItemKind = 'Товар'; Unit = (New-Reference '77777777-7777-4777-8777-777777777777' 'шт' $zero); Parent = $group; ParentCode = '643'; Deleted = $script:fixtureDeleted }) }
     } elseif ($Text -match 'СрезПоследних') {
         $script:priceQueries += ,@{ Text = $Text; Parameters = $Parameters }
-        $price = if ((Get-RefId $Parameters.PriceType) -eq (Get-RefId $retail)) { 50000 } else { $script:fixtureCost }
+        $price = if ($Parameters.PriceType.Id -eq $retail.Id) { 50000 } else { $script:fixtureCost }
         if ($null -ne $price) { $rows = @([pscustomobject]@{ Ref = $item; Code = '0000046151'; Price = $price; Variants = 1 }) }
     } elseif ($Text -match 'КоличествоОстаток') {
         $qty = if ($script:fixtureFraction) { 1.5 } else { 5 }

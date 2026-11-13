@@ -40,23 +40,11 @@ function Get-StableOneCId([string]$Kind, [string]$Code) {
     $hex = $hex.Substring(0, 12) + '5' + $hex.Substring(13, 3) + '8' + $hex.Substring(17)
     return $hex.Substring(0, 8) + '-' + $hex.Substring(8, 4) + '-' + $hex.Substring(12, 4) + '-' + $hex.Substring(16, 4) + '-' + $hex.Substring(20, 12)
 }
-function Get-RefId($Reference, [string]$Kind = 'REFERENCE', [string]$Code = '') {
-    if ($Code) { return Get-StableOneCId $Kind $Code }
-    try {
-        $id = ([string](Invoke-OneCMethod $Reference @('УникальныйИдентификатор', 'UUID'))).ToLowerInvariant()
-        if ($id -match '^[0-9a-f-]{36}$') { return $id }
-    } catch {}
-    # Old external connections can hide UUID() on references while exposing
-    # the equivalent global XMLString(reference) conversion through IDispatch.
-    foreach ($name in @('XMLString', 'XMLСтрока', 'ValueToStringInternal', 'ЗначениеВСтрокуВнутр')) {
-        try {
-            $xml = [string]$script:connection.GetType().InvokeMember($name, [Reflection.BindingFlags]::InvokeMethod, $null, $script:connection, @($Reference))
-            if ($xml -match '(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}') { return $Matches[0].ToLowerInvariant() }
-        } catch {}
-    }
-    try { $Code = ([string]$Reference.Код).Trim() } catch {}
-    if ($Code) { return Get-StableOneCId $Kind $Code }
-    throw 'ONEC_REFERENCE_ID'
+function Get-NomenclatureKey([string]$Code, [string]$Article, [string]$Name, [string]$FullName, [string]$ParentCode) {
+    if ($Code.Trim()) { return $Code.Trim() }
+    $fallback = ($Article.Trim() + '|' + $FullName.Trim() + '|' + $Name.Trim() + '|' + $ParentCode.Trim()).Trim('|')
+    if (-not $fallback) { throw 'ONEC_NOMENCLATURE_KEY' }
+    return 'NO_CODE|' + $fallback
 }
 function New-OneCObject([string]$Type) {
     # COMConnector exposes global-context method names in the configuration's
@@ -87,18 +75,20 @@ function Get-OneCRef([string]$Id) {
     $query = New-OneCQuery 'ВЫБРАТЬ Н.Ссылка КАК Ref, Н.Код КАК Code ИЗ Справочник.Номенклатура КАК Н ГДЕ Н.ЭтоГруппа' @{}
     $selection = Select-OneCQuery $query
     while (Move-OneCSelection $selection) {
-        if ((Get-RefId $selection.Ref 'GROUP' ([string]$selection.Code)) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
+        $code = ([string]$selection.Code).Trim()
+        if (-not $code) { try { $code = ([string]$selection.Ref.Код).Trim() } catch {} }
+        if ($code -and (Get-StableOneCId 'GROUP' $code) -eq $Id.ToLowerInvariant()) { return $selection.Ref }
     }
     throw 'GROUP_NOT_FOUND'
 }
 function Get-GroupPath($Reference) {
     $code = ([string]$Reference.Код).Trim()
     if (-not $code) { return 'Без категории' }
-    $id = Get-RefId $Reference 'GROUP' $code
+    $id = Get-StableOneCId 'GROUP' $code
     if ($script:paths.ContainsKey($id)) { return $script:paths[$id] }
     $names = @(); $seen = @{}
     while ($code) {
-        $key = Get-RefId $Reference 'GROUP' $code
+        $key = Get-StableOneCId 'GROUP' $code
         if ($seen.ContainsKey($key) -or $names.Count -ge 64) { throw 'GROUP_HIERARCHY' }
         $seen[$key] = $true; $names = @(([string]$Reference.Наименование).Trim()) + $names
         $Reference = $Reference.Родитель
@@ -139,7 +129,10 @@ function Read-RemotePage($Job) {
     while (Move-OneCSelection $selection) {
         $unitName = ''
         try { $unitName = ([string]$selection.Unit.Наименование).Trim() } catch { $unitName = ([string]$selection.Unit).Trim() }
-        $rows += ,@{ Ref = $selection.Ref; Code = ([string]$selection.Code).Trim(); Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; ParentCode = ([string]$selection.ParentCode).Trim(); Deleted = [bool]$selection.Deleted }
+        $code = ([string]$selection.Code).Trim(); $parentCode = ([string]$selection.ParentCode).Trim()
+        if (-not $code) { try { $code = ([string]$selection.Ref.Код).Trim() } catch {} }
+        if (-not $parentCode) { try { $parentCode = ([string]$selection.Parent.Код).Trim() } catch {} }
+        $rows += ,@{ Ref = $selection.Ref; Code = $code; Article = ([string]$selection.Article).Trim(); Name = [string]$selection.Name; FullName = ([string]$selection.FullName).Trim(); ItemKind = ([string]$selection.ItemKind).Trim(); UnitName = $unitName; Parent = $selection.Parent; ParentCode = $parentCode; Deleted = [bool]$selection.Deleted }
     }
     if ($rows.Count -eq 0) { return $null }
     $range = @{ FirstCode = $rows[0].Code; LastCode = $rows[-1].Code }
@@ -148,11 +141,16 @@ function Read-RemotePage($Job) {
         $counts = @{}
         $query = New-OneCQuery 'ВЫБРАТЬ Н.Родитель КАК Ref, Н.Родитель.Код КАК Code, КОЛИЧЕСТВО(*) КАК Qty ИЗ Справочник.Номенклатура КАК Н ГДЕ НЕ Н.ЭтоГруппа И НЕ Н.ПометкаУдаления И Н.Родитель.Код >= &FirstCode И Н.Родитель.Код <= &LastCode СГРУППИРОВАТЬ ПО Н.Родитель, Н.Родитель.Код' $range
         $selection = Select-OneCQuery $query
-        while (Move-OneCSelection $selection) { $counts[(Get-RefId $selection.Ref 'GROUP' ([string]$selection.Code))] = [int]$selection.Qty }
+        while (Move-OneCSelection $selection) {
+            $countCode = ([string]$selection.Code).Trim()
+            if (-not $countCode) { try { $countCode = ([string]$selection.Ref.Код).Trim() } catch {} }
+            $counts[$countCode] = [int]$selection.Qty
+        }
         foreach ($row in $rows) {
-            $id = Get-RefId $row.Ref 'GROUP' $row.Code
-            $parent = if ($row.ParentCode) { Get-RefId $row.Parent 'GROUP' $row.ParentCode } else { '' }
-            $body.groups += @{ oneCId = $id; parentId = $parent; name = $row.Name.Trim(); itemCount = [int]$counts[$id] }
+            $groupKey = if ($row.Code) { $row.Code } else { 'NO_CODE|' + $row.Name.Trim() + '|' + $row.ParentCode }
+            $id = Get-StableOneCId 'GROUP' $groupKey
+            $parent = if ($row.ParentCode) { Get-StableOneCId 'GROUP' $row.ParentCode } else { '' }
+            $body.groups += @{ oneCId = $id; parentId = $parent; name = $row.Name.Trim(); itemCount = [int]$counts[$row.Code] }
         }
         return $body
     }
@@ -170,7 +168,9 @@ function Read-RemotePage($Job) {
         while (Move-OneCSelection $selection) {
             $price = [decimal]$selection.Price
             if ($selection.Variants -gt 1 -or $price -lt 0 -or $price -ne [decimal]::Truncate($price) -or $price -gt [int]::MaxValue) { throw 'PRICE_UNIT_OR_FRACTION' }
-            $map[(Get-RefId $selection.Ref 'NOMENCLATURE' ([string]$selection.Code))] = [int]$price
+            $priceCode = ([string]$selection.Code).Trim()
+            if (-not $priceCode) { try { $priceCode = ([string]$selection.Ref.Код).Trim() } catch {} }
+            $map[$priceCode] = [int]$price
         }
         $prices += ,$map
     }
@@ -180,12 +180,15 @@ function Read-RemotePage($Job) {
     while (Move-OneCSelection $selection) {
         $qty = [decimal]$selection.Qty
         if ($qty -ne [decimal]::Truncate($qty) -or $qty -gt [int]::MaxValue) { throw 'STOCK_FRACTION' }
-        $stocks[(Get-RefId $selection.Ref 'NOMENCLATURE' ([string]$selection.Code))] = [int][Math]::Max(0, $qty)
+        $stockCode = ([string]$selection.Code).Trim()
+        if (-not $stockCode) { try { $stockCode = ([string]$selection.Ref.Код).Trim() } catch {} }
+        $stocks[$stockCode] = [int][Math]::Max(0, $qty)
     }
     $categories = @{}
     foreach ($row in $rows) {
-        $id = Get-RefId $row.Ref 'NOMENCLATURE' $row.Code
-        $categoryId = if ($row.ParentCode) { Get-RefId $row.Parent 'GROUP' $row.ParentCode } else { Get-StableOneCId 'GROUP' '__ROOT__' }
+        $identityKey = Get-NomenclatureKey $row.Code $row.Article $row.Name $row.FullName $row.ParentCode
+        $id = Get-StableOneCId 'NOMENCLATURE' $identityKey
+        $categoryId = if ($row.ParentCode) { Get-StableOneCId 'GROUP' $row.ParentCode } else { Get-StableOneCId 'GROUP' '__ROOT__' }
         $path = Get-GroupPath $row.Parent
         $brand = 'Другие'
         if ($row.Name -match '(?i)iphone|apple') { $brand = 'Apple' }
@@ -193,7 +196,7 @@ function Read-RemotePage($Job) {
         elseif ($row.Name -match '(?i)xiaomi|redmi|poco') { $brand = 'Xiaomi' }
         elseif ($row.Name -match '(?i)honor') { $brand = 'Honor' }
         elseif ($row.Name -match '(?i)huawei') { $brand = 'Huawei' }
-        $product = [ordered]@{ oneCId = $id; sku = '1C-' + $id; slug = '1c-' + $id; name = $row.Name.Trim(); brand = $brand; categoryOneCId = $categoryId; price = [int]$prices[0][$id]; costPrice = $prices[1][$id]; stockQty = [int]$stocks[$id]; isDeleted = $row.Deleted; sourceCode = $row.Code; sourceArticle = $row.Article; sourceFullName = $row.FullName; sourceKind = $row.ItemKind; sourceUnit = $row.UnitName }
+        $product = [ordered]@{ oneCId = $id; sku = '1C-' + $id; slug = '1c-' + $id; name = $row.Name.Trim(); brand = $brand; categoryOneCId = $categoryId; price = [int]$prices[0][$row.Code]; costPrice = $prices[1][$row.Code]; stockQty = [int]$stocks[$row.Code]; isDeleted = $row.Deleted; sourceCode = $row.Code; sourceArticle = $row.Article; sourceFullName = $row.FullName; sourceKind = $row.ItemKind; sourceUnit = $row.UnitName }
         if ($row.Deleted) { $product.stockQty = 0 }
         if ($row.Article) { $product.mpn = $row.Article }
         $category = [ordered]@{ oneCId = $categoryId; name = $path; slug = '1c-' + $categoryId }
