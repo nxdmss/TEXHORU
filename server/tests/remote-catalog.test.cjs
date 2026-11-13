@@ -58,7 +58,7 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal((await req(admin + '?parent=' + groupId, undefined, 'staff')).body.groups[0].itemCount, 8000)
       assert.equal((await req(admin + '?search=apple', undefined, 'staff')).body.total, 1)
     })
-    await t.test('only the lightweight name index starts automatically after the group snapshot', async () => {
+    await t.test('the lightweight name index starts once and never repeats automatically', async () => {
       const automatic = (await poll()).body.job
       assert.equal(automatic.kind, 'INDEX'); assert.equal(automatic.mode, 'FULL'); assert.equal(automatic.groupId, '')
       const indexBatch = { leaseToken: automatic.leaseToken, batch: 0, cursor: '0000046151', scanned: 1, products: [], categories: [], hashes: [], groups: [], indexItems: [
@@ -70,6 +70,8 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal(await db.oneCNomenclatureItem.count(), 1)
       const picker = await req(admin + '/nomenclature?group=' + subId, undefined, 'staff')
       assert.equal(picker.body.items[0].name, 'Apple iPhone 16 128GB Black'); assert.equal(picker.body.items[0].imported, false)
+      await db.oneCCatalogJob.update({ where: { id: automatic.id }, data: { finishedAt: new Date(Date.now() - 31 * 60 * 1000) } })
+      assert.equal((await poll()).body.job, null)
     })
     let job, batch
     await t.test('only explicitly selected items or groups are fully read and published to the site', async () => {

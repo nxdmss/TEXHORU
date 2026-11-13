@@ -252,14 +252,14 @@ export class RemoteCatalogService {
     // Discover groups initially, then periodically refresh their names only.
     const lastGroups = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'GROUPS' }, orderBy: { createdAt: 'desc' } })
     if (!lastGroups || lastGroups.status === 'CANCELLED' || lastGroups.status === 'COMPLETED' && lastGroups.finishedAt && lastGroups.finishedAt.getTime() < Date.now() - 1800000) await this.create({ kind: 'GROUPS', mode: 'FULL' })
-    // Build only the lightweight picker index. Prices, stock and storefront
-    // cards are read later, exclusively for explicitly selected items.
+    // Build the lightweight picker index once. A later full refresh happens
+    // only after an explicit admin request; opening a group must never start
+    // another scan of every nomenclature item.
     if (lastGroups?.status === 'COMPLETED') {
       const blockingCatalog = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: { in: ['INDEX', 'IMPORT'] }, status: { in: [...OPEN, 'FAILED'] } } })
       if (!blockingCatalog) {
         const latestRoot = await this.db.oneCCatalogJob.findFirst({ where: { baseId, kind: 'INDEX', groupId: '' }, orderBy: { createdAt: 'desc' } })
         if (!latestRoot || latestRoot.status === 'CANCELLED') await this.create({ kind: 'INDEX', mode: 'FULL' })
-        else if (latestRoot.status === 'COMPLETED' && latestRoot.finishedAt && latestRoot.finishedAt.getTime() < Date.now() - 1800000) await this.create({ kind: 'INDEX', mode: 'FULL' })
       }
     }
     const job = await this.db.$transaction(async tx => {
