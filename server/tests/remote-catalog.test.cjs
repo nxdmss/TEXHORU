@@ -127,6 +127,14 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       const huge = { ...batch, categories: [{ ...batch.categories[0], name: 'x'.repeat(600000) }] }
       assert((await req(remote + '/jobs/' + delta.id + '/batch', huge)).status >= 400)
     })
+    await t.test('a cancelled group snapshot is recreated automatically', async () => {
+      const cancelled = await req(admin + '/jobs', { kind: 'GROUPS', mode: 'FULL' }, 'staff')
+      assert.equal(cancelled.status, 201)
+      assert.equal((await req(admin + '/jobs/' + cancelled.body.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
+      const replacement = (await poll()).body.job
+      assert.equal(replacement.kind, 'GROUPS'); assert.notEqual(replacement.id, cancelled.body.id)
+      assert.equal((await req(admin + '/jobs/' + replacement.id + '/action', { action: 'cancel' }, 'staff')).status, 201)
+    })
   } finally {
     await app.close()
     for (const suffix of ['', '-wal', '-shm', '-journal']) rmSync(file + suffix, { force: true })
