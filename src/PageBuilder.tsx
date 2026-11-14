@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type CSSProperties, type DragEvent } from 'react'
-import { api, type StorefrontLayoutState } from './api'
+import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react'
+import { api, type PromoBanner, type StorefrontLayoutState } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, type StorefrontBlock, type StorefrontBlockType, type StorefrontBlockWidth } from './page-layout'
 import './page-builder.css'
 
@@ -27,14 +27,73 @@ const freshBlock = (type: StorefrontBlockType): StorefrontBlock => ({
 })
 
 function BlockPreview({ block }: { block: StorefrontBlock }) {
-  if (block.type === 'promo') return <div className="page-builder-mock page-builder-mock--promo"><span>Акция</span><b>Ваш рекламный слайдер</b><i /></div>
   if (block.type === 'collections') return <div className="page-builder-mock page-builder-mock--collections"><strong>{block.title || 'Категории'}</strong><div>{[1,2,3,4].map((item) => <i key={item} />)}</div></div>
   if (block.type === 'products') return <div className="page-builder-mock page-builder-mock--products"><strong>{block.title || 'Популярные товары'}</strong><div>{[1,2,3,4].map((item) => <i key={item} />)}</div></div>
   if (block.type === 'smartphones') return <div className="page-builder-mock page-builder-mock--phone"><span>Каталог</span><b>Смартфоны</b><i>→</i></div>
   return <div className="page-builder-mock page-builder-mock--text"><span>{block.eyebrow || 'TEXHORU'}</span><b>{block.title || 'Новый заголовок'}</b><p>{block.body || 'Текст для покупателей'}</p></div>
 }
 
-export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
+const inlinePromoFrame = (value: string) => {
+  const marker = '#txframe=', markerIndex = value.lastIndexOf(marker)
+  if (markerIndex < 0) return { src: value, x: 50, y: 50, zoom: 1 }
+  const [x, y, zoom] = value.slice(markerIndex + marker.length).split(',').map(Number)
+  return {
+    src: value.slice(0, markerIndex),
+    x: Number.isFinite(x) ? x : 50,
+    y: Number.isFinite(y) ? y : 50,
+    zoom: Number.isFinite(zoom) ? zoom : 1,
+  }
+}
+
+const inlinePromoStyle = (image: string): CSSProperties => {
+  const frame = inlinePromoFrame(image)
+  return { objectPosition: `${frame.x}% ${frame.y}%`, transform: `scale(${frame.zoom})` }
+}
+
+type PageBuilderProps = {
+  promos: PromoBanner[]
+  onCreatePromo: () => void
+  onEditPromo: (promo: PromoBanner) => void
+  onTogglePromo: (promo: PromoBanner) => void
+  onDeletePromo: (promo: PromoBanner) => void
+}
+
+function PromoBlockPreview({ promos, onCreate, onEdit, onToggle, onDelete }: {
+  promos: PromoBanner[]
+  onCreate: () => void
+  onEdit: (promo: PromoBanner) => void
+  onToggle: (promo: PromoBanner) => void
+  onDelete: (promo: PromoBanner) => void
+}) {
+  const slides = [...promos].sort((a, b) => a.sortOrder - b.sortOrder)
+  const featured = slides.find((item) => item.isActive) || slides[0]
+  const act = (event: MouseEvent, callback: () => void) => { event.stopPropagation(); callback() }
+  return <div className="page-builder-promo" onDragStart={(event) => event.stopPropagation()}>
+    <div className={featured ? 'page-builder-promo__hero' : 'page-builder-promo__hero is-empty'}>
+      {featured ? <>
+        <img src={inlinePromoFrame(featured.image).src} style={inlinePromoStyle(featured.image)} alt="" draggable={false} />
+        <div className="page-builder-promo__shade" />
+        <div className="page-builder-promo__copy"><span>{featured.kicker || 'Реклама'}</span><strong>{featured.title || 'Рекламный баннер'}</strong><small>{slides.length} {slides.length === 1 ? 'слайд' : 'слайдов'} в этом блоке</small></div>
+        <button type="button" className="page-builder-promo__edit" onClick={(event) => act(event, () => onEdit(featured))}>Изменить фото</button>
+      </> : <button type="button" className="page-builder-promo__empty" onClick={(event) => act(event, onCreate)}><b>＋</b><strong>Добавить первое фото</strong><span>JPG или WEBP · лучше 1920×720</span></button>}
+    </div>
+    <div className="page-builder-promo__slides">
+      <div className="page-builder-promo__slides-head"><div><strong>Фото внутри баннера</strong><span>{slides.filter((item) => item.isActive).length} показываются на сайте</span></div><button type="button" onClick={(event) => act(event, onCreate)}>+ Добавить фото</button></div>
+      <div className="page-builder-promo__track">
+        {slides.map((item, index) => <div className={item.isActive ? 'page-builder-promo__slide' : 'page-builder-promo__slide is-hidden'} key={item.id}>
+          <button type="button" className="page-builder-promo__thumb" onClick={(event) => act(event, () => onEdit(item))} aria-label={`Редактировать слайд ${index + 1}`}>
+            <img src={inlinePromoFrame(item.image).src} style={inlinePromoStyle(item.image)} alt="" draggable={false} />
+            <span>{index + 1}</span>
+          </button>
+          <div><button type="button" onClick={(event) => act(event, () => onEdit(item))}>Изменить</button><button type="button" onClick={(event) => act(event, () => onToggle(item))}>{item.isActive ? 'Скрыть' : 'Показать'}</button><button type="button" className="danger" onClick={(event) => act(event, () => onDelete(item))} aria-label={`Удалить ${item.title || `слайд ${index + 1}`}`}>×</button></div>
+        </div>)}
+        {slides.length > 0 && <button type="button" className="page-builder-promo__add" onClick={(event) => act(event, onCreate)}><b>＋</b><span>Новое фото</span></button>}
+      </div>
+    </div>
+  </div>
+}
+
+export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo, onDeletePromo }: PageBuilderProps) {
   const [blocks, setBlocks] = useState<StorefrontBlock[]>(() => defaultStorefrontLayout().blocks)
   const [savedBlocks, setSavedBlocks] = useState<StorefrontBlock[]>(() => defaultStorefrontLayout().blocks)
   const [selectedId, setSelectedId] = useState('home-collections')
@@ -176,7 +235,9 @@ export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
             onClick={() => setSelectedId(block.id)} style={{ '--block-span': block.width } as CSSProperties}
             className={`page-builder__block${selectedId === block.id ? ' is-selected' : ''}${block.visible ? '' : ' is-hidden'}${draggingId === block.id ? ' is-dragging' : ''}`}>
             <div className="page-builder__blockbar"><button type="button" className="page-builder__grab" aria-label="Перетащить блок">⠿</button><span>{index + 1} · {labels[block.type].label}</span><small>{block.width === 12 ? '100%' : block.width === 8 ? '66%' : block.width === 6 ? '50%' : '33%'}</small><button type="button" onClick={(event) => { event.stopPropagation(); move(block.id, -1) }} disabled={!index} aria-label="Выше">↑</button><button type="button" onClick={(event) => { event.stopPropagation(); move(block.id, 1) }} disabled={index === blocks.length - 1} aria-label="Ниже">↓</button></div>
-            <BlockPreview block={block} />
+            {block.type === 'promo'
+              ? <PromoBlockPreview promos={promos} onCreate={onCreatePromo} onEdit={onEditPromo} onToggle={onTogglePromo} onDelete={onDeletePromo} />
+              : <BlockPreview block={block} />}
           </article>)}</div>
         </div>
       </div>
@@ -190,7 +251,8 @@ export function PageBuilder({ onEditPromos }: { onEditPromos?: () => void }) {
             <label className="page-builder__field"><span>Описание</span><textarea rows={4} value={selected.body || ''} onChange={(event) => updateSelected({ body: event.target.value })} /></label>
             <label className="page-builder__field"><span>Текст кнопки</span><input value={selected.ctaLabel || ''} onChange={(event) => updateSelected({ ctaLabel: event.target.value })} /></label>
           </>}
-          {selected.type === 'promo' && <button type="button" className="page-builder__secondary" onClick={onEditPromos}>Настроить рекламные слайды</button>}
+          <div className="page-builder__field"><span>Ширина</span><div className="page-builder__widths">{widths.map((item) => <button type="button" key={item.value} className={selected.width === item.value ? 'active' : ''} onClick={() => updateSelected({ width: item.value })}>{item.label}</button>)}</div><small>На телефоне блок всегда занимает всю ширину.</small></div>
+          {selected.type === 'promo' && <button type="button" className="page-builder__secondary" onClick={onCreatePromo}>+ Добавить фото в баннер</button>}
           <div className="page-builder__inspector-actions"><button type="button" onClick={duplicateSelected}>Дублировать</button><button type="button" className="danger" onClick={removeSelected} disabled={blocks.length === 1}>Удалить</button></div>
         </> : <p>Выберите блок на холсте.</p>}
       </aside>
