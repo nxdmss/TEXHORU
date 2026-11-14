@@ -4467,7 +4467,7 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
 
 .promo-editor-backdrop {
   position: fixed;
-  z-index: 120;
+  z-index: 1300;
   inset: 0;
   padding: 28px;
   background: rgba(0,0,0,.48);

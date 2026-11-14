@@ -1,6 +1,7 @@
 import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Min } from 'class-validator'
 
 export class PromoDto {
+  @IsOptional() @IsString() blockId?: string
   @IsString() kicker!: string
   @IsString() title!: string
   @IsString() body!: string
@@ -13,6 +14,7 @@ export class PromoDto {
 }
 
 export class UpdatePromoDto {
+  @IsOptional() @IsString() blockId?: string
   @IsOptional() @IsString() kicker?: string
   @IsOptional() @IsString() title?: string
   @IsOptional() @IsString() body?: string

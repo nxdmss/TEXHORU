@@ -35,6 +35,7 @@ export type ApiProduct = {
 
 export type PromoBanner = {
   id: string
+  blockId: string
   kicker: string
   title: string
   body: string

@@ -200,6 +200,68 @@ const promoFrameStyle = (frame: PromoFrame): CSSProperties => ({
   '--promo-zoom': String(frame.zoom),
 } as CSSProperties)
 
+function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOpen: (promo: PromoBanner) => void }) {
+  const [slideIndex, setSlideIndex] = useState(0)
+  const [dragOffset, setDragOffset] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const clickBlocked = useRef(false)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const drag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
+
+  useEffect(() => {
+    if (items.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const timer = window.setInterval(() => {
+      if (!document.hidden && !drag.current && !viewportRef.current?.matches(':hover, :focus-within')) setSlideIndex((current) => (current + 1) % items.length)
+    }, 6000)
+    return () => window.clearInterval(timer)
+  }, [items.length])
+  useEffect(() => { if (slideIndex >= items.length) setSlideIndex(0) }, [slideIndex, items.length])
+
+  const move = (delta: number) => setSlideIndex((current) => (current + delta + items.length) % items.length)
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (items.length < 2 || (event.target as Element).closest('button:not(.storefront-slide__link)')) return
+    drag.current = { pointerId: event.pointerId, startX: event.clientX, currentX: event.clientX, width: event.currentTarget.getBoundingClientRect().width }
+    clickBlocked.current = false
+    setDragOffset(0); setIsDragging(true)
+  }
+  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = drag.current
+    if (!current || current.pointerId !== event.pointerId) return
+    current.currentX = event.clientX
+    if (Math.abs(event.clientX - current.startX) > 8) {
+      clickBlocked.current = true
+      if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    setDragOffset(event.clientX - current.startX)
+  }
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = drag.current
+    if (!current || current.pointerId !== event.pointerId) return
+    const delta = current.currentX - current.startX
+    const threshold = Math.max(56, current.width * .1)
+    drag.current = null
+    window.setTimeout(() => { clickBlocked.current = false }, 0)
+    setDragOffset(0); setIsDragging(false)
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch {}
+    if (Math.abs(delta) >= threshold) move(delta < 0 ? 1 : -1)
+  }
+
+  return <section className="storefront-carousel" aria-label="Предложения TEXHORU">
+    <div className="storefront-carousel__layout"><div ref={viewportRef} className={isDragging ? 'storefront-carousel__viewport is-dragging' : 'storefront-carousel__viewport'}
+      onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+      <div className="storefront-carousel__track" style={{ transform: `translateX(calc(-${slideIndex * 100}% + ${dragOffset}px))` }}>
+        {items.map((promo, index) => {
+          const frame = parsePromoFrame(promo.image)
+          return <div key={promo.id} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
+            <button className="storefront-slide__link" tabIndex={index === slideIndex ? 0 : -1} onClick={() => { if (!clickBlocked.current) onOpen(promo) }} aria-label={promo.title || `Открыть предложение ${index + 1}`}><img src={frame.src} loading={index ? 'lazy' : 'eager'} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} /></button>
+          </div>
+        })}
+      </div>
+      {items.length > 1 && <><button className="carousel-hit carousel-hit--left" onClick={() => move(-1)} aria-label="Предыдущий баннер" /><button className="carousel-hit carousel-hit--right" onClick={() => move(1)} aria-label="Следующий баннер" /><div className="carousel-dots" aria-label="Слайды">{items.map((item, index) => <button key={`${item.id}-dot`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div></>}
+    </div></div>
+  </section>
+}
+
 type PromoDraft = {
   kicker: string
   title: string
@@ -404,6 +466,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [apiCategories, setApiCategories] = useState<ApiCategory[]>([])
   const [promoEditorOpen, setPromoEditorOpen] = useState(false)
   const [editingPromoId, setEditingPromoId] = useState<string | null>(null)
+  const [editingPromoBlockId, setEditingPromoBlockId] = useState('home-promos')
   const [promoDraft, setPromoDraft] = useState<PromoDraft>(() => blankPromoDraft())
   const [promoUploading, setPromoUploading] = useState(false)
   const [promoSaving, setPromoSaving] = useState(false)
@@ -507,10 +570,12 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
   const notifyPromoChanged = () => window.dispatchEvent(new Event('texhoru:promos-changed'))
 
-  const openCreatePromo = () => {
+  const openCreatePromo = (blockId: string) => {
     const categoryName = apiCategories.find((item) => item.isActive !== false)?.name ?? 'Смартфоны'
-    const nextSort = promos.length ? Math.max(...promos.map((item) => item.sortOrder ?? 0)) + 10 : 0
+    const blockPromos = promos.filter((item) => item.blockId === blockId)
+    const nextSort = blockPromos.length ? Math.max(...blockPromos.map((item) => item.sortOrder ?? 0)) + 10 : 0
     setEditingPromoId(null)
+    setEditingPromoBlockId(blockId)
     setPromoDraft(blankPromoDraft(nextSort, categoryName))
     setPromoImageInfo('Рекомендуется 1920×720 px · 8:3 · JPG/WEBP · до 2 МБ')
     setPromoEditorOpen(true)
@@ -518,6 +583,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
   const openEditPromo = (item: PromoBanner) => {
     setEditingPromoId(item.id)
+    setEditingPromoBlockId(item.blockId || 'home-promos')
     const frame = parsePromoFrame(item.image || '')
     setPromoDraft({
       kicker: item.kicker || 'АКЦИЯ', title: item.title || '', body: item.body || '', ctaLabel: item.ctaLabel || 'Смотреть',
@@ -596,8 +662,9 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     if (!promoDraft.image) { setError('Сначала выбери фото для акции'); return }
     setPromoSaving(true)
     const payload = {
+      blockId: editingPromoBlockId,
       kicker: promoDraft.kicker.trim() || 'АКЦИЯ',
-      title: promoDraft.title.trim() || `Акция ${promos.length + 1}`,
+      title: promoDraft.title.trim() || `Акция ${promos.filter((item) => item.blockId === editingPromoBlockId).length + 1}`,
       body: promoDraft.body.trim(),
       ctaLabel: promoDraft.ctaLabel.trim() || 'Смотреть',
       category: promoDraft.category,
@@ -978,11 +1045,6 @@ function App() {
   const [path, setPath] = useState(() => window.location.pathname)
   const lastPhonePath = useRef('/catalog/smartphones')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [slideIndex, setSlideIndex] = useState(0)
-  const [sliderDragOffset, setSliderDragOffset] = useState(0)
-  const [sliderIsDragging, setSliderIsDragging] = useState(false)
-  const sliderClickBlocked = useRef(false)
-  const sliderDrag = useRef<{ pointerId: number; startX: number; currentX: number; width: number } | null>(null)
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
   const refreshHomeLayout = () => api.storefrontLayout().then((state) => setHomeLayout(normalizeStorefrontLayout(state.layout))).catch(() => setHomeLayout(defaultStorefrontLayout()))
@@ -1027,7 +1089,6 @@ function App() {
     setStoreLimit(24)
     setMenuOpen(false)
     setCartOpen(false)
-    setSlideIndex(0)
     navigate('/')
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
@@ -1123,13 +1184,6 @@ function App() {
     }, query.trim() ? 200 : 0)
     return () => { active = false; clearTimeout(timer) }
   }, [useRemoteCatalog, isFeaturedView, path, query, category, selectedBrowsePath, selectedJourneyBrand?.name, sort, onlyAvailable, storeLimit])
-  const sliderItems = useMemo(() => promosLoaded ? promos.filter((item) => item.isActive !== false) : [], [promos, promosLoaded])
-  useEffect(() => {
-    if (path !== '/' || sliderItems.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const timer = window.setInterval(() => { if (!document.hidden && !sliderDrag.current && !document.querySelector('.storefront-carousel__viewport')?.matches(':hover, :focus-within')) setSlideIndex((current) => (current + 1) % sliderItems.length) }, 6000)
-    return () => window.clearInterval(timer)
-  }, [path, sliderItems.length])
-  useEffect(() => { if (slideIndex >= sliderItems.length) setSlideIndex(0) }, [slideIndex, sliderItems.length])
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   const addToCart = (product: Product) => {
     if (!cartLimit(product)) return
@@ -1170,39 +1224,6 @@ function App() {
       window.requestAnimationFrame(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     }
   }
-  const moveSlide = (delta: number) => setSlideIndex((current) => (current + delta + sliderItems.length) % sliderItems.length)
-  const startSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (sliderItems.length < 2 || (event.target as Element).closest('button:not(.storefront-slide__link)')) return
-    const width = event.currentTarget.getBoundingClientRect().width
-    sliderDrag.current = { pointerId: event.pointerId, startX: event.clientX, currentX: event.clientX, width }
-    sliderClickBlocked.current = false
-    setSliderDragOffset(0)
-    setSliderIsDragging(true)
-  }
-  const moveSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = sliderDrag.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    drag.currentX = event.clientX
-    if (Math.abs(event.clientX - drag.startX) > 8) {
-      sliderClickBlocked.current = true
-      if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId)
-    }
-    setSliderDragOffset(event.clientX - drag.startX)
-  }
-  const endSliderDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = sliderDrag.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    const delta = drag.currentX - drag.startX
-    const threshold = Math.max(56, drag.width * 0.1)
-    sliderDrag.current = null
-    window.setTimeout(() => { sliderClickBlocked.current = false }, 0)
-    setSliderDragOffset(0)
-    setSliderIsDragging(false)
-    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch {}
-    if (Math.abs(delta) < threshold) return
-    moveSlide(delta < 0 ? 1 : -1)
-  }
-
   const renderCollectionsBlock = (block?: StorefrontBlock) => <HomeCollections products={catalogProducts} roots={categoryRoots}
     title={block?.title} onSelect={selection => animateCatalog(() => jumpToStoreSection(selection))}
     onSmartphones={() => openJourney('/catalog/smartphones')} />
@@ -1210,31 +1231,11 @@ function App() {
   const featuredPhone = catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)
   const renderSmartphoneBlock = () => featuredPhone ? <SmartphonePortal onOpen={openJourney} featured={featuredPhone} /> : null
 
-  const renderPromoBlock = () => sliderItems.length === 0 ? renderSmartphoneBlock() : <section className="storefront-carousel" aria-label="Предложения TEXHORU">
-      <div className="storefront-carousel__layout">
-        <div
-          className={sliderIsDragging ? 'storefront-carousel__viewport is-dragging' : 'storefront-carousel__viewport'}
-          onPointerDown={startSliderDrag}
-          onPointerMove={moveSliderDrag}
-          onPointerUp={endSliderDrag}
-          onPointerCancel={endSliderDrag}
-        >
-          <div className="storefront-carousel__track" style={{ transform: `translateX(calc(-${slideIndex * 100}% + ${sliderDragOffset}px))` }}>
-            {sliderItems.map((promo, index) => {
-              const frame = parsePromoFrame(promo.image)
-              return <div key={`${promo.id}-${index}`} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
-                <button className="storefront-slide__link" tabIndex={index === slideIndex ? 0 : -1} onClick={() => { if (!sliderClickBlocked.current) jumpToCatalog(promo.category || 'Все') }} aria-label={promo.title || `Открыть предложение ${index + 1}`}><img src={frame.src} loading={index ? 'lazy' : 'eager'} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} /></button>
-              </div>
-            })}
-          </div>
-          {sliderItems.length > 1 && <>
-            <button className="carousel-hit carousel-hit--left" onClick={() => moveSlide(-1)} aria-label="Предыдущий баннер" />
-            <button className="carousel-hit carousel-hit--right" onClick={() => moveSlide(1)} aria-label="Следующий баннер" />
-            <div className="carousel-dots" aria-label="Слайды">{sliderItems.map((item, index) => <button key={`${item.id}-dot-${index}`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div>
-          </>}
-        </div>
-      </div>
-    </section>
+  const renderPromoBlock = (block: StorefrontBlock) => {
+    const items = promosLoaded ? promos.filter((item) => item.blockId === block.id && item.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder) : []
+    if (!items.length) return block.id === 'home-promos' ? renderSmartphoneBlock() : null
+    return <StorefrontPromoCarousel items={items} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
+  }
 
   const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id={anchor ? 'catalog' : undefined}>
       <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
@@ -1264,7 +1265,7 @@ function App() {
   const firstProductBlock = visibleHomeBlocks.find((block) => block.type === 'products')?.id
   const renderFeaturedBlock = (block: StorefrontBlock) => {
     const content = block.type === 'collections' ? renderCollectionsBlock(block)
-      : block.type === 'promo' ? renderPromoBlock()
+      : block.type === 'promo' ? renderPromoBlock(block)
       : block.type === 'products' ? renderCatalogBlock(block, block.id === firstProductBlock)
       : block.type === 'smartphones' ? renderSmartphoneBlock()
       : renderTextBlock(block)

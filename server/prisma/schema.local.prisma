@@ -233,6 +233,7 @@ model Payment {
 
 model PromoBanner {
   id        String   @id @default(cuid())
+  blockId   String   @default("home-promos")
   kicker    String
   title     String
   body      String
@@ -245,7 +246,7 @@ model PromoBanner {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([isActive, sortOrder])
+  @@index([blockId, isActive, sortOrder])
 }
 
 model StorefrontLayout {
