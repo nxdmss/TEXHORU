@@ -240,6 +240,8 @@ model PromoBanner {
   ctaLabel  String
   category  String
   image     String
+  imageTablet String?
+  imageMobile String?
   tone      String   @default("light")
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)

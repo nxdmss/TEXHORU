@@ -177,21 +177,25 @@ test('customer lifecycle, access boundaries, and resumable bounded catalog excha
     await t.test('storefront editor keeps drafts private until an administrator publishes them', async () => {
       const initial = await request('/content/layout', undefined, null, false, 'GET')
       assert.equal(initial.status, 200)
-      assert.deepEqual(initial.body.layout.blocks.map(item => item.type), ['collections', 'promo', 'products'])
+      assert.deepEqual(initial.body.layout.devices.desktop.map(item => item.type), ['collections', 'promo', 'products'])
+      assert.deepEqual(initial.body.layout.devices.mobile.map(item => item.type), ['promo', 'collections', 'products'])
       assert.equal((await request('/admin/content/layout', undefined, undefined, false, 'GET')).status, 401)
-      const layout = { version: 1, blocks: [
-        { id: 'intro', type: 'text', width: 6, visible: true, eyebrow: 'TEXHORU', title: 'Новая главная', body: 'Черновик' },
-        { id: 'catalog', type: 'products', width: 6, visible: true, title: 'Выбор магазина' },
-      ] }
+      const layout = { version: 2, devices: {
+        desktop: [{ id: 'intro', type: 'text', width: 6, visible: true, eyebrow: 'TEXHORU', title: 'Новая главная', body: 'Черновик' }, { id: 'catalog', type: 'products', width: 6, visible: true, title: 'Выбор магазина' }],
+        tablet: [{ id: 'catalog', type: 'products', width: 12, visible: true, title: 'Выбор магазина' }],
+        mobile: [{ id: 'intro-mobile', type: 'text', width: 12, visible: true, title: 'Телефонная главная' }],
+      } }
       const saved = await request('/admin/content/layout/draft', { layout }, staffCookie, false, 'PUT')
       assert.equal(saved.status, 200, JSON.stringify(saved.body))
-      assert.deepEqual(saved.body.draft.blocks.map(item => item.id), ['intro', 'catalog'])
+      assert.deepEqual(saved.body.draft.devices.desktop.map(item => item.id), ['intro', 'catalog'])
+      assert.deepEqual(saved.body.draft.devices.mobile.map(item => item.id), ['intro-mobile'])
       const beforePublish = await request('/content/layout', undefined, null, false, 'GET')
-      assert.deepEqual(beforePublish.body.layout.blocks.map(item => item.type), ['collections', 'promo', 'products'])
+      assert.deepEqual(beforePublish.body.layout.devices.desktop.map(item => item.type), ['collections', 'promo', 'products'])
       const published = await request('/admin/content/layout/publish', { layout }, staffCookie)
       assert.equal(published.status, 201, JSON.stringify(published.body))
       const publicLayout = await request('/content/layout', undefined, null, false, 'GET')
-      assert.deepEqual(publicLayout.body.layout.blocks.map(item => item.id), ['intro', 'catalog'])
+      assert.deepEqual(publicLayout.body.layout.devices.desktop.map(item => item.id), ['intro', 'catalog'])
+      assert.deepEqual(publicLayout.body.layout.devices.mobile.map(item => item.id), ['intro-mobile'])
       assert.equal((await request('/admin/content/layout/draft', { layout: { version: 1, blocks: [{ id: 'bad', type: 'script', width: 12 }] } }, staffCookie, false, 'PUT')).status, 400)
     })
     await t.test('oversized catalog batches are rejected before importing', async () => {

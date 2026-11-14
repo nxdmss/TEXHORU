@@ -19,7 +19,7 @@ import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigat
 import { rankCatalogProducts } from './catalog-search'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
-import { defaultStorefrontLayout, normalizeStorefrontLayout, type StorefrontBlock, type StorefrontLayout } from './page-layout'
+import { defaultStorefrontLayout, normalizeStorefrontLayout, storefrontBlocksFor, type StorefrontBlock, type StorefrontDevice, type StorefrontLayout } from './page-layout'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -191,7 +191,13 @@ const promoFrameStyle = (frame: PromoFrame): CSSProperties => ({
   '--promo-zoom': String(frame.zoom),
 } as CSSProperties)
 
-function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOpen: (promo: PromoBanner) => void }) {
+const promoImageForDevice = (promo: PromoBanner, device: StorefrontDevice) => {
+  if (device === 'mobile') return promo.imageMobile || promo.imageTablet || promo.image
+  if (device === 'tablet') return promo.imageTablet || promo.image
+  return promo.image
+}
+
+function StorefrontPromoCarousel({ items, onOpen, device }: { items: PromoBanner[]; onOpen: (promo: PromoBanner) => void; device: StorefrontDevice }) {
   const [slideIndex, setSlideIndex] = useState(0)
   const [dragOffset, setDragOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
@@ -242,7 +248,7 @@ function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOp
       onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
       <div className="storefront-carousel__track" style={{ transform: `translateX(calc(-${slideIndex * 100}% + ${dragOffset}px))` }}>
         {items.map((promo, index) => {
-          const frame = parsePromoFrame(promo.image)
+          const frame = parsePromoFrame(promoImageForDevice(promo, device))
           return <div key={promo.id} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
             <button className="storefront-slide__link" tabIndex={index === slideIndex ? 0 : -1} onClick={() => { if (!clickBlocked.current) onOpen(promo) }} aria-label={promo.title || `Открыть предложение ${index + 1}`}><img src={frame.src} loading={index ? 'lazy' : 'eager'} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} /></button>
           </div>
@@ -253,16 +259,15 @@ function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOp
   </section>
 }
 
+type PromoImageDraft = { image: string; imageX: number; imageY: number; imageZoom: number }
+
 type PromoDraft = {
   kicker: string
   title: string
   body: string
   ctaLabel: string
   category: string
-  image: string
-  imageX: number
-  imageY: number
-  imageZoom: number
+  images: Record<StorefrontDevice, PromoImageDraft>
   tone: string
   sortOrder: string
   isActive: boolean
@@ -274,10 +279,11 @@ const blankPromoDraft = (sortOrder = 0, category = 'Смартфоны'): PromoD
   body: '',
   ctaLabel: 'Смотреть',
   category,
-  image: '',
-  imageX: 50,
-  imageY: 50,
-  imageZoom: 1,
+  images: {
+    desktop: { image: '', imageX: 50, imageY: 50, imageZoom: 1 },
+    tablet: { image: '', imageX: 50, imageY: 50, imageZoom: 1 },
+    mobile: { image: '', imageX: 50, imageY: 50, imageZoom: 1 },
+  },
   tone: 'light',
   sortOrder: String(sortOrder),
   isActive: true,
@@ -457,9 +463,10 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [editingPromoId, setEditingPromoId] = useState<string | null>(null)
   const [editingPromoBlockId, setEditingPromoBlockId] = useState('home-promos')
   const [promoDraft, setPromoDraft] = useState<PromoDraft>(() => blankPromoDraft())
+  const [promoDevice, setPromoDevice] = useState<StorefrontDevice>('desktop')
   const [promoUploading, setPromoUploading] = useState(false)
   const [promoSaving, setPromoSaving] = useState(false)
-  const [promoImageInfo, setPromoImageInfo] = useState('Рекомендуется 1600×720 px · широкий баннер · JPG/WEBP · до 2 МБ')
+  const [promoImageInfo, setPromoImageInfo] = useState('Рекомендуется 1920×720 px · 8:3 · JPG/WEBP · до 2 МБ')
   const promoCropDrag = useRef<{ pointerId: number; clientX: number; clientY: number; imageX: number; imageY: number; width: number; height: number } | null>(null)
   const [categoryCreating, setCategoryCreating] = useState(false)
   const [categoryDraft, setCategoryDraft] = useState({ name: '', slug: '' })
@@ -543,40 +550,61 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
   const notifyPromoChanged = () => window.dispatchEvent(new Event('texhoru:promos-changed'))
 
-  const openCreatePromo = (blockId: string) => {
+  const promoStandards: Record<StorefrontDevice, { label: string; width: number; height: number; ratio: number }> = {
+    desktop: { label: 'Компьютер · 1920×720 · 8:3', width: 1920, height: 720, ratio: 8 / 3 },
+    tablet: { label: 'Планшет · 1600×900 · 16:9', width: 1600, height: 900, ratio: 16 / 9 },
+    mobile: { label: 'Телефон · 1080×1350 · 4:5', width: 1080, height: 1350, ratio: 4 / 5 },
+  }
+  const activePromoImage = promoDraft.images[promoDevice]
+  const updatePromoImage = (patch: Partial<PromoImageDraft>) => setPromoDraft((current) => ({
+    ...current,
+    images: { ...current.images, [promoDevice]: { ...current.images[promoDevice], ...patch } },
+  }))
+
+  const openCreatePromo = (blockId: string, device: StorefrontDevice) => {
     const categoryName = apiCategories.find((item) => item.isActive !== false)?.name ?? 'Смартфоны'
     const blockPromos = promos.filter((item) => item.blockId === blockId)
     const nextSort = blockPromos.length ? Math.max(...blockPromos.map((item) => item.sortOrder ?? 0)) + 10 : 0
     setEditingPromoId(null)
     setEditingPromoBlockId(blockId)
+    setPromoDevice(device)
     setPromoDraft(blankPromoDraft(nextSort, categoryName))
-    setPromoImageInfo('Рекомендуется 1920×720 px · 8:3 · JPG/WEBP · до 2 МБ')
+    setPromoImageInfo(`Рекомендуется ${promoStandards[device].label} · JPG/WEBP · до 2 МБ`)
     setPromoEditorOpen(true)
   }
 
-  const openEditPromo = (item: PromoBanner) => {
+  const openEditPromo = (item: PromoBanner, device: StorefrontDevice) => {
     setEditingPromoId(item.id)
     setEditingPromoBlockId(item.blockId || 'home-promos')
-    const frame = parsePromoFrame(item.image || '')
+    setPromoDevice(device)
+    const desktop = parsePromoFrame(item.image || '')
+    const tablet = parsePromoFrame(item.imageTablet || '')
+    const mobile = parsePromoFrame(item.imageMobile || '')
     setPromoDraft({
       kicker: item.kicker || 'АКЦИЯ', title: item.title || '', body: item.body || '', ctaLabel: item.ctaLabel || 'Смотреть',
-      category: item.category || apiCategories.find((category) => category.isActive !== false)?.name || 'Смартфоны', image: frame.src,
-      imageX: frame.x, imageY: frame.y, imageZoom: frame.zoom,
+      category: item.category || apiCategories.find((category) => category.isActive !== false)?.name || 'Смартфоны',
+      images: {
+        desktop: { image: desktop.src, imageX: desktop.x, imageY: desktop.y, imageZoom: desktop.zoom },
+        tablet: { image: tablet.src, imageX: tablet.x, imageY: tablet.y, imageZoom: tablet.zoom },
+        mobile: { image: mobile.src, imageX: mobile.x, imageY: mobile.y, imageZoom: mobile.zoom },
+      },
       tone: item.tone || 'light', sortOrder: String(item.sortOrder ?? 0), isActive: item.isActive !== false,
     })
-    setPromoImageInfo('Текущее изображение · рекомендуемый стандарт 1920×720 px · 8:3')
+    const ownImage = device === 'desktop' ? item.image : device === 'tablet' ? item.imageTablet : item.imageMobile
+    setPromoImageInfo(`${ownImage ? 'Отдельное изображение загружено' : 'Будет использована версия большего экрана'} · ${promoStandards[device].label}`)
     setPromoEditorOpen(true)
   }
 
-  const inspectPromoImage = (file: File) => {
+  const inspectPromoImage = (file: File, device: StorefrontDevice) => {
     const objectUrl = URL.createObjectURL(file)
     const image = new Image()
     image.onload = () => {
       const ratio = image.naturalWidth / image.naturalHeight
-      const target = 8 / 3
+      const standard = promoStandards[device]
+      const target = standard.ratio
       const ratioOk = Math.abs(ratio - target) < 0.13
-      const sizeOk = image.naturalWidth >= 1600 && image.naturalHeight >= 600
-      setPromoImageInfo(`${image.naturalWidth}×${image.naturalHeight} px · ${ratioOk && sizeOk ? 'отлично подходит' : 'можно использовать, но лучше 1920×720 (8:3)'}`)
+      const sizeOk = image.naturalWidth >= standard.width * .8 && image.naturalHeight >= standard.height * .8
+      setPromoImageInfo(`${image.naturalWidth}×${image.naturalHeight} px · ${ratioOk && sizeOk ? 'отлично подходит' : `можно использовать, но лучше ${standard.width}×${standard.height}`}`)
       URL.revokeObjectURL(objectUrl)
     }
     image.onerror = () => URL.revokeObjectURL(objectUrl)
@@ -586,21 +614,22 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const uploadPromoFile = async (file: File) => {
     setError('')
     if (file.size > 8 * 1024 * 1024) { setError('Фото акции больше 8 МБ'); return }
-    inspectPromoImage(file)
+    const targetDevice = promoDevice
+    inspectPromoImage(file, targetDevice)
     setPromoUploading(true)
     try {
       const uploaded = await api.adminUploadPromoImage(file)
-      setPromoDraft((current) => ({ ...current, image: uploaded.url, imageX: 50, imageY: 50, imageZoom: 1 }))
+      setPromoDraft((current) => ({ ...current, images: { ...current.images, [targetDevice]: { image: uploaded.url, imageX: 50, imageY: 50, imageZoom: 1 } } }))
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось загрузить фото акции') }
     finally { setPromoUploading(false) }
   }
 
   const startPromoCropDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!promoDraft.image || (event.target as HTMLElement).closest('label, button, input')) return
+    if (!activePromoImage.image || (event.target as HTMLElement).closest('label, button, input')) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     const rect = event.currentTarget.getBoundingClientRect()
-    promoCropDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, imageX: promoDraft.imageX, imageY: promoDraft.imageY, width: rect.width, height: rect.height }
+    promoCropDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, imageX: activePromoImage.imageX, imageY: activePromoImage.imageY, width: rect.width, height: rect.height }
   }
 
   const movePromoCropDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -609,11 +638,14 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     event.preventDefault()
     const dx = event.clientX - drag.clientX
     const dy = event.clientY - drag.clientY
-    const zoom = Math.max(1, promoDraft.imageZoom)
+    const zoom = Math.max(1, promoDraft.images[promoDevice].imageZoom)
     setPromoDraft((current) => ({
       ...current,
-      imageX: clampPromo(drag.imageX - (dx / Math.max(1, drag.width)) * 100 / zoom, 0, 100),
-      imageY: clampPromo(drag.imageY - (dy / Math.max(1, drag.height)) * 100 / zoom, 0, 100),
+      images: { ...current.images, [promoDevice]: {
+        ...current.images[promoDevice],
+        imageX: clampPromo(drag.imageX - (dx / Math.max(1, drag.width)) * 100 / zoom, 0, 100),
+        imageY: clampPromo(drag.imageY - (dy / Math.max(1, drag.height)) * 100 / zoom, 0, 100),
+      } },
     }))
   }
 
@@ -624,15 +656,16 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const zoomPromoCrop = (event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!promoDraft.image) return
+    if (!activePromoImage.image) return
     event.preventDefault()
     const delta = event.deltaY < 0 ? 0.08 : -0.08
-    setPromoDraft((current) => ({ ...current, imageZoom: clampPromo(current.imageZoom + delta, 1, 2.5) }))
+    updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom + delta, 1, 2.5) })
   }
 
   const savePromo = async (event: FormEvent) => {
     event.preventDefault(); setError('')
-    if (!promoDraft.image) { setError('Сначала выбери фото для акции'); return }
+    const sourceImage = promoDraft.images.desktop.image || promoDraft.images.tablet.image || promoDraft.images.mobile.image
+    if (!sourceImage) { setError('Добавь хотя бы одно изображение для акции'); return }
     setPromoSaving(true)
     const payload = {
       blockId: editingPromoBlockId,
@@ -641,7 +674,13 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       body: promoDraft.body.trim(),
       ctaLabel: promoDraft.ctaLabel.trim() || 'Смотреть',
       category: promoDraft.category,
-      image: encodePromoFrame(promoDraft.image, promoDraft.imageX, promoDraft.imageY, promoDraft.imageZoom),
+      image: promoDraft.images.desktop.image
+        ? encodePromoFrame(promoDraft.images.desktop.image, promoDraft.images.desktop.imageX, promoDraft.images.desktop.imageY, promoDraft.images.desktop.imageZoom)
+        : encodePromoFrame(sourceImage, 50, 50, 1),
+      imageTablet: promoDraft.images.tablet.image
+        ? encodePromoFrame(promoDraft.images.tablet.image, promoDraft.images.tablet.imageX, promoDraft.images.tablet.imageY, promoDraft.images.tablet.imageZoom) : '',
+      imageMobile: promoDraft.images.mobile.image
+        ? encodePromoFrame(promoDraft.images.mobile.image, promoDraft.images.mobile.imageX, promoDraft.images.mobile.imageY, promoDraft.images.mobile.imageZoom) : '',
       tone: promoDraft.tone,
       sortOrder: Number(promoDraft.sortOrder || 0),
       isActive: promoDraft.isActive,
@@ -829,11 +868,12 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
       {promoEditorOpen && <div className="promo-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoEditorOpen(false) }}>
         <form className="promo-editor" onSubmit={savePromo}>
-          <div className="promo-editor__head"><div><p className="eyebrow">Акционный слайдер</p><h2>{editingPromoId ? 'Изменить слайд' : 'Новый слайд'}</h2></div><button type="button" onClick={() => setPromoEditorOpen(false)} aria-label="Закрыть"><Icon name="close" /></button></div>
+          <div className="promo-editor__head"><div><p className="eyebrow">Три независимых версии</p><h2>{editingPromoId ? 'Изменить слайд' : 'Новый слайд'}</h2><span>Для каждого экрана можно загрузить своё фото и выбрать отдельный кадр.</span></div><button type="button" onClick={() => setPromoEditorOpen(false)} aria-label="Закрыть"><Icon name="close" /></button></div>
           <div className="promo-editor__body">
             <div className="promo-editor__visual">
+              <div className="promo-editor__devices" role="tablist" aria-label="Версия баннера">{(['desktop', 'tablet', 'mobile'] as const).map((item) => <button type="button" role="tab" aria-selected={promoDevice === item} className={promoDevice === item ? 'active' : ''} key={item} onClick={() => { setPromoDevice(item); setPromoImageInfo(`${promoDraft.images[item].image ? 'Отдельное изображение загружено' : item === 'desktop' ? 'Добавь основное изображение' : 'Будет использована версия большего экрана'} · ${promoStandards[item].label}`) }}><span>{item === 'desktop' ? 'Компьютер' : item === 'tablet' ? 'Планшет' : 'Телефон'}</span><small>{promoDraft.images[item].image ? 'Фото задано' : item === 'desktop' ? 'Нужно фото' : 'Наследует'}</small></button>)}</div>
               <div
-                className={promoDraft.image ? 'promo-editor__crop-stage has-image' : 'promo-editor__crop-stage'}
+                className={`promo-editor__crop-stage is-${promoDevice}${activePromoImage.image ? ' has-image' : ''}`}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) void uploadPromoFile(file) }}
                 onPointerDown={startPromoCropDrag}
@@ -842,31 +882,32 @@ function AdminPage({ onBack }: { onBack: () => void }) {
                 onPointerCancel={endPromoCropDrag}
                 onWheel={zoomPromoCrop}
               >
-                {promoDraft.image ? <>
+                {activePromoImage.image ? <>
                   <img
                     className="promo-editor__crop-image"
-                    src={promoDraft.image}
-                    style={promoFrameStyle({ src: promoDraft.image, x: promoDraft.imageX, y: promoDraft.imageY, zoom: promoDraft.imageZoom })}
+                    src={activePromoImage.image}
+                    style={promoFrameStyle({ src: activePromoImage.image, x: activePromoImage.imageX, y: activePromoImage.imageY, zoom: activePromoImage.imageZoom })}
                     alt="Предпросмотр акции"
                     draggable={false}
                   />
                   <span className="promo-editor__crop-grid" aria-hidden="true" />
                   <span className="promo-editor__crop-hint">Перетаскивай фото · колесо меняет масштаб</span>
                   <label className="promo-editor__replace">{promoUploading ? 'Загрузка…' : 'Заменить фото'}<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPromoFile(file); event.currentTarget.value = '' }} /></label>
-                </> : <label className="promo-editor__dropzone promo-editor__dropzone--empty"><div><strong>Перетащи фото сюда</strong><span>или нажми, чтобы выбрать файл</span></div><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPromoFile(file); event.currentTarget.value = '' }} /><span className="promo-editor__replace">{promoUploading ? 'Загрузка…' : 'Выбрать фото'}</span></label>}
+                </> : <label className="promo-editor__dropzone promo-editor__dropzone--empty"><div><strong>Фото для версии «{promoDevice === 'desktop' ? 'Компьютер' : promoDevice === 'tablet' ? 'Планшет' : 'Телефон'}»</strong><span>{promoDevice === 'desktop' ? 'Перетащи сюда или выбери файл' : 'Если не загрузить, возьмём фото компьютера'}</span></div><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPromoFile(file); event.currentTarget.value = '' }} /><span className="promo-editor__replace">{promoUploading ? 'Загрузка…' : 'Выбрать фото'}</span></label>}
               </div>
-              {promoDraft.image && <div className="promo-editor__crop-controls">
-                <div className="promo-editor__crop-label"><span>Масштаб</span><strong>{Math.round(promoDraft.imageZoom * 100)}%</strong></div>
-                <div className="promo-editor__crop-slider"><button type="button" onClick={() => setPromoDraft((current) => ({ ...current, imageZoom: clampPromo(current.imageZoom - .08, 1, 2.5) }))}>−</button><input type="range" min="1" max="2.5" step="0.01" value={promoDraft.imageZoom} onChange={(event) => setPromoDraft({ ...promoDraft, imageZoom: Number(event.target.value) })} /><button type="button" onClick={() => setPromoDraft((current) => ({ ...current, imageZoom: clampPromo(current.imageZoom + .08, 1, 2.5) }))}>+</button><button type="button" className="promo-editor__crop-reset" onClick={() => setPromoDraft((current) => ({ ...current, imageX: 50, imageY: 50, imageZoom: 1 }))}>Сбросить</button></div>
-                <small>Перетащи изображение мышкой или пальцем. Положение и масштаб сохранятся именно так, как ты выставил.</small>
+              {activePromoImage.image && <div className="promo-editor__crop-controls">
+                <div className="promo-editor__crop-label"><span>Масштаб</span><strong>{Math.round(activePromoImage.imageZoom * 100)}%</strong></div>
+                <div className="promo-editor__crop-slider"><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom - .08, 1, 2.5) })}>−</button><input type="range" min="1" max="2.5" step="0.01" value={activePromoImage.imageZoom} onChange={(event) => updatePromoImage({ imageZoom: Number(event.target.value) })} /><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom + .08, 1, 2.5) })}>+</button><button type="button" className="promo-editor__crop-reset" onClick={() => updatePromoImage({ imageX: 50, imageY: 50, imageZoom: 1 })}>Сбросить</button></div>
+                <small>Положение и масштаб сохраняются только для выбранной версии экрана.</small>
+                {promoDevice !== 'desktop' && <button type="button" className="promo-editor__remove-version" onClick={() => updatePromoImage({ image: '', imageX: 50, imageY: 50, imageZoom: 1 })}>Убрать фото только из этой версии</button>}
               </div>}
-              <div className="promo-editor__image-info"><strong>1600×720 · широкий баннер</strong><span>{promoImageInfo}</span></div>
+              <div className="promo-editor__image-info"><strong>{promoStandards[promoDevice].label}</strong><span>{promoImageInfo}</span></div>
             </div>
             <div className="promo-editor__fields">
               <label><span>Название в админке</span><input value={promoDraft.title} onChange={(e) => setPromoDraft({ ...promoDraft, title: e.target.value })} placeholder="Например: Осенняя акция" /></label>
               <div className="promo-editor__row"><label><span>Категория</span><select value={promoDraft.category} onChange={(e) => setPromoDraft({ ...promoDraft, category: e.target.value })}>{apiCategories.filter((item) => item.isActive !== false).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label><label><span>Порядок</span><input type="number" min="0" value={promoDraft.sortOrder} onChange={(e) => setPromoDraft({ ...promoDraft, sortOrder: e.target.value })} /></label></div>
               <label className="promo-editor__switch"><input type="checkbox" checked={promoDraft.isActive} onChange={(e) => setPromoDraft({ ...promoDraft, isActive: e.target.checked })} /><span><strong>Показывать на сайте</strong><small>Количество активных карточек и есть количество слайдов.</small></span></label>
-              <div className="promo-editor__tip"><strong>Как будет выглядеть</strong><span>Изображение заполняет весь акционный блок. Масштаб и положение берутся из кадрирования выше. На витрине пользователь нажимает по краям или свайпает.</span></div>
+              <div className="promo-editor__tip"><strong>Как это работает</strong><span>Компьютер, планшет и телефон независимы. Если отдельного фото для планшета или телефона нет, сайт безопасно покажет компьютерную версию.</span></div>
             </div>
           </div>
           {error && <div className="form-error">{error}</div>}
@@ -939,6 +980,7 @@ function App() {
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [promosLoaded, setPromosLoaded] = useState(false)
   const [homeLayout, setHomeLayout] = useState<StorefrontLayout>(() => defaultStorefrontLayout())
+  const [storefrontDevice, setStorefrontDevice] = useState<StorefrontDevice>(() => window.innerWidth < 700 ? 'mobile' : window.innerWidth < 1100 ? 'tablet' : 'desktop')
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
   const [cartOpen, setCartOpen] = useState(false)
@@ -966,6 +1008,11 @@ function App() {
     window.addEventListener('texhoru:promos-changed', onPromosChanged)
     window.addEventListener('texhoru:layout-changed', onLayoutChanged)
     return () => { window.removeEventListener('texhoru:promos-changed', onPromosChanged); window.removeEventListener('texhoru:layout-changed', onLayoutChanged) }
+  }, [])
+  useEffect(() => {
+    const syncDevice = () => setStorefrontDevice(window.innerWidth < 700 ? 'mobile' : window.innerWidth < 1100 ? 'tablet' : 'desktop')
+    window.addEventListener('resize', syncDevice, { passive: true })
+    return () => window.removeEventListener('resize', syncDevice)
   }, [])
   useEffect(() => { try { localStorage.setItem('texhoru_cart', JSON.stringify(cart)) } catch { /* Shopping remains available when storage is blocked. */ } }, [cart])
   useEffect(() => {
@@ -1161,7 +1208,7 @@ function App() {
   const renderPromoBlock = (block: StorefrontBlock) => {
     const items = promosLoaded ? promos.filter((item) => item.blockId === block.id && item.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder) : []
     if (!items.length) return block.id === 'home-promos' ? renderSmartphoneBlock() : null
-    return <StorefrontPromoCarousel items={items} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
+    return <StorefrontPromoCarousel items={items} device={storefrontDevice} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
   }
 
   const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id={anchor ? 'catalog' : undefined}>
@@ -1194,7 +1241,7 @@ function App() {
     {block.ctaLabel && <button type="button" onClick={() => jumpToCatalog((block.category || 'Все') as Category)}>{block.ctaLabel}<Icon name="arrow" /></button>}
   </section>
 
-  const visibleHomeBlocks = homeLayout.blocks.filter((block) => block.visible)
+  const visibleHomeBlocks = storefrontBlocksFor(homeLayout, storefrontDevice).filter((block) => block.visible)
   const firstProductBlock = visibleHomeBlocks.find((block) => block.type === 'products')?.id
   const renderFeaturedBlock = (block: StorefrontBlock) => {
     const content = block.type === 'collections' ? renderCollectionsBlock(block)
@@ -1208,7 +1255,7 @@ function App() {
   }
 
   const renderHome = () => isFeaturedView
-    ? <div className="storefront-page-grid">{visibleHomeBlocks.map(renderFeaturedBlock)}</div>
+    ? <div className="storefront-page-grid" data-device={storefrontDevice}>{visibleHomeBlocks.map(renderFeaturedBlock)}</div>
     : renderCatalogBlock(undefined, true)
 
   const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); const favorite = favoriteIds.includes(product.id); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><div className="product-page__actions"><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><button type="button" className={'product-page__favorite' + (favorite ? ' is-active' : '')} aria-pressed={favorite} onClick={() => toggleFavorite(product)}><Icon name="heart" />{favorite ? 'В избранном' : 'В избранное'}</button></div><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}</section> }
@@ -1246,6 +1293,7 @@ function App() {
   {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
     onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
+  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" onClick={() => setMenuOpen(true)}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={favoritesOnly ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" onClick={() => setCartOpen(true)}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
   {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
     onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}
     onRemove={id => setCart(current => current.filter(item => item.product.id !== id))}

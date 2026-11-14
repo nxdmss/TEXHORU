@@ -42,6 +42,8 @@ export type PromoBanner = {
   ctaLabel: string
   category: string
   image: string
+  imageTablet?: string | null
+  imageMobile?: string | null
   tone: string
   sortOrder: number
   isActive: boolean

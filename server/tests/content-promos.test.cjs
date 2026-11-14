@@ -21,12 +21,14 @@ test('each storefront promo block owns an independent set of photos', async () =
 
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } })
   const service = new ContentService(prisma, { log: async () => undefined })
-  const photo = (title, blockId) => ({ blockId, kicker: 'РЕКЛАМА', title, body: '', ctaLabel: 'Смотреть', category: 'Все', image: '/uploads/promos/' + title + '.webp' })
+  const photo = (title, blockId) => ({ blockId, kicker: 'РЕКЛАМА', title, body: '', ctaLabel: 'Смотреть', category: 'Все', image: '/uploads/promos/' + title + '.webp', imageTablet: '/uploads/promos/' + title + '-tablet.webp', imageMobile: '/uploads/promos/' + title + '-mobile.webp' })
   try {
     const first = await service.create(photo('Первый', 'promo-a'))
     const second = await service.create(photo('Второй', 'promo-b'))
     const all = await service.publicPromos()
     assert.deepEqual(all.map(item => [item.title, item.blockId]), [['Первый', 'promo-a'], ['Второй', 'promo-b']])
+    assert.equal(all[0].imageTablet, '/uploads/promos/Первый-tablet.webp')
+    assert.equal(all[0].imageMobile, '/uploads/promos/Первый-mobile.webp')
 
     await service.remove(first.id)
     const remaining = await service.publicPromos()
