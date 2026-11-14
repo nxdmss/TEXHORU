@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { CreateCategoryDto, UpdateCategoryDto, UpdateProductDto, UpsertProductDto } from './products.dto'
 import { phoneVariantKey, uniquePhoneProducts } from './phone-uniqueness'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
+import { normalizeCatalogSearch, rankCatalogProducts } from './catalog-search-rank'
 
 @Injectable()
 export class ProductsService {
@@ -37,18 +38,40 @@ export class ProductsService {
   async catalog(dto: CatalogQueryDto) {
     await refreshCatalogIndexes(this.prisma)
     const filters: Prisma.ProductWhereInput[] = [this.visibility()]
-    if (dto.q?.trim()) filters.push({ searchText: { contains: dto.q.trim().toLocaleLowerCase('ru-RU') } })
     if (dto.path) filters.push({ OR: [{ browsePath: dto.path }, { browsePath: { startsWith: dto.path + ' / ' } }] })
     if (dto.brand) filters.push({ brand: dto.brand })
+    if (dto.minPrice !== undefined) filters.push({ price: { gte: dto.minPrice } })
+    if (dto.maxPrice !== undefined) filters.push({ price: { lte: dto.maxPrice } })
     if (dto.available === 'true') filters.push({ stockQty: { gt: this.prisma.product.fields.reservedQty } })
     if (dto.smartphones === 'true') filters.push({ isPhone: true })
     const where: Prisma.ProductWhereInput = { AND: filters }
     const orderBy: Prisma.ProductOrderByWithRelationInput[] = dto.sort === 'price-asc' ? [{ price: 'asc' }, { id: 'asc' }] : dto.sort === 'price-desc' ? [{ price: 'desc' }, { id: 'asc' }] : dto.sort === 'name' ? [{ name: 'asc' }, { id: 'asc' }] : [{ id: 'asc' }]
-    const [rows, total] = await Promise.all([
-      this.prisma.product.findMany({ where, select: this.publicSelect, orderBy, skip: (dto.page - 1) * dto.take, take: dto.take }),
-      this.prisma.product.count({ where }),
-    ])
-    return { items: uniquePhoneProducts(rows).map(item => this.present(item)), total, page: dto.page, take: dto.take, hasMore: dto.page * dto.take < total }
+    const result = dto.q?.trim() ? await (async () => {
+      // Search candidates are usually a small subset. Ranking them before
+      // pagination keeps relevance stable across every results page.
+      const query = normalizeCatalogSearch(dto.q!)
+      const candidates = (await this.prisma.product.findMany({ where, select: {
+        id: true, name: true, brand: true, sku: true, shortSpec: true, browsePath: true,
+        price: true, stockQty: true, reservedQty: true,
+      } })).filter(product => normalizeCatalogSearch(`${product.name} ${product.brand} ${product.sku} ${product.shortSpec} ${product.browsePath || ''}`).includes(query))
+      const ranked = rankCatalogProducts(candidates, query)
+      if (dto.sort && dto.sort !== 'recommended') ranked.sort((left, right) => dto.sort === 'price-asc'
+        ? left.price - right.price || left.id - right.id : dto.sort === 'price-desc'
+          ? right.price - left.price || left.id - right.id : left.name.localeCompare(right.name, 'ru') || left.id - right.id)
+      const page = ranked.slice((dto.page - 1) * dto.take, dto.page * dto.take)
+      const pageIds = page.map(product => product.id)
+      const records = pageIds.length ? await this.prisma.product.findMany({ where: { id: { in: pageIds } }, select: this.publicSelect }) : []
+      const byId = new Map(records.map(product => [product.id, product]))
+      return { rows: page.flatMap(product => byId.get(product.id) ? [byId.get(product.id)!] : []), total: ranked.length }
+    })() : await (async () => {
+      const [rows, total] = await Promise.all([
+        this.prisma.product.findMany({ where, select: this.publicSelect, orderBy, skip: (dto.page - 1) * dto.take, take: dto.take }),
+        this.prisma.product.count({ where }),
+      ])
+      return { rows, total }
+    })()
+    return { items: uniquePhoneProducts(result.rows).map(item => this.present(item)), total: result.total,
+      page: dto.page, take: dto.take, hasMore: dto.page * dto.take < result.total }
   }
   async home() {
     await refreshCatalogIndexes(this.prisma)

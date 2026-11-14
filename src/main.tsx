@@ -15,6 +15,7 @@ import './admin-control.css'
 import './product-image.css'
 import './storefront-refresh.css'
 import './storefront-layout.css'
+import './experience-upgrade.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
