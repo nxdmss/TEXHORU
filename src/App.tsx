@@ -20,6 +20,7 @@ import { rankCatalogProducts } from './catalog-search'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, storefrontBlocksFor, type StorefrontBlock, type StorefrontDevice, type StorefrontLayout } from './page-layout'
+import { TexhoruBrand } from './TexhoruBrand'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -736,7 +737,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   if (checkingSession) return <section className="admin-shell"><div className="admin-loading">Проверяем сессию…</div></section>
-  if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU</p><h1>Вход в управление</h1><label><span>Почта</span><input type="email" autoComplete="username" required placeholder="Почта сотрудника" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Доступ для сотрудников TEXHORU.</small></form></section>
+  if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><TexhoruBrand subtitle="Управление магазином" /><h1>Вход в управление</h1><label><span>Почта</span><input type="email" autoComplete="username" required placeholder="Почта сотрудника" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Доступ для сотрудников TEXHORU.</small></form></section>
 
   const unread = notifications.filter((item) => !item.isRead).length
   const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Номенклатура 1С', audit: 'Журнал' }
@@ -747,7 +748,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const connectProducts = () => { setPriceSetup(true); setTab('prices') }
   return <section className={`admin-shell admin-control${tab === 'content' ? ' admin-control--builder' : ''}`}>
     <aside className={'admin-sidebar' + (navigationOpen ? ' is-open' : '')}>
-    <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><div className="admin-wordmark">TEXHO<span>RU</span><small>Управление магазином</small></div></button>
+    <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><TexhoruBrand subtitle="Управление магазином" /></button>
     <button type="button" className="admin-mobile-toggle" aria-expanded={navigationOpen} aria-controls="admin-navigation" onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'} />Разделы</button>
     <nav id="admin-navigation" className="admin-tabs" aria-label="Разделы управления магазином">
       {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
@@ -1264,7 +1265,7 @@ function App() {
   return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>
   {!isAdminPage && <a className="skip-link" href="#main-content">Перейти к товарам</a>}
   {!isAdminPage && <header className="header header--storefront">
-    <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button>
+    <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button>
     <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div>
     <label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>
     <div className="header-actions">
@@ -1275,7 +1276,7 @@ function App() {
   </header>}
   {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
     onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
-  <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
+  <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
   {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly && !menuOpen && !cartOpen ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={menuOpen ? 'active' : ''} onClick={() => { setCartOpen(false); setMenuOpen(true) }}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={favoritesOnly && !cartOpen ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={cartOpen ? 'active' : ''} onClick={() => { setMenuOpen(false); setCartOpen(true) }}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
   {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
     onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}

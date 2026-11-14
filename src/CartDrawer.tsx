@@ -3,6 +3,7 @@ import type { CartLine, Product } from './types'
 import { Icon } from './Icon'
 import { ProductImage } from './ProductImage'
 import { cartLimit, formatMoney } from './store-utils'
+import { TexhoruBrand } from './TexhoruBrand'
 
 export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, onRemove, onCheckout }: {
   cart: CartLine[]; online: boolean; onClose: () => void; onOpenProduct: (product: Product) => void;
@@ -36,7 +37,7 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
   const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
   return <div className="overlay cart-overlay" onMouseDown={e => { if (e.currentTarget === e.target) onClose() }}>
     <aside className="drawer cart-drawer" ref={panel} role="dialog" aria-modal="true" aria-labelledby="cart-title">
-      <div className="drawer-head"><div><p className="eyebrow">TEXHORU / Покупки</p><h2 id="cart-title">Корзина <span>{count}</span></h2></div>
+      <div className="drawer-head texhoru-panel-head"><div className="texhoru-panel-title"><TexhoruBrand /><h2 id="cart-title">Корзина <span>{count}</span></h2></div>
         <button className="icon-button drawer-back" ref={closeButton} onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
       <div className="drawer-body cart-lines">
         {!cart.length ? <div className="cart-empty"><Icon name="cart" /><h3>Здесь будут ваши покупки</h3><p>Выберите товары в каталоге и добавьте их в корзину.</p><button onClick={onClose}>Продолжить покупки <Icon name="arrow" /></button></div>
