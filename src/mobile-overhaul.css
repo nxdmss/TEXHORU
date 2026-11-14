@@ -586,9 +586,10 @@ html { scrollbar-gutter: stable; }
   .storefront main {
     position: relative;
     z-index: 0;
-    padding-top: 8px;
+    padding-top: 20px;
     padding-bottom: calc(var(--mobile-nav-height) + 24px + env(safe-area-inset-bottom));
   }
+  .storefront #catalog { scroll-margin-top: calc(54px + env(safe-area-inset-top) + 20px); }
 
   .storefront .header.header--storefront {
     position: sticky;
@@ -637,7 +638,7 @@ html { scrollbar-gutter: stable; }
   .storefront .cart-page-screen.cart-drawer {
     width: calc(100% - 28px);
     min-height: calc(100dvh - 160px);
-    margin: 8px auto 28px;
+    margin: 4px auto 28px;
   }
   .storefront .category-page-screen .category-menu__grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
   .storefront .category-page-screen .category-menu__tile { min-height: 0; }
@@ -739,10 +740,12 @@ html { scrollbar-gutter: stable; }
   .category-menu .category-drawer__footer { display: none; }
 
   /* Favorites intentionally has no filters or category tree: products only. */
-  .storefront .catalog--favorites { padding-top: 18px; }
+  .storefront .catalog { width: calc(100% - 28px) !important; margin-inline: auto !important; }
+  .storefront .catalog--favorites { padding-top: 12px; }
   .storefront .favorites-head { display: flex; align-items: center; gap: 9px; margin: 0 0 16px; }
   .storefront .favorites-head h2 { margin: 0; font-size: 27px; line-height: 1; letter-spacing: -.04em; }
   .storefront .favorites-head span { display: grid; place-items: center; min-width: 25px; height: 25px; padding: 0 7px; border-radius: 999px; background: var(--tx-accent); color: #fff; font-size: 10px; font-weight: 700; }
+  .storefront .catalog--favorites .empty-search { max-width: 480px; min-height: 0; padding: 24px 0 0; font-size: 16px; line-height: 1.6; }
   .storefront .catalog--favorites .product-grid {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0,1fr)) !important;

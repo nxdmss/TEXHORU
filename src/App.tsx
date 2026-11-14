@@ -1144,7 +1144,7 @@ function App() {
   const showFavorites = () => {
     setFavoritesOnly(true); setQuery(''); setCategory('Все'); setStoreSection(''); setBrandFilter(''); setMinPrice(''); setMaxPrice('')
     if (window.location.pathname !== '/favorites') navigate('/favorites')
-    window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+    else window.scrollTo({ top: 0, behavior: 'instant' })
   }
   const changeQuantity = (productId: number, delta: number) => setCart(current => current.map(item => item.product.id === productId
     ? { ...item, quantity: Math.max(1, Math.min(cartLimit(item.product), item.quantity + delta)) } : item))
