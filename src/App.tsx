@@ -947,7 +947,7 @@ function App() {
   const [brandFilter, setBrandFilter] = useState('')
   const [minPrice, setMinPrice] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [favoritesOnly, setFavoritesOnly] = useState(() => /^\/favorites\/?$/.test(window.location.pathname))
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState('')
   const [query, setQuery] = useState('')
@@ -966,10 +966,8 @@ function App() {
   const [storefrontDevice, setStorefrontDevice] = useState<StorefrontDevice>(() => window.innerWidth < 700 ? 'mobile' : window.innerWidth < 1100 ? 'tablet' : 'desktop')
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
-  const [cartOpen, setCartOpen] = useState(false)
   const [path, setPath] = useState(() => window.location.pathname)
   const lastPhonePath = useRef('/catalog/smartphones')
-  const [menuOpen, setMenuOpen] = useState(false)
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
   const refreshHomeLayout = () => api.storefrontLayout().then((state) => setHomeLayout(normalizeStorefrontLayout(state.layout))).catch(() => setHomeLayout(defaultStorefrontLayout()))
@@ -1028,8 +1026,6 @@ function App() {
     setMaxPrice('')
     setFavoritesOnly(false)
     setStoreLimit(24)
-    setMenuOpen(false)
-    setCartOpen(false)
     navigate('/')
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
@@ -1039,7 +1035,6 @@ function App() {
     const next = () => {
       if (window.location.pathname !== url) window.history.pushState({}, '', url)
       setPath(url)
-      setMenuOpen(false)
       setCategory('Все')
       setStoreSection('')
       setQuery('')
@@ -1065,6 +1060,8 @@ function App() {
   }, [path])
   const authScreen = /^\/register\/?$/.test(path) ? 'register' : /^\/login\/?$/.test(path) ? 'login' : null
   const isProductPage = Boolean(productMatch), isAccountPage = /^\/account\/?$/.test(path), isCheckoutPage = /^\/checkout\/?$/.test(path), isAdminPage = /^\/admin\/?$/.test(path)
+  const isCatalogPage = /^\/catalog\/?$/.test(path), isCartPage = /^\/cart\/?$/.test(path), isFavoritesPage = /^\/favorites\/?$/.test(path)
+  useEffect(() => { setFavoritesOnly(isFavoritesPage) }, [isFavoritesPage])
   useEffect(() => { setStoreLimit(24) }, [storeSection, category, query, sort, onlyAvailable, brandFilter, minPrice, maxPrice, favoritesOnly])
   const catalogTotal = catalogGroups.reduce((sum, group) => sum + group.count, 0) || catalogProducts.length
   const useRemoteCatalog = !favoritesOnly && catalogTotal > catalogProducts.length
@@ -1140,14 +1137,13 @@ function App() {
       return existing ? current.map(item => item.product.id === product.id
         ? { ...item, quantity: Math.min(cartLimit(product), item.quantity + 1) } : item) : [...current, { product, quantity: 1 }]
     })
-    setCartOpen(true)
+    navigate('/cart')
   }
   const toggleFavorite = (product: Product) => setFavoriteIds(current => current.includes(product.id)
     ? current.filter(id => id !== product.id) : [...current, product.id].slice(-100))
   const showFavorites = () => {
-    setMenuOpen(false); setCartOpen(false)
     setFavoritesOnly(true); setQuery(''); setCategory('Все'); setStoreSection(''); setBrandFilter(''); setMinPrice(''); setMaxPrice('')
-    if (window.location.pathname !== '/') navigate('/')
+    if (window.location.pathname !== '/favorites') navigate('/favorites')
     window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
   }
   const changeQuantity = (productId: number, delta: number) => setCart(current => current.map(item => item.product.id === productId
@@ -1161,7 +1157,6 @@ function App() {
     setCategory(nextCategory)
     if (!preserveSearch) setQuery('')
     setStoreSection('')
-    setMenuOpen(false)
     if (window.location.pathname !== '/') {
       navigate('/')
       window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -1174,7 +1169,6 @@ function App() {
     setCategory('Все')
     setQuery('')
     setStoreSection(nextSection)
-    setMenuOpen(false)
     if (window.location.pathname !== '/') {
       navigate('/')
       window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -1212,7 +1206,7 @@ function App() {
         {(catalogLoading || (useRemoteCatalog && remoteLoading && !remoteCatalog.items.length)) && <div className="catalog-loading" role="status">Загружаем товары…</div>}
         {(catalogError || remoteError) && <div className="empty-search" role="alert">{catalogError || remoteError}<button className="catalog-more" onClick={() => window.location.reload()}>Повторить</button></div>}
         <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
-          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
         {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogTotal} товаров</button>}
         {!isFeaturedView && (useRemoteCatalog ? remoteCatalog.hasMore : filtered.length > storeLimit) &&
           <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n + 24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
@@ -1242,16 +1236,18 @@ function App() {
     ? <div className="storefront-page-grid" data-device={storefrontDevice}>{visibleHomeBlocks.map(renderFeaturedBlock)}</div>
     : renderCatalogBlock(undefined, true)
 
-  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); const favorite = favoriteIds.includes(product.id); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><div className="product-page__actions"><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><button type="button" className={'product-page__favorite' + (favorite ? ' is-active' : '')} aria-pressed={favorite} onClick={() => toggleFavorite(product)}><Icon name="heart" />{favorite ? 'В избранном' : 'В избранное'}</button></div><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}</section> }
+  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); const favorite = favoriteIds.includes(product.id); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><div className="product-page__actions"><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><button type="button" className={'product-page__favorite' + (favorite ? ' is-active' : '')} aria-pressed={favorite} onClick={() => toggleFavorite(product)}><Icon name="heart" />{favorite ? 'В избранном' : 'В избранное'}</button></div><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}</section> }
 
   const tokenFromQuery = new URLSearchParams(window.location.search).get('token') || ''
   let content
   if (isAdminPage) content = <AdminPage onBack={goHome} />
+  else if (isCatalogPage) content = <CategoryDrawer page products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={goHome} onSelect={jumpToStoreSection} onAccount={() => navigate('/account')} />
+  else if (isCartPage) content = <CartDrawer page cart={cart} online={apiOnline} onClose={goHome} onOpenProduct={openProduct} onQuantity={changeQuantity} onRemove={id => setCart(current => current.filter(item => item.product.id !== id))} onCheckout={() => navigate('/checkout')} />
   else if (journeyMatch) content = <SmartphoneJourney brands={smartphoneBrands} activeBrand={selectedJourneyBrand}
     count={useRemoteCatalog ? remoteCatalog.total : journeyProducts.length} onOpen={openJourney}>
     {visibleJourneyProducts.length > 0
       ? <div className="product-grid">{visibleJourneyProducts.map(product =>
-          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => setCartOpen(true)} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
       : <div className="empty-search">{useRemoteCatalog && remoteLoading ? 'Загружаем смартфоны…' : remoteError || 'В наличии нет смартфонов в этом разделе.'}</div>}
     {useRemoteCatalog && remoteCatalog.hasMore && <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n+24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
   </SmartphoneJourney>
@@ -1262,15 +1258,13 @@ function App() {
   else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : detailLoading || catalogLoading ? <div className="catalog-loading" role="status">Открываем товар…</div> : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
-  const headerSection = cartOpen ? 'Корзина' : menuOpen ? 'Каталог' : favoritesOnly ? 'Избранное'
+  const headerSection = isCartPage ? 'Корзина' : isCatalogPage ? 'Каталог' : isFavoritesPage ? 'Избранное'
     : isCheckoutPage ? 'Оформление' : isAccountPage || authScreen ? 'Личный кабинет'
     : orderMatch ? 'Заказ' : mockPaymentMatch ? 'Оплата' : isProductPage ? 'Товар'
     : journeyMatch ? selectedJourneyBrand?.name || 'Смартфоны' : 'Главная'
-  const canHeaderGoBack = cartOpen || menuOpen || favoritesOnly || path !== '/'
+  const canHeaderGoBack = isFavoritesPage || path !== '/'
   const headerBack = () => {
-    if (cartOpen) { setCartOpen(false); return }
-    if (menuOpen) { setMenuOpen(false); return }
-    if (favoritesOnly) { goHome(); return }
+    if (isFavoritesPage) { goHome(); return }
     if (isProductPage && lastPhonePath.current !== '/') { navigate(lastPhonePath.current); return }
     goHome()
   }
@@ -1279,24 +1273,18 @@ function App() {
   {!isAdminPage && <a className="skip-link" href="#main-content">Перейти к товарам</a>}
   {!isAdminPage && <header className="header header--storefront">
     <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand section={headerSection} /></button>
-    <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div>
-    <label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>
+    <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div>
+    <label className="header-search-inline"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch || isFavoritesPage || isCatalogPage || isCartPage) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>
     <div className="header-actions">
       <button className={'ghost-button header-favorites' + (favoritesOnly ? ' is-active' : '')} onClick={showFavorites} aria-pressed={favoritesOnly}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button>
       <button className="ghost-button header-account" onClick={() => navigate('/account')} aria-current={isAccountPage || authScreen ? 'page' : undefined}><Icon name="user" /><span>Кабинет</span></button>
-      <button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>
+      <button className="cart-button" onClick={() => navigate('/cart')}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>
     </div>
     <button type="button" className={'unified-header-back' + (canHeaderGoBack ? '' : ' is-placeholder')} onClick={headerBack} disabled={!canHeaderGoBack} aria-hidden={!canHeaderGoBack}><Icon name="back" /><span>Назад</span></button>
   </header>}
-  {!isAdminPage && !menuOpen && !cartOpen && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
-  {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
-    onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
+  {!isAdminPage && !isCatalogPage && !isCartPage && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch || isFavoritesPage) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
-  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly && !menuOpen && !cartOpen ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={menuOpen ? 'active' : ''} onClick={() => { setCartOpen(false); setMenuOpen(true) }}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={favoritesOnly && !cartOpen ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={cartOpen ? 'active' : ''} onClick={() => { setMenuOpen(false); setCartOpen(true) }}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
-  {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
-    onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}
-    onRemove={id => setCart(current => current.filter(item => item.product.id !== id))}
-    onCheckout={() => { setCartOpen(false); navigate('/checkout') }} />}
+  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={isCatalogPage ? 'active' : ''} onClick={() => navigate('/catalog')}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={isFavoritesPage ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={isCartPage ? 'active' : ''} onClick={() => navigate('/cart')}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
 
   </div>
 }

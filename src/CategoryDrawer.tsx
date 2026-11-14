@@ -40,8 +40,8 @@ export function CategoryIllustration({ title }: { title: string }) {
   return <svg className="category-menu__illustration" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shape}</svg>
 }
 
-export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect, onAccount }: {
-  groups?: Array<{ path: string; count: number }>; products: Product[]; roots: OneCNode[]; onClose: () => void; onSelect: (selection: string) => void; onAccount: () => void
+export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect, onAccount, page = false }: {
+  groups?: Array<{ path: string; count: number }>; products: Product[]; roots: OneCNode[]; onClose: () => void; onSelect: (selection: string) => void; onAccount: () => void; page?: boolean
 }) {
   const [path, setPath] = useState('')
   const root = useMemo(() => categoryMenuRoot(roots), [roots])
@@ -53,6 +53,7 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
   const close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
+    if (page) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -71,7 +72,7 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
       document.removeEventListener('keydown', keyboard)
       if (previous?.isConnected) previous.focus({ preventScroll: true })
     }
-  }, [])
+  }, [page])
 
   function open(node: OneCNode) {
     if (!node.children.length) { onSelect(categorySelection(node.path)); return }
@@ -86,10 +87,10 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
     })
   }
   const count = groups.length ? groups.filter(group => !currentPath || matchesCategoryPath(group.path, currentPath)).reduce((sum, group) => sum + group.count, 0) : products.filter(product => !currentPath || matchesCategoryPath(storefrontPath(product.category, product.name), currentPath)).length
-  return <div className="menu-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
-    <aside className="category-drawer category-menu" id="category-menu" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Каталог товаров">
-      <div className="category-drawer__head texhoru-panel-head"><TexhoruBrand section={atRoot ? 'Каталог' : browseLabel(current)} />
+  const contents = <>
+      {!page && <div className="category-drawer__head texhoru-panel-head"><TexhoruBrand section={atRoot ? 'Каталог' : browseLabel(current)} />
         <button type="button" className="category-menu__dismiss" onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
+      }
       <div className="category-menu__body">
         <div className="category-menu__actions">
           {!atRoot && <button type="button" className="category-menu__back" onClick={() => setPath(categorySegments(currentPath).slice(0, -1).join(' / '))}><Icon name="back" />Назад</button>}
@@ -108,8 +109,12 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
         </nav>
         {!nodes.length && <p className="category-menu__empty">Товаров пока нет.</p>}
       </div>
-      <div className="category-drawer__footer"><button type="button" onClick={() => onSelect('')}>Популярное<Icon name="arrow" /></button>
+      {!page && <div className="category-drawer__footer"><button type="button" onClick={() => onSelect('')}>Популярное<Icon name="arrow" /></button>
         <button type="button" onClick={onAccount}><Icon name="user" />Личный кабинет</button><span>КИЗИЛЮРТ · ДАГЕСТАН</span></div>
-    </aside>
+      }
+    </>
+  if (page) return <section className="category-menu category-page-screen" aria-label="Каталог товаров">{contents}</section>
+  return <div className="menu-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
+    <aside className="category-drawer category-menu" id="category-menu" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Каталог товаров">{contents}</aside>
   </div>
 }
