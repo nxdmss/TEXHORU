@@ -88,8 +88,8 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
   const count = groups.length ? groups.filter(group => !currentPath || matchesCategoryPath(group.path, currentPath)).reduce((sum, group) => sum + group.count, 0) : products.filter(product => !currentPath || matchesCategoryPath(storefrontPath(product.category, product.name), currentPath)).length
   return <div className="menu-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
     <aside className="category-drawer category-menu" id="category-menu" ref={panel} role="dialog" aria-modal="true" aria-label="Каталог товаров">
-      <div className="category-drawer__head"><div><span>TEXHORU</span><h2>{atRoot ? 'Категории' : browseLabel(current)}</h2></div>
-        <button type="button" ref={closeButton} onClick={onClose} aria-label="Закрыть меню"><Icon name="close" /></button></div>
+      <div className="category-drawer__head"><div><span>TEXHORU</span><h2>{atRoot ? 'Каталог' : browseLabel(current)}</h2></div>
+        <button type="button" className="category-menu__dismiss" ref={closeButton} onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
       <div className="category-menu__body">
         <div className="category-menu__actions">
           {!atRoot && <button type="button" className="category-menu__back" onClick={() => setPath(categorySegments(currentPath).slice(0, -1).join(' / '))}><Icon name="back" />Назад</button>}

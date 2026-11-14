@@ -37,7 +37,7 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
   return <div className="overlay cart-overlay" onMouseDown={e => { if (e.currentTarget === e.target) onClose() }}>
     <aside className="drawer cart-drawer" ref={panel} role="dialog" aria-modal="true" aria-labelledby="cart-title">
       <div className="drawer-head"><div><p className="eyebrow">TEXHORU / Покупки</p><h2 id="cart-title">Корзина <span>{count}</span></h2></div>
-        <button className="icon-button" ref={closeButton} onClick={onClose} aria-label="Закрыть корзину"><Icon name="close" /></button></div>
+        <button className="icon-button drawer-back" ref={closeButton} onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
       <div className="drawer-body cart-lines">
         {!cart.length ? <div className="cart-empty"><Icon name="cart" /><h3>Здесь будут ваши покупки</h3><p>Выберите товары в каталоге и добавьте их в корзину.</p><button onClick={onClose}>Продолжить покупки <Icon name="arrow" /></button></div>
           : cart.map(({ product, quantity }) => <article className="cart-line" key={product.id}>
