@@ -206,9 +206,10 @@
 }
 @media (prefers-reduced-motion: reduce) { .admin-control *, .admin-control *::before, .admin-control *::after { transition: none !important; scroll-behavior: auto !important; } }
 
-.admin-control .admin-wordmark { font-size: 26px; letter-spacing: -.045em; font-weight: 700; line-height: 1.15; }
-.admin-wordmark > span { color: var(--tx-accent); }
-.admin-wordmark > small { margin-top: 7px; letter-spacing: .02em; font-size: 10px; }
+.admin-control .admin-brand .texhoru-brand { font-size: 26px; color: #f5f5f2; }
+.admin-control .admin-brand .texhoru-brand__subtitle { margin-top: 7px; color: #9c9c98; font-size: 10px; }
+.admin-login .texhoru-brand { margin-bottom: 8px; color: var(--tx-ink); font-size: 27px; }
+.admin-login .texhoru-brand__subtitle { font-size: 10px; }
 
 .admin-control .mp-summary { background: transparent; gap: 16px; }
 .admin-control .mp-summary > span { border: 0; padding: 0; font-size: 11px; color: var(--tx-muted); }
