@@ -6,6 +6,8 @@ export class CatalogQueryDto {
   @IsOptional() @IsString() @MaxLength(100) q?: string
   @IsOptional() @IsString() @MaxLength(1000) path?: string
   @IsOptional() @IsString() @MaxLength(100) brand?: string
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(5_000_000) minPrice?: number
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(5_000_000) maxPrice?: number
   @IsOptional() @IsIn(['true', 'false']) available?: string
   @IsOptional() @IsIn(['true', 'false']) smartphones?: string
   @IsOptional() @IsIn(['recommended', 'price-asc', 'price-desc', 'name']) sort?: string

@@ -1,8 +1,9 @@
-export function Icon({ name }: { name: 'search' | 'cart' | 'arrow' | 'close' | 'minus' | 'plus' | 'user' | 'box' | 'back' | 'menu' | 'chevronLeft' | 'chevronRight' | 'trash' }) {
+export function Icon({ name }: { name: 'search' | 'cart' | 'heart' | 'arrow' | 'close' | 'minus' | 'plus' | 'user' | 'box' | 'back' | 'menu' | 'chevronLeft' | 'chevronRight' | 'trash' }) {
   const paths = {
     trash: <><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></>,
     search: <><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></>,
     cart: <><path d="M3.5 5h2l1.8 9.2h9.6l2-6.3H6.2"/><circle cx="9" cy="18.5" r="1"/><circle cx="16.5" cy="18.5" r="1"/></>,
+    heart: <path d="M20.8 5.8c-2-2-5.2-1.8-7 .4L12 8.3l-1.8-2.1c-1.8-2.2-5-2.4-7-.4-2.1 2.2-1.8 5.6.4 7.7L12 21l8.4-7.5c2.2-2.1 2.5-5.5.4-7.7Z"/>,
     arrow: <><path d="M4 12h15"/><path d="m14 7 5 5-5 5"/></>,
     back: <><path d="M20 12H5"/><path d="m10 7-5 5 5 5"/></>,
     close: <><path d="m5 5 14 14"/><path d="M19 5 5 19"/></>,
