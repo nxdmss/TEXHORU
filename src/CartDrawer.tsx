@@ -10,14 +10,13 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
   onQuantity: (id: number, delta: number) => void; onRemove: (id: number) => void; onCheckout: () => void;
 }) {
   const panel = useRef<HTMLElement>(null)
-  const closeButton = useRef<HTMLButtonElement>(null)
   const close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    closeButton.current?.focus()
+    panel.current?.focus({ preventScroll: true })
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); close.current(); return }
       if (event.key !== 'Tab') return
@@ -36,9 +35,9 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
   const count = cart.reduce((sum, item) => sum + item.quantity, 0)
   const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
   return <div className="overlay cart-overlay" onMouseDown={e => { if (e.currentTarget === e.target) onClose() }}>
-    <aside className="drawer cart-drawer" ref={panel} role="dialog" aria-modal="true" aria-labelledby="cart-title">
-      <div className="drawer-head texhoru-panel-head"><div className="texhoru-panel-title"><TexhoruBrand /><h2 id="cart-title">Корзина <span>{count}</span></h2></div>
-        <button className="icon-button drawer-back" ref={closeButton} onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
+    <aside className="drawer cart-drawer" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cart-title">
+      <div className="drawer-head texhoru-panel-head"><TexhoruBrand section={`Корзина · ${count}`} /><h2 className="visually-hidden" id="cart-title">Корзина</h2>
+        <button className="icon-button drawer-back" onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
       <div className="drawer-body cart-lines">
         {!cart.length ? <div className="cart-empty"><Icon name="cart" /><h3>Здесь будут ваши покупки</h3><p>Выберите товары в каталоге и добавьте их в корзину.</p><button onClick={onClose}>Продолжить покупки <Icon name="arrow" /></button></div>
           : cart.map(({ product, quantity }) => <article className="cart-line" key={product.id}>
