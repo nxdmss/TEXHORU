@@ -409,6 +409,14 @@ html { scrollbar-gutter: stable; }
 .storefront .brand .texhoru-brand__wordmark { margin: 0; color: var(--tx-ink); font: 700 1em/1 "IBM Plex Sans", sans-serif; letter-spacing: -.055em; vertical-align: baseline; }
 .storefront .brand .texhoru-brand__wordmark .brand-ru { margin: 0; color: var(--tx-accent); font: inherit; letter-spacing: inherit; vertical-align: baseline; }
 .storefront .brand .texhoru-brand__section { margin-left: 16px; color: var(--tx-ink); font: 600 22px/1.05 "IBM Plex Sans", sans-serif; letter-spacing: -.035em; vertical-align: baseline; }
+.storefront .header.header--storefront {
+  height: 74px !important;
+  min-height: 74px !important;
+  padding-block: 11px !important;
+}
+.storefront .header.header--storefront > .brand { font-size: 32px !important; }
+.storefront .header.header--storefront .texhoru-brand__section { font-size: 24px; }
+.storefront .header.header--no-search .header-actions { grid-column: 4; }
 .texhoru-panel-head > .texhoru-brand { flex: 0 1 auto; color: var(--tx-ink); font-family: "IBM Plex Sans", sans-serif; font-size: 20px; letter-spacing: 0; }
 .texhoru-panel-head .texhoru-brand__wordmark { color: var(--tx-ink); font: 700 1em/1 "IBM Plex Sans", sans-serif; letter-spacing: -.055em; }
 .texhoru-panel-head .texhoru-brand__wordmark .brand-ru { color: var(--tx-accent); font: inherit; letter-spacing: inherit; }
@@ -580,12 +588,12 @@ html { scrollbar-gutter: stable; }
     position: sticky;
     z-index: 80;
     top: 0;
-    grid-template-columns: minmax(0, 1fr) 76px !important;
-    grid-template-rows: 52px !important;
-    min-height: 74px !important;
-    height: 74px !important;
-    gap: 10px !important;
-    padding: max(8px, env(safe-area-inset-top)) 14px 8px !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: 42px !important;
+    min-height: 58px !important;
+    height: 58px !important;
+    gap: 0 !important;
+    padding: max(6px, env(safe-area-inset-top)) 12px 6px !important;
     border-bottom: 1px solid rgba(22,22,25,.08) !important;
     background: rgba(255,255,255,.94) !important;
     backdrop-filter: blur(18px);
@@ -593,7 +601,7 @@ html { scrollbar-gutter: stable; }
   .storefront .header.header--storefront > .brand {
     grid-column: 1 !important;
     grid-row: 1 !important;
-    font-size: clamp(22px, 6.4vw, 27px) !important;
+    font-size: clamp(27px, 7.8vw, 32px) !important;
     letter-spacing: -.04em;
     min-width: 0;
     overflow: hidden;
@@ -603,26 +611,7 @@ html { scrollbar-gutter: stable; }
   .storefront .header.header--storefront .header-search-inline { display: none !important; }
   .storefront .header.header--storefront .texhoru-brand { max-width: 100%; }
   .storefront .header.header--storefront .texhoru-brand__line { max-width: 100%; }
-  .storefront .header.header--storefront .texhoru-brand__section { width: min(31vw, 142px); max-width: min(31vw, 142px); margin-left: 12px; padding-left: 12px; font-size: clamp(17px, 5.1vw, 22px); }
-  .storefront .unified-header-back {
-    grid-column: 2;
-    grid-row: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    width: 76px;
-    height: 44px;
-    padding: 0 10px;
-    border: 1px solid rgba(22,22,25,.09);
-    border-radius: 12px;
-    background: #f3f3f5;
-    color: var(--tx-ink);
-    font-size: 10px;
-    font-weight: 700;
-  }
-  .storefront .unified-header-back svg { width: 15px; height: 15px; }
-  .storefront .unified-header-back.is-placeholder { visibility: hidden; }
+  .storefront .header.header--storefront .texhoru-brand__section { width: min(41vw, 176px); max-width: min(41vw, 176px); margin-left: 12px; padding-left: 12px; font-size: clamp(18px, 5.5vw, 23px); }
   .storefront .mobile-page-search {
     position: relative;
     z-index: 2;
@@ -832,8 +821,8 @@ html { scrollbar-gutter: stable; }
 }
 
 @media (max-width: 360px) {
-  .storefront .header.header--storefront > .brand { font-size: 21px !important; }
-  .storefront .header.header--storefront .texhoru-brand__section { font-size: 16px; }
+  .storefront .header.header--storefront > .brand { font-size: 26px !important; }
+  .storefront .header.header--storefront .texhoru-brand__section { font-size: 17px; }
   .storefront .header.header--storefront { padding-inline: 10px !important; }
   .mobile-dock { left: 8px; right: 8px; }
   .category-menu__grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
