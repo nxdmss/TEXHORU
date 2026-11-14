@@ -370,3 +370,99 @@
 @supports (padding: max(0px)) {
   .storefront .cart-drawer .drawer-bottom { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
 }
+
+/* Independent phone storefront: the mobile canvas is a product of its own,
+   not a compressed desktop page. */
+.mobile-dock { display: none; }
+
+@media (min-width: 700px) and (max-width: 1099px) {
+  .storefront-page-grid[data-device="tablet"] .storefront-carousel__viewport { aspect-ratio: 16 / 9 !important; }
+}
+
+@media (max-width: 699px) {
+  .storefront main { padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
+  .storefront .footer.footer--minimal { padding-bottom: calc(98px + env(safe-area-inset-bottom)) !important; }
+
+  .storefront .header.header--storefront .header-actions { display: none !important; }
+  .storefront .header.header--storefront { grid-template-columns: auto 1fr !important; gap: 10px !important; }
+  .storefront .header-search-inline { grid-column: 1 / -1; }
+
+  .mobile-dock {
+    position: fixed;
+    z-index: 60;
+    left: 10px;
+    right: 10px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(4,minmax(0,1fr));
+    min-height: 62px;
+    padding: 5px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 18px;
+    background: rgba(20,20,22,.94);
+    box-shadow: 0 14px 42px rgba(0,0,0,.28);
+    backdrop-filter: blur(20px);
+  }
+  .mobile-dock button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 3px;
+    min-width: 0;
+    padding: 5px 2px;
+    border: 0;
+    border-radius: 13px;
+    background: transparent;
+    color: rgba(255,255,255,.64);
+  }
+  .mobile-dock button.active { background: #fff; color: #111; }
+  .mobile-dock svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+  .mobile-dock span { font-size: 9px; font-weight: 700; }
+  .mobile-dock b { position: absolute; top: 4px; right: calc(50% - 22px); display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: var(--tx-accent); color: #fff; font-size: 8px; }
+
+  .storefront-page-grid[data-device="mobile"] .storefront-carousel__viewport,
+  .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .storefront-carousel__viewport {
+    aspect-ratio: 4 / 5 !important;
+    max-height: min(78vh, 620px);
+    border-radius: 16px !important;
+    clip-path: inset(0 round 16px);
+  }
+
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid,
+  .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .home-collections__grid {
+    display: flex !important;
+    grid-template-columns: none !important;
+    gap: 10px !important;
+    width: calc(100% + 14px);
+    margin-right: -14px;
+    padding: 2px 14px 10px 0;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid::-webkit-scrollbar { display: none; }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button,
+  .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .home-collections__grid > button {
+    flex: 0 0 min(72vw, 250px);
+    min-height: 184px;
+    border-radius: 14px;
+    scroll-snap-align: start;
+  }
+}
+
+@media (max-width: 480px) {
+  .storefront .product-grid { gap: 10px !important; }
+  .storefront .product-card {
+    padding: 11px !important;
+    border: 1px solid var(--tx-line) !important;
+    border-radius: 14px !important;
+    background: #fff !important;
+    box-shadow: 0 8px 28px rgba(20,20,25,.04);
+  }
+  .storefront .product-card:first-child { border-top: 1px solid var(--tx-line) !important; }
+  .storefront .product-media { border-radius: 11px !important; background: #f5f5f3; }
+  .storefront .product-card__favorite { top: 14px; right: 10px; }
+  .storefront .product-card__badge { top: 16px; left: 17px; }
+  .storefront .product-card__add { border-radius: 9px !important; }
+}

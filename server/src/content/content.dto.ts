@@ -8,6 +8,8 @@ export class PromoDto {
   @IsString() ctaLabel!: string
   @IsString() category!: string
   @IsString() image!: string
+  @IsOptional() @IsString() imageTablet?: string
+  @IsOptional() @IsString() imageMobile?: string
   @IsOptional() @IsString() tone?: string
   @IsOptional() @IsInt() @Min(0) sortOrder?: number
   @IsOptional() @IsBoolean() isActive?: boolean
@@ -21,6 +23,8 @@ export class UpdatePromoDto {
   @IsOptional() @IsString() ctaLabel?: string
   @IsOptional() @IsString() category?: string
   @IsOptional() @IsString() image?: string
+  @IsOptional() @IsString() imageTablet?: string
+  @IsOptional() @IsString() imageMobile?: string
   @IsOptional() @IsString() tone?: string
   @IsOptional() @IsInt() @Min(0) sortOrder?: number
   @IsOptional() @IsBoolean() isActive?: boolean
