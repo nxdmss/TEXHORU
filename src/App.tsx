@@ -1,7 +1,6 @@
 import { HomeCollections } from './HomeCollections'
 import { AccountPage } from './AccountPage'
 import { RemoteCatalogPanel } from './RemoteCatalogPanel'
-import { CatalogSyncPanel } from './CatalogSyncPanel'
 import { Icon } from './Icon'
 import { CartDrawer } from './CartDrawer'
 import { CategoryDrawer } from './CategoryDrawer'
@@ -18,32 +17,12 @@ import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSma
 import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiCategory, type ApiProduct, type OneCPriceSyncStatus, type PromoBanner, type TrackedOrder } from './api'
+import { api, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, type StorefrontBlock, type StorefrontLayout } from './page-layout'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
 const money = new Intl.NumberFormat('ru-RU')
-const easyExchangeStatus = (status: string) => {
-  if (status === 'PENDING') return 'Ожидает обновления в 1С'
-  if (status === 'DELIVERED') return 'Цена обновлена в 1С'
-  if (status === 'CONFLICT') return 'Цены не совпадают, нужна проверка'
-  if (status === 'CANCELLED') return 'Изменение отменено'
-  if (status === 'FAILED') return 'Ошибка передачи'
-  return 'Нужна проверка'
-}
-const easyExchangeEvent = (entity: string, direction: string, status: string) => {
-  const success = status === 'SUCCESS'
-  if (entity === 'ONEC_AGENT') return success ? 'Связь с агентом' : 'Агент сообщил об ошибке'
-  if (entity === 'PRICE_SYNC_SCOPE') return success ? 'Настроены товары для обмена ценами' : 'Не удалось настроить обмен ценами'
-  if (entity === 'RETAIL_PRICE_UPDATE') return success ? 'Изменение цены подтверждено в 1С' : 'Не удалось обновить цену в 1С'
-  if (entity === 'PRICE_SYNC_CONFLICT') return 'Обнаружено расхождение цен'
-  if (entity === 'CATALOG') return success ? 'Товары и цены получены из 1С' : 'Не удалось получить товары из 1С'
-  if (entity === 'PRICE_MONITOR') return success ? 'Получены результаты проверки цен' : 'Ошибка проверки цен'
-  if (direction === 'FROM_1C') return success ? 'Получены данные из 1С' : 'Ошибка получения данных из 1С'
-  if (direction === 'TO_1C') return success ? 'Данные переданы в 1С' : 'Ошибка передачи данных в 1С'
-  return success ? 'Операция выполнена' : 'Операция требует проверки'
-}
 type AccountTab = 'active' | 'history' | 'profile'
 type AdminTab = 'overview' | 'products' | 'content' | 'prices' | 'orders' | 'notifications' | 'sync' | 'audit'
 type CreatedOrder = { number: number; trackingToken: string; paymentMethod: 'ONLINE' | 'ON_RECEIPT' }
@@ -459,8 +438,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [products, setProducts] = useState<AdminProduct[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
-  const [logs, setLogs] = useState<any[]>([])
-  const [priceSync, setPriceSync] = useState<OneCPriceSyncStatus>({ scope: [], changes: [] })
   const [audit, setAudit] = useState<any[]>([])
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [apiCategories, setApiCategories] = useState<ApiCategory[]>([])
@@ -487,13 +464,12 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [savingProduct, setSavingProduct] = useState(false)
   const [productEditorError, setProductEditorError] = useState('')
   const [priceSyncNotice, setPriceSyncNotice] = useState('')
-  const [syncUnavailable, setSyncUnavailable] = useState(false)
 
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const [p, o, n, l, c, promosData, auditData, syncData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.syncLogs(), api.adminCategories(), api.adminPromos(), api.auditLogs(), api.priceSyncStatus()])
-      setProducts(p); setOrders(o); setNotifications(n); setLogs(l); setApiCategories(c); setPromos(promosData); setAudit(auditData); setPriceSync(syncData)
+      const [p, o, n, c, promosData, auditData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.adminCategories(), api.adminPromos(), api.auditLogs()])
+      setProducts(p); setOrders(o); setNotifications(n); setApiCategories(c); setPromos(promosData); setAudit(auditData)
       setProductDraft((value) => value.categoryId ? value : { ...value, categoryId: c[0]?.id ?? '' })
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось загрузить админку') } finally { setLoading(false) }
   }
@@ -501,21 +477,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     api.me().then(async user => { if (!['ADMIN', 'MANAGER', 'DIRECTOR'].includes(user.role)) throw new Error('Недостаточно прав'); setAuthenticated(true); await load() }).catch(() => setAuthenticated(false)).finally(() => setCheckingSession(false))
   }, [])
-
-  useEffect(() => {
-    if (!authenticated || tab !== 'sync') return
-    let active = true, polling = false
-    const refresh = async () => {
-      if (polling || document.hidden) return
-      polling = true
-      try { const data = await api.priceSyncStatus(); if (active) { setPriceSync(data); setSyncUnavailable(false) } }
-      catch { if (active) setSyncUnavailable(true) }
-      finally { polling = false }
-    }
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 5000)
-    return () => { active = false; window.clearInterval(timer) }
-  }, [authenticated, tab])
 
   const login = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true); setError('')
@@ -742,13 +703,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   if (checkingSession) return <section className="admin-shell"><div className="admin-loading">Проверяем сессию…</div></section>
   if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><p className="eyebrow">TEXHORU</p><h1>Вход в управление</h1><label><span>Почта</span><input type="email" autoComplete="username" required placeholder="Почта сотрудника" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Доступ для сотрудников TEXHORU.</small></form></section>
 
-  const syncPending = priceSync.summary?.pending ?? priceSync.changes.filter(change => change.status === 'PENDING').length
-  const syncDelivered = priceSync.summary?.delivered ?? priceSync.changes.filter(change => change.status === 'DELIVERED').length
-  const syncErrors = priceSync.summary?.needsAttention ?? priceSync.changes.filter(change => change.error || ['CONFLICT', 'FAILED', 'CANCELLED'].includes(change.status)).length
-  const agentState = syncUnavailable ? 'Не удалось проверить связь' : !priceSync.agent ? 'Агент ещё не подключался'
-    : !priceSync.agent.online ? 'Нет свежей связи с агентом' : priceSync.agent.state === 'processing'
-    ? 'Идёт запись в 1С' : priceSync.agent.state === 'error' ? 'Есть ошибка обмена' : 'Агент на связи'
-  const agentStateClass = !syncUnavailable && priceSync.agent?.online && priceSync.agent.state !== 'error' ? 'is-connected' : 'is-waiting'
   const unread = notifications.filter((item) => !item.isRead).length
   const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Номенклатура 1С', audit: 'Журнал' }
   const navigationGroups: Array<{ label: string; tabs: AdminTab[] }> = [
@@ -800,7 +754,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           <article><span>Разделов товаров</span><strong>{apiCategories.length}</strong></article>
           <article><span>Скрытых товаров</span><strong>{products.filter(p => p.status === 'ARCHIVED').length}</strong></article>
           <article><span>Мало товара</span><strong>{products.filter(p => Math.max(0, p.stockQty - (p.reservedQty ?? 0)) <= 3).length}</strong></article>
-          <article><span>Ошибок обмена</span><strong>{logs.filter(item => item.status === 'FAILED').length}</strong></article>
         </div>
       </details>
     </>}
@@ -912,78 +865,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'prices' && <PriceApprovalDashboard products={products} initialSetup={priceSetup} onInventoryRefresh={load} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
-    {tab === 'sync' && <section className="admin-sync">
-      <RemoteCatalogPanel />
-      <details><summary>Выгрузка через прежнюю обработку 1С</summary><CatalogSyncPanel /></details>
-      <header className="admin-sync-head">
-        <div><h2>Обмен с 1С</h2><p>Передача розничных цен · результат подтверждает 1С</p></div>
-        <button type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Обновляем…' : 'Обновить'}</button>
-      </header>
-
-      <div className={'admin-sync-connection ' + agentStateClass} role="status" aria-live="polite">
-        <span className="admin-sync-indicator" aria-hidden="true" />
-        <strong>{agentState}</strong>
-        {priceSync.agent && <span>Последняя связь {new Date(priceSync.agent.lastSeenAt).toLocaleString('ru-RU')}</span>}
-      </div>
-      <div className="admin-sync-stats admin-sync-stats--compact">
-        <article><strong>{syncPending}</strong><span>Ожидают 1С</span></article>
-        <article><strong>{syncDelivered}</strong><span>Подтверждено</span></article>
-        <article className={syncErrors ? 'has-errors' : ''}><strong>{syncErrors}</strong><span>Нужна проверка</span></article>
-      </div>
-
-      <details className="admin-sync-detail">
-        <summary>Последние изменения <span className="admin-sync-count">{priceSync.changes.length}</span></summary>
-        {priceSync.changes.length === 0 && <p>Обновлений ещё нет. Начни в разделе «Цены».</p>}
-        <div className="admin-sync-list">
-          {priceSync.changes.map(change => <article key={change.id}
-            className={change.error || ['FAILED', 'CONFLICT', 'CANCELLED'].includes(change.status) ? 'is-error' : ''}>
-            <div className="admin-sync-operation">
-              <strong>{change.name}</strong>
-              <span>{change.error && change.status === 'PENDING' ? 'Ошибка · ожидает повтора' : easyExchangeStatus(change.status)}</span>
-            </div>
-            <p>{money.format(change.oldPrice)} ₽ → {money.format(change.newPrice)} ₽</p>
-            <small>{new Date(change.createdAt).toLocaleString('ru-RU')}
-              {change.deliveredAt && <> · Подтверждено {new Date(change.deliveredAt).toLocaleString('ru-RU')}</>}</small>
-            {change.error && <p className="admin-sync-operation-error">{change.error}</p>}
-            <details><summary>Данные операции</summary>
-              <p>Операция: {change.id}</p><p>Товар 1С: {change.oneCId}</p><p>Состояние: {change.status}</p>
-            </details>
-          </article>)}
-        </div>
-      </details>
-
-      <details className="admin-sync-detail">
-        <summary>Диагностика и настройки</summary>
-        <div className="admin-sync-diagnostics">
-          <p>Передача цен: <strong>{priceSync.testPriceSyncEnabled ? 'включена для подключённой базы' : 'выключена'}</strong>.</p>
-          {priceSync.agent && <p>Последний цикл агента: подтверждено {priceSync.agent.applied}, ошибок {priceSync.agent.failed}.</p>}
-          <p>Обновление считается выполненным после подтверждения 1С. При отсутствии связи очередь сохраняется.</p>
-          <details>
-            <summary>Товары с разрешением обмена ({priceSync.scope.length})</summary>
-            {priceSync.scope.length === 0 && <p>Разрешённых товаров пока нет.</p>}
-            <div className="admin-sync-list">{priceSync.scope.map(p => <article key={p.id}>
-              <strong>{p.name}</strong><p>{money.format(p.price)} ₽ · В наличии {p.stockQty} шт.</p>
-            </article>)}</div>
-          </details>
-          <details>
-            <summary>Допуск после загрузки каталога</summary>
-            <p>{priceSync.testAutoScopeOnCatalogImport ? 'Товары из подключённой базы 1С подключаются автоматически.'
-              : 'Автоматический допуск при загрузке каталога выключен.'}</p>
-          </details>
-          <details>
-            <summary>Журнал связи ({logs.length})</summary>
-            {logs.length === 0 && <p>Записей пока нет.</p>}
-            <div className="admin-sync-list">{logs.slice(0, 30).map(item => <article key={item.id}
-              className={item.status === 'FAILED' ? 'is-error' : ''}>
-              <small>{new Date(item.createdAt).toLocaleString('ru-RU')}</small>
-              <strong>{easyExchangeEvent(item.entity, item.direction, item.status)}</strong>
-              {item.message && <p>{item.message}</p>}
-              <details><summary>Данные записи</summary><p>{item.direction} · {item.entity} · {item.status}</p></details>
-            </article>)}</div>
-          </details>
-        </div>
-      </details>
-    </section>}
+    {tab === 'sync' && <section className="admin-sync"><RemoteCatalogPanel /></section>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
     </div>
