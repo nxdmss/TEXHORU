@@ -136,14 +136,14 @@ html { scrollbar-gutter: stable; }
   .storefront .home-collections__grid,
   .storefront .storefront-layout__block:not([data-width="12"]) .home-collections__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 8px !important;
+    gap: 10px !important;
   }
   .storefront .home-collections__grid > button,
   .storefront .storefront-layout__block:not([data-width="12"]) .home-collections__grid > button {
     min-width: 0;
-    min-height: 158px;
-    padding: 12px !important;
-    gap: 8px;
+    min-height: 205px;
+    padding: 13px !important;
+    gap: 10px;
     overflow: hidden;
     border: 1px solid rgba(22,22,25,.09) !important;
     border-radius: 3px !important;
@@ -157,8 +157,12 @@ html { scrollbar-gutter: stable; }
   }
   .storefront .home-collection-image > .category-menu__illustration { color: #29292d; }
   .storefront .home-collection-caption { align-items: flex-end; gap: 5px; }
-  .storefront .home-collection-caption strong { min-width: 0; font-size: 11.5px; line-height: 1.25; overflow-wrap: anywhere; }
+  .storefront .home-collection-caption > span { gap: 5px; }
+  .storefront .home-collection-caption strong { min-width: 0; font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; }
+  .storefront .home-collection-caption small { font-size: 10px; }
   .storefront .home-collection-caption svg { width: 15px; height: 15px; color: #85858b; }
+  .storefront .home-collection-meta span { color: #202024; font-size: 9px; }
+  .storefront .home-collection-meta small { color: #85858b; font-size: 9px; }
 
   /* Advertising and editorial blocks use phone-friendly proportions. */
   .storefront .storefront-carousel { margin-block: 4px 18px !important; }
@@ -547,24 +551,33 @@ html { scrollbar-gutter: stable; }
 
   .storefront-page-grid[data-device="mobile"] .home-collections__grid,
   .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .home-collections__grid {
-    display: flex !important;
-    grid-template-columns: none !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 10px !important;
-    width: calc(100% + 14px);
-    margin-right: -14px;
-    padding: 2px 14px 10px 0;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
   }
-  .storefront-page-grid[data-device="mobile"] .home-collections__grid::-webkit-scrollbar { display: none; }
   .storefront-page-grid[data-device="mobile"] .home-collections__grid > button,
   .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .home-collections__grid > button {
-    flex: 0 0 min(72vw, 250px);
-    min-height: 184px;
+    min-height: 205px;
     border-radius: 3px !important;
-    scroll-snap-align: start;
   }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button:first-child,
+  .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .home-collections__grid > button:first-child {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 42%;
+    grid-template-rows: auto 1fr;
+    grid-column: 1 / -1;
+    min-height: 174px;
+    padding: 16px !important;
+  }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button:first-child .home-collection-meta { grid-column: 1; grid-row: 1; }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button:first-child .home-collection-image { grid-column: 2; grid-row: 1 / 3; width: 100%; height: 140px !important; }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button:first-child .home-collection-caption { grid-column: 1; grid-row: 2; align-self: end; }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button:first-child .home-collection-caption strong { font-size: 17px; }
+  .storefront-page-grid[data-device="mobile"] .home-collections__grid > button:first-child .home-collection-caption small { font-size: 11px; }
 }
 
 @media (max-width: 480px) {
