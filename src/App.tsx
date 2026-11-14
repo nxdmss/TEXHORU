@@ -1262,10 +1262,23 @@ function App() {
   else if (isProductPage) content = selectedProduct ? renderProductPage(selectedProduct) : detailLoading || catalogLoading ? <div className="catalog-loading" role="status">Открываем товар…</div> : <section className="not-found"><p className="eyebrow">404</p><h1>Товар не найден</h1><button className="hero-link" onClick={() => navigate('/')}>Вернуться в магазин <Icon name="arrow" /></button></section>
   else content = renderHome()
 
+  const headerSection = cartOpen ? 'Корзина' : menuOpen ? 'Каталог' : favoritesOnly ? 'Избранное'
+    : isCheckoutPage ? 'Оформление' : isAccountPage || authScreen ? 'Личный кабинет'
+    : orderMatch ? 'Заказ' : mockPaymentMatch ? 'Оплата' : isProductPage ? 'Товар'
+    : journeyMatch ? selectedJourneyBrand?.name || 'Смартфоны' : 'Главная'
+  const canHeaderGoBack = cartOpen || menuOpen || favoritesOnly || path !== '/'
+  const headerBack = () => {
+    if (cartOpen) { setCartOpen(false); return }
+    if (menuOpen) { setMenuOpen(false); return }
+    if (favoritesOnly) { goHome(); return }
+    if (isProductPage && lastPhonePath.current !== '/') { navigate(lastPhonePath.current); return }
+    goHome()
+  }
+
   return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>
   {!isAdminPage && <a className="skip-link" href="#main-content">Перейти к товарам</a>}
   {!isAdminPage && <header className="header header--storefront">
-    <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button>
+    <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand section={headerSection} /></button>
     <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div>
     <label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>
     <div className="header-actions">
@@ -1273,7 +1286,9 @@ function App() {
       <button className="ghost-button header-account" onClick={() => navigate('/account')} aria-current={isAccountPage || authScreen ? 'page' : undefined}><Icon name="user" /><span>Кабинет</span></button>
       <button className="cart-button" onClick={() => setCartOpen(true)}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>
     </div>
+    <button type="button" className={'unified-header-back' + (canHeaderGoBack ? '' : ' is-placeholder')} onClick={headerBack} disabled={!canHeaderGoBack} aria-hidden={!canHeaderGoBack}><Icon name="back" /><span>Назад</span></button>
   </header>}
+  {!isAdminPage && !menuOpen && !cartOpen && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
   {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
     onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}

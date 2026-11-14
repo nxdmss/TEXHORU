@@ -50,14 +50,13 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
   const nodes = childrenAtPath(roots, currentPath)
   const current = categorySegments(currentPath).at(-1) || ''
   const panel = useRef<HTMLElement>(null)
-  const closeButton = useRef<HTMLButtonElement>(null)
   const close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    closeButton.current?.focus()
+    panel.current?.focus({ preventScroll: true })
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); close.current(); return }
       if (event.key !== 'Tab') return
@@ -88,9 +87,9 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
   }
   const count = groups.length ? groups.filter(group => !currentPath || matchesCategoryPath(group.path, currentPath)).reduce((sum, group) => sum + group.count, 0) : products.filter(product => !currentPath || matchesCategoryPath(storefrontPath(product.category, product.name), currentPath)).length
   return <div className="menu-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
-    <aside className="category-drawer category-menu" id="category-menu" ref={panel} role="dialog" aria-modal="true" aria-label="Каталог товаров">
-      <div className="category-drawer__head texhoru-panel-head"><div className="texhoru-panel-title"><TexhoruBrand /><h2>{atRoot ? 'Каталог' : browseLabel(current)}</h2></div>
-        <button type="button" className="category-menu__dismiss" ref={closeButton} onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
+    <aside className="category-drawer category-menu" id="category-menu" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Каталог товаров">
+      <div className="category-drawer__head texhoru-panel-head"><TexhoruBrand section={atRoot ? 'Каталог' : browseLabel(current)} />
+        <button type="button" className="category-menu__dismiss" onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
       <div className="category-menu__body">
         <div className="category-menu__actions">
           {!atRoot && <button type="button" className="category-menu__back" onClick={() => setPath(categorySegments(currentPath).slice(0, -1).join(' / '))}><Icon name="back" />Назад</button>}
