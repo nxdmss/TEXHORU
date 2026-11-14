@@ -68,11 +68,13 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen, favorit
       aria-pressed={favorite} aria-label={favorite ? `Убрать ${product.name} из избранного` : `Добавить ${product.name} в избранное`}
       onClick={() => onFavorite(product)}><Icon name="heart" /></button>}
     {product.badge && <span className="product-card__badge">{product.badge}</span>}
-    <span className="product-card__stock" data-stock={product.stock === 'Под заказ' ? 'preorder' : cartLimit(product) ? 'in' : 'out'}><i aria-hidden="true" />{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
-    <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
-      onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
-      <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span>
-    </button>
+    <div className="product-card__footer">
+      <span className="product-card__stock" data-stock={product.stock === 'Под заказ' ? 'preorder' : cartLimit(product) ? 'in' : 'out'}><i aria-hidden="true" />{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
+      <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
+        onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
+        <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span>
+      </button>
+    </div>
   </article>
 }
 
