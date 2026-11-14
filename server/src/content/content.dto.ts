@@ -1,7 +1,8 @@
-import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Min } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Min } from 'class-validator'
 
 export class PromoDto {
   @IsOptional() @IsString() blockId?: string
+  @IsOptional() @IsIn(['desktop', 'tablet', 'mobile']) device?: string
   @IsString() kicker!: string
   @IsString() title!: string
   @IsString() body!: string
@@ -17,6 +18,7 @@ export class PromoDto {
 
 export class UpdatePromoDto {
   @IsOptional() @IsString() blockId?: string
+  @IsOptional() @IsIn(['desktop', 'tablet', 'mobile']) device?: string
   @IsOptional() @IsString() kicker?: string
   @IsOptional() @IsString() title?: string
   @IsOptional() @IsString() body?: string

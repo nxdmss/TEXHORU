@@ -15,6 +15,26 @@ export async function initialize() {
   if (result.status !== 0) throw Error('Schema preparation failed; existing data was not reset')
   const db = new PrismaClient()
   try {
+    // v2 storefront briefly stored device images inside one shared slide. Split
+    // those images into independent device-owned slides once, then clear the
+    // legacy fields so the migration is idempotent.
+    const sharedSlides = await db.promoBanner.findMany({
+      where: { device: 'desktop', OR: [{ imageTablet: { not: null } }, { imageMobile: { not: null } }] },
+    })
+    for (const slide of sharedSlides) {
+      const variants = [
+        ['tablet', slide.imageTablet],
+        ['mobile', slide.imageMobile],
+      ].filter(([, image]) => typeof image === 'string' && image.trim())
+      await db.$transaction([
+        ...variants.map(([device, image]) => db.promoBanner.create({ data: {
+          blockId: slide.blockId, device, kicker: slide.kicker, title: slide.title,
+          body: slide.body, ctaLabel: slide.ctaLabel, category: slide.category,
+          image, tone: slide.tone, sortOrder: slide.sortOrder, isActive: slide.isActive,
+        } })),
+        db.promoBanner.update({ where: { id: slide.id }, data: { imageTablet: null, imageMobile: null } }),
+      ])
+    }
     const admins = await db.user.count({ where: { role: { in: ['ADMIN', 'DIRECTOR'] }, isActive: true } })
     if (admins) return // Never reset an existing administrator or password on restart.
     const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()

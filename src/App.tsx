@@ -191,13 +191,7 @@ const promoFrameStyle = (frame: PromoFrame): CSSProperties => ({
   '--promo-zoom': String(frame.zoom),
 } as CSSProperties)
 
-const promoImageForDevice = (promo: PromoBanner, device: StorefrontDevice) => {
-  if (device === 'mobile') return promo.imageMobile || promo.imageTablet || promo.image
-  if (device === 'tablet') return promo.imageTablet || promo.image
-  return promo.image
-}
-
-function StorefrontPromoCarousel({ items, onOpen, device }: { items: PromoBanner[]; onOpen: (promo: PromoBanner) => void; device: StorefrontDevice }) {
+function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOpen: (promo: PromoBanner) => void }) {
   const [slideIndex, setSlideIndex] = useState(0)
   const [dragOffset, setDragOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
@@ -248,7 +242,7 @@ function StorefrontPromoCarousel({ items, onOpen, device }: { items: PromoBanner
       onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
       <div className="storefront-carousel__track" style={{ transform: `translateX(calc(-${slideIndex * 100}% + ${dragOffset}px))` }}>
         {items.map((promo, index) => {
-          const frame = parsePromoFrame(promoImageForDevice(promo, device))
+          const frame = parsePromoFrame(promo.image)
           return <div key={promo.id} className={`storefront-slide storefront-slide--${promo.tone || 'light'}`} aria-hidden={index !== slideIndex}>
             <button className="storefront-slide__link" tabIndex={index === slideIndex ? 0 : -1} onClick={() => { if (!clickBlocked.current) onOpen(promo) }} aria-label={promo.title || `Открыть предложение ${index + 1}`}><img src={frame.src} loading={index ? 'lazy' : 'eager'} style={promoFrameStyle(frame)} alt={promo.title || `Предложение ${index + 1}`} draggable={false} /></button>
           </div>
@@ -563,7 +557,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
   const openCreatePromo = (blockId: string, device: StorefrontDevice) => {
     const categoryName = apiCategories.find((item) => item.isActive !== false)?.name ?? 'Смартфоны'
-    const blockPromos = promos.filter((item) => item.blockId === blockId)
+    const blockPromos = promos.filter((item) => item.blockId === blockId && item.device === device)
     const nextSort = blockPromos.length ? Math.max(...blockPromos.map((item) => item.sortOrder ?? 0)) + 10 : 0
     setEditingPromoId(null)
     setEditingPromoBlockId(blockId)
@@ -577,21 +571,16 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     setEditingPromoId(item.id)
     setEditingPromoBlockId(item.blockId || 'home-promos')
     setPromoDevice(device)
-    const desktop = parsePromoFrame(item.image || '')
-    const tablet = parsePromoFrame(item.imageTablet || '')
-    const mobile = parsePromoFrame(item.imageMobile || '')
+    const frame = parsePromoFrame(item.image || '')
+    const images = blankPromoDraft().images
+    images[device] = { image: frame.src, imageX: frame.x, imageY: frame.y, imageZoom: frame.zoom }
     setPromoDraft({
       kicker: item.kicker || 'АКЦИЯ', title: item.title || '', body: item.body || '', ctaLabel: item.ctaLabel || 'Смотреть',
       category: item.category || apiCategories.find((category) => category.isActive !== false)?.name || 'Смартфоны',
-      images: {
-        desktop: { image: desktop.src, imageX: desktop.x, imageY: desktop.y, imageZoom: desktop.zoom },
-        tablet: { image: tablet.src, imageX: tablet.x, imageY: tablet.y, imageZoom: tablet.zoom },
-        mobile: { image: mobile.src, imageX: mobile.x, imageY: mobile.y, imageZoom: mobile.zoom },
-      },
+      images,
       tone: item.tone || 'light', sortOrder: String(item.sortOrder ?? 0), isActive: item.isActive !== false,
     })
-    const ownImage = device === 'desktop' ? item.image : device === 'tablet' ? item.imageTablet : item.imageMobile
-    setPromoImageInfo(`${ownImage ? 'Отдельное изображение загружено' : 'Будет использована версия большего экрана'} · ${promoStandards[device].label}`)
+    setPromoImageInfo(`Изображение этой версии · ${promoStandards[device].label}`)
     setPromoEditorOpen(true)
   }
 
@@ -664,23 +653,17 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
   const savePromo = async (event: FormEvent) => {
     event.preventDefault(); setError('')
-    const sourceImage = promoDraft.images.desktop.image || promoDraft.images.tablet.image || promoDraft.images.mobile.image
-    if (!sourceImage) { setError('Добавь хотя бы одно изображение для акции'); return }
+    if (!activePromoImage.image) { setError('Добавь изображение для этого слайда'); return }
     setPromoSaving(true)
     const payload = {
       blockId: editingPromoBlockId,
+      device: promoDevice,
       kicker: promoDraft.kicker.trim() || 'АКЦИЯ',
       title: promoDraft.title.trim() || `Акция ${promos.filter((item) => item.blockId === editingPromoBlockId).length + 1}`,
       body: promoDraft.body.trim(),
       ctaLabel: promoDraft.ctaLabel.trim() || 'Смотреть',
       category: promoDraft.category,
-      image: promoDraft.images.desktop.image
-        ? encodePromoFrame(promoDraft.images.desktop.image, promoDraft.images.desktop.imageX, promoDraft.images.desktop.imageY, promoDraft.images.desktop.imageZoom)
-        : encodePromoFrame(sourceImage, 50, 50, 1),
-      imageTablet: promoDraft.images.tablet.image
-        ? encodePromoFrame(promoDraft.images.tablet.image, promoDraft.images.tablet.imageX, promoDraft.images.tablet.imageY, promoDraft.images.tablet.imageZoom) : '',
-      imageMobile: promoDraft.images.mobile.image
-        ? encodePromoFrame(promoDraft.images.mobile.image, promoDraft.images.mobile.imageX, promoDraft.images.mobile.imageY, promoDraft.images.mobile.imageZoom) : '',
+      image: encodePromoFrame(activePromoImage.image, activePromoImage.imageX, activePromoImage.imageY, activePromoImage.imageZoom),
       tone: promoDraft.tone,
       sortOrder: Number(promoDraft.sortOrder || 0),
       isActive: promoDraft.isActive,
@@ -701,7 +684,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const deletePromo = async (item: PromoBanner) => {
-    if (!confirm(`Удалить акцию «${item.title || 'Без названия'}»?`)) return
+    const deviceLabel = item.device === 'mobile' ? 'Телефон' : item.device === 'tablet' ? 'Планшет' : 'Компьютер'
+    if (!confirm(`Удалить слайд «${item.title || 'Без названия'}» только из версии «${deviceLabel}»?`)) return
     try { await api.adminDeletePromo(item.id); await load(); notifyPromoChanged() }
     catch (e) { setError(e instanceof Error ? e.message : 'Не удалось удалить акцию') }
   }
@@ -868,10 +852,9 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
       {promoEditorOpen && <div className="promo-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoEditorOpen(false) }}>
         <form className="promo-editor" onSubmit={savePromo}>
-          <div className="promo-editor__head"><div><p className="eyebrow">Три независимых версии</p><h2>{editingPromoId ? 'Изменить слайд' : 'Новый слайд'}</h2><span>Для каждого экрана можно загрузить своё фото и выбрать отдельный кадр.</span></div><button type="button" onClick={() => setPromoEditorOpen(false)} aria-label="Закрыть"><Icon name="close" /></button></div>
+          <div className="promo-editor__head"><div><p className="eyebrow">{promoDevice === 'desktop' ? 'Компьютер' : promoDevice === 'tablet' ? 'Планшет' : 'Телефон'} · отдельная лента</p><h2>{editingPromoId ? 'Изменить слайд' : 'Новый слайд'}</h2><span>Этот слайд существует только в выбранной версии сайта.</span></div><button type="button" onClick={() => setPromoEditorOpen(false)} aria-label="Закрыть"><Icon name="close" /></button></div>
           <div className="promo-editor__body">
             <div className="promo-editor__visual">
-              <div className="promo-editor__devices" role="tablist" aria-label="Версия баннера">{(['desktop', 'tablet', 'mobile'] as const).map((item) => <button type="button" role="tab" aria-selected={promoDevice === item} className={promoDevice === item ? 'active' : ''} key={item} onClick={() => { setPromoDevice(item); setPromoImageInfo(`${promoDraft.images[item].image ? 'Отдельное изображение загружено' : item === 'desktop' ? 'Добавь основное изображение' : 'Будет использована версия большего экрана'} · ${promoStandards[item].label}`) }}><span>{item === 'desktop' ? 'Компьютер' : item === 'tablet' ? 'Планшет' : 'Телефон'}</span><small>{promoDraft.images[item].image ? 'Фото задано' : item === 'desktop' ? 'Нужно фото' : 'Наследует'}</small></button>)}</div>
               <div
                 className={`promo-editor__crop-stage is-${promoDevice}${activePromoImage.image ? ' has-image' : ''}`}
                 onDragOver={(event) => event.preventDefault()}
@@ -899,7 +882,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
                 <div className="promo-editor__crop-label"><span>Масштаб</span><strong>{Math.round(activePromoImage.imageZoom * 100)}%</strong></div>
                 <div className="promo-editor__crop-slider"><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom - .08, 1, 2.5) })}>−</button><input type="range" min="1" max="2.5" step="0.01" value={activePromoImage.imageZoom} onChange={(event) => updatePromoImage({ imageZoom: Number(event.target.value) })} /><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom + .08, 1, 2.5) })}>+</button><button type="button" className="promo-editor__crop-reset" onClick={() => updatePromoImage({ imageX: 50, imageY: 50, imageZoom: 1 })}>Сбросить</button></div>
                 <small>Положение и масштаб сохраняются только для выбранной версии экрана.</small>
-                {promoDevice !== 'desktop' && <button type="button" className="promo-editor__remove-version" onClick={() => updatePromoImage({ image: '', imageX: 50, imageY: 50, imageZoom: 1 })}>Убрать фото только из этой версии</button>}
               </div>}
               <div className="promo-editor__image-info"><strong>{promoStandards[promoDevice].label}</strong><span>{promoImageInfo}</span></div>
             </div>
@@ -907,7 +889,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
               <label><span>Название в админке</span><input value={promoDraft.title} onChange={(e) => setPromoDraft({ ...promoDraft, title: e.target.value })} placeholder="Например: Осенняя акция" /></label>
               <div className="promo-editor__row"><label><span>Категория</span><select value={promoDraft.category} onChange={(e) => setPromoDraft({ ...promoDraft, category: e.target.value })}>{apiCategories.filter((item) => item.isActive !== false).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label><label><span>Порядок</span><input type="number" min="0" value={promoDraft.sortOrder} onChange={(e) => setPromoDraft({ ...promoDraft, sortOrder: e.target.value })} /></label></div>
               <label className="promo-editor__switch"><input type="checkbox" checked={promoDraft.isActive} onChange={(e) => setPromoDraft({ ...promoDraft, isActive: e.target.checked })} /><span><strong>Показывать на сайте</strong><small>Количество активных карточек и есть количество слайдов.</small></span></label>
-              <div className="promo-editor__tip"><strong>Как это работает</strong><span>Компьютер, планшет и телефон независимы. Если отдельного фото для планшета или телефона нет, сайт безопасно покажет компьютерную версию.</span></div>
+              <div className="promo-editor__tip"><strong>Независимая лента</strong><span>Добавление, порядок, скрытие или удаление этого слайда никак не изменит рекламу на других устройствах.</span></div>
             </div>
           </div>
           {error && <div className="form-error">{error}</div>}
@@ -1206,9 +1188,9 @@ function App() {
   const renderSmartphoneBlock = () => featuredPhone ? <SmartphonePortal onOpen={openJourney} featured={featuredPhone} /> : null
 
   const renderPromoBlock = (block: StorefrontBlock) => {
-    const items = promosLoaded ? promos.filter((item) => item.blockId === block.id && item.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder) : []
+    const items = promosLoaded ? promos.filter((item) => item.blockId === block.id && item.device === storefrontDevice && item.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder) : []
     if (!items.length) return block.id === 'home-promos' ? renderSmartphoneBlock() : null
-    return <StorefrontPromoCarousel items={items} device={storefrontDevice} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
+    return <StorefrontPromoCarousel items={items} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
   }
 
   const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id={anchor ? 'catalog' : undefined}>
