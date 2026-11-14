@@ -1144,6 +1144,7 @@ function App() {
   const toggleFavorite = (product: Product) => setFavoriteIds(current => current.includes(product.id)
     ? current.filter(id => id !== product.id) : [...current, product.id].slice(-100))
   const showFavorites = () => {
+    setMenuOpen(false); setCartOpen(false)
     setFavoritesOnly(true); setQuery(''); setCategory('Все'); setStoreSection(''); setBrandFilter(''); setMinPrice(''); setMaxPrice('')
     if (window.location.pathname !== '/') navigate('/')
     window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
@@ -1193,19 +1194,19 @@ function App() {
     return <StorefrontPromoCarousel items={items} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
   }
 
-  const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '')} id={anchor ? 'catalog' : undefined}>
-      <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
-        <h2>{favoritesOnly ? 'Избранное' : query.trim() ? 'Результаты поиска' : isFeaturedView ? block?.title || 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
-      </div></div>
+  const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '') + (favoritesOnly ? ' catalog--favorites' : '')} id={anchor ? 'catalog' : undefined}>
+      {favoritesOnly ? <div className="favorites-head"><h2>Избранное</h2><span>{filtered.length}</span></div> : <div className="section-head"><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
+        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? block?.title || 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Разделы каталога'}</h2>
+      </div></div>}
 
       {!folderOnly && <>
-        <div className="catalog-toolbar"><div className="catalog-result-count" aria-live="polite">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + totalFiltered}</div>{!isFeaturedView && <div className="catalog-toolbar__controls">
+        {!favoritesOnly && <div className="catalog-toolbar"><div className="catalog-result-count" aria-live="polite">{isFeaturedView ? String(filtered.length) + ' популярных моделей в наличии' : 'Найдено: ' + totalFiltered}</div>{!isFeaturedView && <div className="catalog-toolbar__controls">
           <label className="catalog-stock-toggle"><input type="checkbox" checked={onlyAvailable} onChange={e => setOnlyAvailable(e.target.checked)} />В наличии</label>
           <label className="catalog-filter-field"><span>Бренд</span><select aria-label="Фильтр по бренду" value={brandFilter} onChange={e => setBrandFilter(e.target.value)}><option value="">Все</option>{filterBrands.map(brand => <option key={brand}>{brand}</option>)}</select></label>
           <div className="catalog-price-filter" role="group" aria-label="Цена"><span>Цена</span><input inputMode="numeric" aria-label="Цена от" placeholder="от" value={minPrice} onChange={e => setMinPrice(e.target.value.replace(/\D/g, '').slice(0, 7))} /><input inputMode="numeric" aria-label="Цена до" placeholder="до" value={maxPrice} onChange={e => setMaxPrice(e.target.value.replace(/\D/g, '').slice(0, 7))} /></div>
           <label className="catalog-filter-field"><span>Порядок</span><select aria-label="Сортировка товаров" value={sort} onChange={e => setSort(e.target.value)}><option value="recommended">Сначала подходящие</option><option value="price-asc">Сначала дешевле</option><option value="price-desc">Сначала дороже</option><option value="name">По названию</option></select></label>
           {(brandFilter || minPrice || maxPrice || onlyAvailable) && <button className="catalog-reset" type="button" onClick={() => { setBrandFilter(''); setMinPrice(''); setMaxPrice(''); setOnlyAvailable(false) }}>Сбросить</button>}
-        </div>}</div>
+        </div>}</div>}
         {!favoritesOnly && !isFeaturedView && !query.trim() && <CatalogSections items={catalogGroups.length ? catalogGroups.map(group => ({ name: '', categoryName: group.path, count: group.count })) : catalogProducts.map(p => ({ name: p.name, categoryName: storefrontPath(p.category,p.name) }))} selection={storeSection} onSelect={jumpToStoreSection} hierarchical />}
         {(catalogLoading || (useRemoteCatalog && remoteLoading && !remoteCatalog.items.length)) && <div className="catalog-loading" role="status">Загружаем товары…</div>}
         {(catalogError || remoteError) && <div className="empty-search" role="alert">{catalogError || remoteError}<button className="catalog-more" onClick={() => window.location.reload()}>Повторить</button></div>}
@@ -1265,7 +1266,7 @@ function App() {
   {!isAdminPage && <header className="header header--storefront">
     <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button>
     <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => setMenuOpen(true)} aria-label="Категории товаров" aria-expanded={menuOpen} aria-controls="category-menu"><Icon name="menu" /><span>Каталог</span></button></div>
-    <label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Поиск по товарам, брендам и моделям" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label>
+    <label className="header-search-inline"><Icon name="search" /><input value={query} onFocus={() => setMenuOpen(false)} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>
     <div className="header-actions">
       <button className={'ghost-button header-favorites' + (favoritesOnly ? ' is-active' : '')} onClick={showFavorites} aria-pressed={favoritesOnly}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button>
       <button className="ghost-button header-account" onClick={() => navigate('/account')} aria-current={isAccountPage || authScreen ? 'page' : undefined}><Icon name="user" /><span>Кабинет</span></button>
@@ -1275,7 +1276,7 @@ function App() {
   {menuOpen && <CategoryDrawer products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={() => setMenuOpen(false)}
     onSelect={jumpToStoreSection} onAccount={() => { setMenuOpen(false); navigate('/account') }} />}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную">TEXHO<span className="brand-ru">RU</span></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
-  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" onClick={() => setMenuOpen(true)}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={favoritesOnly ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" onClick={() => setCartOpen(true)}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
+  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly && !menuOpen && !cartOpen ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={menuOpen ? 'active' : ''} onClick={() => { setCartOpen(false); setMenuOpen(true) }}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={favoritesOnly && !cartOpen ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={cartOpen ? 'active' : ''} onClick={() => { setMenuOpen(false); setCartOpen(true) }}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
   {cartOpen && <CartDrawer cart={cart} online={apiOnline} onClose={() => setCartOpen(false)}
     onOpenProduct={product => { setCartOpen(false); openProduct(product) }} onQuantity={changeQuantity}
     onRemove={id => setCart(current => current.filter(item => item.product.id !== id))}
