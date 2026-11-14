@@ -17,7 +17,7 @@ export class ContentService {
   }
 
   async create(dto: PromoDto, userId?: string) {
-    const item = await this.prisma.promoBanner.create({ data: { ...dto, tone: dto.tone ?? 'light', sortOrder: dto.sortOrder ?? 0, isActive: dto.isActive ?? true } })
+    const item = await this.prisma.promoBanner.create({ data: { ...dto, blockId: dto.blockId?.trim() || 'home-promos', tone: dto.tone ?? 'light', sortOrder: dto.sortOrder ?? 0, isActive: dto.isActive ?? true } })
     await this.audit.log(userId, 'CREATE_PROMO', 'PromoBanner', item.id, { title: item.title })
     return item
   }
@@ -25,7 +25,8 @@ export class ContentService {
   async update(id: string, dto: UpdatePromoDto, userId?: string) {
     const current = await this.prisma.promoBanner.findUnique({ where: { id } })
     if (!current) throw new NotFoundException('Баннер не найден')
-    const item = await this.prisma.promoBanner.update({ where: { id }, data: dto })
+    const data = dto.blockId === undefined ? dto : { ...dto, blockId: dto.blockId.trim() || 'home-promos' }
+    const item = await this.prisma.promoBanner.update({ where: { id }, data })
     await this.audit.log(userId, 'UPDATE_PROMO', 'PromoBanner', item.id, { title: item.title })
     return item
   }

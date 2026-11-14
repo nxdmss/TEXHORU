@@ -75,5 +75,6 @@ jobs:
         run: |
           node tests/storefront.browser.mjs
           node tests/accounts.browser.cjs
+          node tests/promo-blocks.browser.mjs
           node tests/remote-catalog.browser.mjs
           node tests/price-demo.browser.mjs
