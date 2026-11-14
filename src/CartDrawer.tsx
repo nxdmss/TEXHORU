@@ -5,14 +5,15 @@ import { ProductImage } from './ProductImage'
 import { cartLimit, formatMoney } from './store-utils'
 import { TexhoruBrand } from './TexhoruBrand'
 
-export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, onRemove, onCheckout }: {
+export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, onRemove, onCheckout, page = false }: {
   cart: CartLine[]; online: boolean; onClose: () => void; onOpenProduct: (product: Product) => void;
-  onQuantity: (id: number, delta: number) => void; onRemove: (id: number) => void; onCheckout: () => void;
+  onQuantity: (id: number, delta: number) => void; onRemove: (id: number) => void; onCheckout: () => void; page?: boolean;
 }) {
   const panel = useRef<HTMLElement>(null)
   const close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
+    if (page) return
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -31,13 +32,13 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
       document.removeEventListener('keydown', keyboard)
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true })
     }
-  }, [])
+  }, [page])
   const count = cart.reduce((sum, item) => sum + item.quantity, 0)
   const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
-  return <div className="overlay cart-overlay" onMouseDown={e => { if (e.currentTarget === e.target) onClose() }}>
-    <aside className="drawer cart-drawer" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cart-title">
-      <div className="drawer-head texhoru-panel-head"><TexhoruBrand section={`Корзина · ${count}`} /><h2 className="visually-hidden" id="cart-title">Корзина</h2>
+  const contents = <>
+      {!page && <div className="drawer-head texhoru-panel-head"><TexhoruBrand section={`Корзина · ${count}`} /><h2 className="visually-hidden" id="cart-title">Корзина</h2>
         <button className="icon-button drawer-back" onClick={onClose} aria-label="Вернуться в магазин"><Icon name="back" /><span>Назад</span></button></div>
+      }
       <div className="drawer-body cart-lines">
         {!cart.length ? <div className="cart-empty"><Icon name="cart" /><h3>Здесь будут ваши покупки</h3><p>Выберите товары в каталоге и добавьте их в корзину.</p><button onClick={onClose}>Продолжить покупки <Icon name="arrow" /></button></div>
           : cart.map(({ product, quantity }) => <article className="cart-line" key={product.id}>
@@ -60,6 +61,9 @@ export function CartDrawer({ cart, online, onClose, onOpenProduct, onQuantity, o
         <div className="total"><span>Итого</span><strong aria-live="polite">{formatMoney(total)}</strong></div>
         <button className="checkout" disabled={!online} onClick={onCheckout}>Перейти к оформлению <Icon name="arrow" /></button>
         <small>{online ? 'Способ получения и оплата — на следующем шаге.' : 'Нет связи с магазином. Попробуйте ещё раз позже.'}</small></div>}
-    </aside>
+    </>
+  if (page) return <section className="cart-drawer cart-page-screen" aria-labelledby="cart-page-title"><h1 className="visually-hidden" id="cart-page-title">Корзина</h1>{contents}</section>
+  return <div className="overlay cart-overlay" onMouseDown={e => { if (e.currentTarget === e.target) onClose() }}>
+    <aside className="drawer cart-drawer" ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cart-title">{contents}</aside>
   </div>
 }
