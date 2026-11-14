@@ -145,16 +145,20 @@ html { scrollbar-gutter: stable; }
     padding: 12px !important;
     gap: 8px;
     overflow: hidden;
-    border-radius: 7px;
+    border: 1px solid rgba(22,22,25,.09) !important;
+    border-radius: 3px !important;
+    background: #fff !important;
+    box-shadow: none !important;
   }
   .storefront .home-collection-image,
   .storefront .storefront-layout__block:not([data-width="12"]) .home-collection-image {
     width: min(100%, 92px);
     height: 84px !important;
   }
+  .storefront .home-collection-image > .category-menu__illustration { color: #29292d; }
   .storefront .home-collection-caption { align-items: flex-end; gap: 5px; }
   .storefront .home-collection-caption strong { min-width: 0; font-size: 11.5px; line-height: 1.25; overflow-wrap: anywhere; }
-  .storefront .home-collection-caption svg { width: 15px; height: 15px; }
+  .storefront .home-collection-caption svg { width: 15px; height: 15px; color: #85858b; }
 
   /* Advertising and editorial blocks use phone-friendly proportions. */
   .storefront .storefront-carousel { margin-block: 4px 18px !important; }
@@ -558,7 +562,7 @@ html { scrollbar-gutter: stable; }
   .storefront-page-grid[data-device="mobile"] .storefront-layout__block:not([data-width="12"]) .home-collections__grid > button {
     flex: 0 0 min(72vw, 250px);
     min-height: 184px;
-    border-radius: 14px;
+    border-radius: 3px !important;
     scroll-snap-align: start;
   }
 }
@@ -642,6 +646,7 @@ html { scrollbar-gutter: stable; }
   }
   .storefront .category-page-screen .category-menu__grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
   .storefront .category-page-screen .category-menu__tile { min-height: 0; }
+  .storefront .category-page-screen .category-menu__body { padding-top: 18px !important; }
   .storefront .cart-page-screen.cart-drawer { display: flex; flex-direction: column; gap: 12px; padding-bottom: 0; }
   .storefront .cart-page-screen .drawer-body,
   .storefront .cart-page-screen .drawer-bottom { width: 100%; }
@@ -722,21 +727,25 @@ html { scrollbar-gutter: stable; }
   .category-menu .category-menu__dismiss svg,
   .cart-drawer .drawer-back svg { width: 16px; height: 16px; }
   .category-menu__body { padding: 14px 14px 18px; }
-  .category-menu__actions { margin-bottom: 12px; }
+  .category-menu__actions { margin-bottom: 18px; }
   .category-menu__actions > button:last-child {
-    min-height: 44px;
-    padding: 0 14px;
-    border-radius: 12px;
-    background: var(--tx-accent);
-    color: #fff;
+    min-height: 40px;
+    padding: 0 2px;
+    border: 0;
+    border-bottom: 1px solid #202024;
+    border-radius: 0;
+    background: transparent;
+    color: #202024;
+    font-weight: 600;
   }
-  .category-menu__actions > button:last-child span { color: rgba(255,255,255,.72); }
-  .category-menu__grid { gap: 9px; }
-  .category-menu__tile { padding: 0 10px 12px; border: 0; border-radius: 14px; box-shadow: 0 5px 20px rgba(25,25,32,.04); }
-  .category-menu__visual { height: 100px; border-radius: 11px; background: #f4f4f5; color: var(--tx-accent); }
-  .category-menu__visual .category-menu__illustration { width: 64px; height: 64px; }
-  .category-menu__caption strong { font-size: 11px; }
-  .category-menu__tile > svg { color: var(--tx-accent); }
+  .category-menu__actions > button:last-child span { color: #8b8b91; }
+  .category-menu__actions > button:last-child svg { color: #202024; }
+  .storefront .category-menu__grid { gap: 12px; }
+  .storefront .category-menu__tile { padding: 0 12px 14px; border: 1px solid rgba(22,22,25,.08); border-radius: 3px; background: #fff; box-shadow: none; }
+  .storefront .category-menu__visual { height: 106px; border-radius: 1px; background: #fafafa; color: #303036; }
+  .storefront .category-menu__visual .category-menu__illustration { width: 64px; height: 64px; }
+  .storefront .category-menu__caption strong { font-size: 11px; letter-spacing: .01em; }
+  .storefront .category-menu__tile > svg { color: #8b8b91; }
   .category-menu .category-drawer__footer { display: none; }
 
   /* Favorites intentionally has no filters or category tree: products only. */
