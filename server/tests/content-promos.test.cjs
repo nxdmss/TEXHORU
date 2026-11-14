@@ -10,7 +10,7 @@ const requireServer = createRequire(resolve(__dirname, '../package.json'))
 const { PrismaClient } = requireServer('@prisma/client')
 const { ContentService } = require('../dist/content/content.service')
 
-test('each storefront promo block owns an independent set of photos', async () => {
+test('each storefront block and device owns an independent set of slides', async () => {
   const database = resolve(__dirname, '../prisma/monitor-test-promos-' + randomUUID() + '.db')
   const databaseUrl = 'file:' + database.replace(/\\/g, '/')
   writeFileSync(database, '')
@@ -21,23 +21,23 @@ test('each storefront promo block owns an independent set of photos', async () =
 
   const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } })
   const service = new ContentService(prisma, { log: async () => undefined })
-  const photo = (title, blockId) => ({ blockId, kicker: 'РЕКЛАМА', title, body: '', ctaLabel: 'Смотреть', category: 'Все', image: '/uploads/promos/' + title + '.webp', imageTablet: '/uploads/promos/' + title + '-tablet.webp', imageMobile: '/uploads/promos/' + title + '-mobile.webp' })
+  const photo = (title, blockId, device) => ({ blockId, device, kicker: 'РЕКЛАМА', title, body: '', ctaLabel: 'Смотреть', category: 'Все', image: '/uploads/promos/' + title + '.webp' })
   try {
-    const first = await service.create(photo('Первый', 'promo-a'))
-    const second = await service.create(photo('Второй', 'promo-b'))
+    const first = await service.create(photo('Компьютер', 'promo-a', 'desktop'))
+    const second = await service.create(photo('Телефон', 'promo-a', 'mobile'))
     const all = await service.publicPromos()
-    assert.deepEqual(all.map(item => [item.title, item.blockId]), [['Первый', 'promo-a'], ['Второй', 'promo-b']])
-    assert.equal(all[0].imageTablet, '/uploads/promos/Первый-tablet.webp')
-    assert.equal(all[0].imageMobile, '/uploads/promos/Первый-mobile.webp')
+    assert.deepEqual(all.map(item => [item.title, item.blockId, item.device]), [['Компьютер', 'promo-a', 'desktop'], ['Телефон', 'promo-a', 'mobile']])
 
     await service.remove(first.id)
     const remaining = await service.publicPromos()
     assert.equal(remaining.length, 1)
     assert.equal(remaining[0].id, second.id)
-    assert.equal(remaining[0].blockId, 'promo-b')
+    assert.equal(remaining[0].blockId, 'promo-a')
+    assert.equal(remaining[0].device, 'mobile')
 
-    const legacy = await service.create({ ...photo('Старый', undefined), blockId: undefined })
+    const legacy = await service.create({ ...photo('Старый', undefined, undefined), blockId: undefined, device: undefined })
     assert.equal(legacy.blockId, 'home-promos')
+    assert.equal(legacy.device, 'desktop')
   } finally {
     await prisma.$disconnect()
     rmSync(database, { force: true })

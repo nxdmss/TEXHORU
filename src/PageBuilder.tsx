@@ -71,14 +71,9 @@ type PageBuilderProps = {
   onDeletePromo: (promo: PromoBanner) => void
 }
 
-const promoImageForDevice = (promo: PromoBanner, device: StorefrontDevice) => device === 'mobile'
-  ? promo.imageMobile || promo.imageTablet || promo.image
-  : device === 'tablet' ? promo.imageTablet || promo.image : promo.image
-
-function PromoBlockPreview({ promos, onManage, device }: {
+function PromoBlockPreview({ promos, onManage }: {
   promos: PromoBanner[]
   onManage: () => void
-  device: StorefrontDevice
 }) {
   const slides = [...promos].sort((a, b) => a.sortOrder - b.sortOrder)
   const featured = slides.find((item) => item.isActive) || slides[0]
@@ -86,7 +81,7 @@ function PromoBlockPreview({ promos, onManage, device }: {
   return <div className="page-builder-promo" onDragStart={(event) => event.stopPropagation()}>
     <div className={featured ? 'page-builder-promo__hero' : 'page-builder-promo__hero is-empty'}>
       {featured ? <>
-        <img src={inlinePromoFrame(promoImageForDevice(featured, device)).src} style={inlinePromoStyle(promoImageForDevice(featured, device))} alt="" draggable={false} />
+        <img src={inlinePromoFrame(featured.image).src} style={inlinePromoStyle(featured.image)} alt="" draggable={false} />
         <div className="page-builder-promo__shade" />
         <div className="page-builder-promo__copy"><span>{featured.kicker || 'Реклама'}</span><strong>{featured.title || 'Рекламный баннер'}</strong><small>{slides.length} {slides.length === 1 ? 'слайд' : 'слайдов'} в этом блоке</small></div>
         <button type="button" className="page-builder-promo__edit" onClick={manage}>Редактировать баннер</button>
@@ -146,7 +141,7 @@ export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo,
   const blocks = layout.devices[device]
   const selected = blocks.find((block) => block.id === selectedId) || null
   const promoManagerBlock = blocks.find((block) => block.id === promoManagerBlockId && block.type === 'promo') || null
-  const promoManagerItems = useMemo(() => promos.filter((item) => item.blockId === promoManagerBlockId).sort((a, b) => a.sortOrder - b.sortOrder), [promos, promoManagerBlockId])
+  const promoManagerItems = useMemo(() => promos.filter((item) => item.blockId === promoManagerBlockId && item.device === device).sort((a, b) => a.sortOrder - b.sortOrder), [promos, promoManagerBlockId, device])
   const dirty = useMemo(() => JSON.stringify(layout) !== JSON.stringify(savedLayout), [layout, savedLayout])
   const mutate = (change: (current: StorefrontBlock[]) => StorefrontBlock[]) => {
     setLayout((current) => {
@@ -264,7 +259,7 @@ export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo,
             className={`page-builder__block${selectedId === block.id ? ' is-selected' : ''}${block.visible ? '' : ' is-hidden'}${draggingId === block.id ? ' is-dragging' : ''}`}>
             <div className="page-builder__blockbar"><button type="button" className="page-builder__grab" aria-label="Перетащить блок">⠿</button><span>{index + 1} · {labels[block.type].label}</span><small>{block.width === 12 ? '100%' : block.width === 8 ? '66%' : block.width === 6 ? '50%' : '33%'}</small><button type="button" onClick={(event) => { event.stopPropagation(); move(block.id, -1) }} disabled={!index} aria-label="Выше">↑</button><button type="button" onClick={(event) => { event.stopPropagation(); move(block.id, 1) }} disabled={index === blocks.length - 1} aria-label="Ниже">↓</button></div>
             {block.type === 'promo'
-              ? <PromoBlockPreview device={device} promos={promos.filter((item) => item.blockId === block.id)} onManage={() => setPromoManagerBlockId(block.id)} />
+              ? <PromoBlockPreview promos={promos.filter((item) => item.blockId === block.id && item.device === device)} onManage={() => setPromoManagerBlockId(block.id)} />
               : <BlockPreview block={block} />}
           </article>)}</div>
         </div>
@@ -280,20 +275,20 @@ export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo,
             <label className="page-builder__field"><span>Текст кнопки</span><input value={selected.ctaLabel || ''} onChange={(event) => updateSelected({ ctaLabel: event.target.value })} /></label>
           </>}
           <div className="page-builder__field"><span>Ширина в версии «{deviceLabels[device].label}»</span><div className="page-builder__widths">{widths.map((item) => <button type="button" key={item.value} className={selected.width === item.value ? 'active' : ''} onClick={() => updateSelected({ width: item.value })}>{item.label}</button>)}</div><small>Настройка не меняет остальные устройства.</small></div>
-          {selected.type === 'promo' && <button type="button" className="page-builder__secondary" onClick={() => setPromoManagerBlockId(selected.id)}>Баннеры для «{deviceLabels[device].label}» · {promos.filter((item) => item.blockId === selected.id).length}</button>}
+          {selected.type === 'promo' && <button type="button" className="page-builder__secondary" onClick={() => setPromoManagerBlockId(selected.id)}>Баннеры для «{deviceLabels[device].label}» · {promos.filter((item) => item.blockId === selected.id && item.device === device).length}</button>}
           <div className="page-builder__inspector-actions"><button type="button" onClick={duplicateSelected}>Дублировать здесь</button><button type="button" className="danger" onClick={removeSelected} disabled={blocks.length === 1}>Убрать отсюда</button></div>
         </> : <p>Выберите блок на холсте.</p>}
       </aside>
     </div>
     {promoManagerBlock && <div className="page-builder-promo-modal" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoManagerBlockId('') }}>
       <section className="page-builder-promo-dialog" role="dialog" aria-modal="true" aria-label={`Фотографии блока ${promoManagerBlock.title || 'Реклама'}`}>
-        <header><div><span>Реклама · {deviceLabels[device].label}</span><h3>{promoManagerBlock.title || 'Реклама'}</h3><p>{promoManagerItems.length ? `${promoManagerItems.length} слайдов · у каждого отдельные изображения для трёх экранов` : 'Добавьте первый слайд и загрузите отдельные версии изображений'}</p></div><button type="button" onClick={() => setPromoManagerBlockId('')} aria-label="Закрыть">×</button></header>
-        <div className="page-builder-promo-dialog__actions"><button type="button" onClick={() => onCreatePromo(promoManagerBlock.id, device)}>+ Добавить слайд</button><span>Сейчас редактируется версия «{deviceLabels[device].label}».</span></div>
+        <header><div><span>Независимая лента · {deviceLabels[device].label}</span><h3>{promoManagerBlock.title || 'Реклама'}</h3><p>{promoManagerItems.length ? `${promoManagerItems.length} слайдов только для этой версии` : 'В этой версии пока нет рекламных слайдов'}</p></div><button type="button" onClick={() => setPromoManagerBlockId('')} aria-label="Закрыть">×</button></header>
+        <div className="page-builder-promo-dialog__actions"><button type="button" onClick={() => onCreatePromo(promoManagerBlock.id, device)}>+ Добавить слайд</button><span>Другие устройства не изменятся.</span></div>
         {promoManagerItems.length ? <div className="page-builder-promo-dialog__grid">{promoManagerItems.map((item, index) => <article className={item.isActive ? '' : 'is-hidden'} key={item.id}>
-          <button type="button" className={`page-builder-promo-dialog__image is-${device}`} onClick={() => onEditPromo(item, device)} aria-label={`Редактировать фото ${index + 1}`}><img src={inlinePromoFrame(promoImageForDevice(item, device)).src} style={inlinePromoStyle(promoImageForDevice(item, device))} alt="" /><b>{index + 1}</b>{!item.isActive && <em>Скрыто</em>}</button>
+          <button type="button" className={`page-builder-promo-dialog__image is-${device}`} onClick={() => onEditPromo(item, device)} aria-label={`Редактировать фото ${index + 1}`}><img src={inlinePromoFrame(item.image).src} style={inlinePromoStyle(item.image)} alt="" /><b>{index + 1}</b>{!item.isActive && <em>Скрыто</em>}</button>
           <div><strong>{item.title || `Фото ${index + 1}`}</strong><span>Порядок: {item.sortOrder}</span></div>
-          <footer><button type="button" onClick={() => onEditPromo(item, device)}>Изменить</button><button type="button" onClick={() => onTogglePromo(item)}>{item.isActive ? 'Скрыть' : 'Показать'}</button><button type="button" className="danger" onClick={() => onDeletePromo(item)}>Удалить везде</button></footer>
-        </article>)}</div> : <div className="page-builder-promo-dialog__empty"><b>▰</b><strong>В этом блоке ещё нет слайдов</strong><span>Добавьте слайд, затем загрузите изображения отдельно для компьютера, планшета и телефона.</span><button type="button" onClick={() => onCreatePromo(promoManagerBlock.id, device)}>Добавить первый слайд</button></div>}
+          <footer><button type="button" onClick={() => onEditPromo(item, device)}>Изменить</button><button type="button" onClick={() => onTogglePromo(item)}>{item.isActive ? 'Скрыть' : 'Показать'}</button><button type="button" className="danger" onClick={() => onDeletePromo(item)}>Удалить</button></footer>
+        </article>)}</div> : <div className="page-builder-promo-dialog__empty"><b>▰</b><strong>В этой версии ещё нет слайдов</strong><span>Добавленный слайд появится только на устройстве «{deviceLabels[device].label}».</span><button type="button" onClick={() => onCreatePromo(promoManagerBlock.id, device)}>Добавить первый слайд</button></div>}
       </section>
     </div>}
   </section>
