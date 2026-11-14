@@ -228,7 +228,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type CustomerProfile = { id: string; name: string; email: string; phone: string | null; deliveryAddress: string; emailVerifiedAt: string | null; role: string }
 export type CustomerOrder = { number: number; trackingToken: string; status: string; paymentStatus: string; total: number; deliveryMethod: string; deliveryAddress: string; createdAt: string; items: Array<{ name: string; quantity: number; price: number }> }
-export type CatalogSyncStatus = { session: null | { id: string; clientId: string; mode: string; status: string; processed: number; skipped: number; nextBatch: number; updatedAt: string; finishedAt: string | null }; batchSize: number; maxBatchSize: number; maxPayloadBytes: number; parallelism: number }
 
 export const api = {
   accountCapabilities() { return request<{ emailConfigured: boolean }>('/auth/capabilities') },
@@ -250,8 +249,6 @@ export const api = {
   remoteRestoreGroup(id: string) { return request<{ ok: boolean; name: string; groups: number; jobId: string | null }>('/admin/integrations/1c/remote/groups/' + encodeURIComponent(id) + '/restore', { method: 'POST' }) },
   remoteCatalogCreate(dto: { kind: 'GROUPS' | 'INDEX' | 'IMPORT'; mode: 'FULL' | 'DELTA'; groupId?: string; itemIds?: string[]; stockOnly?: boolean }) { return request('/admin/integrations/1c/remote/jobs', { method: 'POST', body: JSON.stringify(dto) }) },
   remoteCatalogAction(id: string, action: string) { return request('/admin/integrations/1c/remote/jobs/' + encodeURIComponent(id) + '/action', { method: 'POST', body: JSON.stringify({ action }) }) },
-  catalogSyncStatus() { return request<CatalogSyncStatus>('/admin/integrations/1c/catalog-sync') },
-  cancelCatalogSync(id: string) { return request('/admin/integrations/1c/catalog-sync/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }) },
   async products() { return (await request<ApiProduct[]>('/catalog/home')).map(mapProduct) },
   async product(id: number) { return mapProduct(await request<ApiProduct>('/products/' + id)) },
   async cartProducts(ids: number[]) { return (await request<ApiProduct[]>('/catalog/cart', { method: 'POST', body: JSON.stringify({ ids }) })).map(mapProduct) },
@@ -288,7 +285,6 @@ export const api = {
   adminUpdateOrderStatus(id: string, status: string) { return request(`/admin/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }) },
   adminNotifications() { return request<any[]>('/admin/notifications') },
   adminMarkNotificationRead(id: string) { return request(`/admin/notifications/${id}/read`, { method: 'PATCH' }) },
-  syncLogs() { return request<any[]>('/admin/integrations/1c/logs') },
   addTestPriceScope(oneCIds: string[]) {
     return request<{ ok: boolean; added: number; count: number }>('/admin/integrations/1c/price-sync/scope/add', {
       method: 'POST', body: JSON.stringify({ oneCIds }),
