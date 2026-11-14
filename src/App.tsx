@@ -793,18 +793,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </div>}
 
     {tab === 'content' && <div className="admin-content-editor">
-      <PageBuilder onEditPromos={() => document.getElementById('promo-library')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
-      <div className="promo-manager" id="promo-library">
-      <div className="promo-manager__head">
-        <div><p className="eyebrow">Главная страница</p><h2>Акционный слайдер</h2><span>{promos.filter((item) => item.isActive).length} активных · {promos.length} всего</span></div>
-        <button className="promo-manager__add" onClick={openCreatePromo}>+ Добавить слайд</button>
-      </div>
-      <div className="promo-manager__guide"><strong>Стандарт фото: 1600×720 px</strong><span>Широкий баннер в JPG или WEBP до 2 МБ. Держи главный объект ближе к центру — витрина мягко подрежет края на разных экранах.</span></div>
-      {promos.length ? <div className="promo-admin-grid promo-admin-grid--visual">{promos.map((item, index) => { const frame = parsePromoFrame(item.image); return <article className={item.isActive ? 'promo-admin-card' : 'promo-admin-card is-hidden'} key={item.id}>
-        <button className="promo-admin-card__preview" onClick={() => openEditPromo(item)} aria-label={`Редактировать ${item.title || `слайд ${index + 1}`}`}><img src={frame.src} style={promoFrameStyle(frame)} alt="" /><span>{item.isActive ? `Слайд ${index + 1}` : 'Скрыт'}</span></button>
-        <div className="promo-admin-card__meta"><div><strong>{item.title || `Акция ${index + 1}`}</strong><small>{item.category} · порядок {item.sortOrder}</small></div><button onClick={() => openEditPromo(item)}>Изменить</button></div>
-        <div className="promo-admin-card__actions"><button onClick={() => togglePromo(item)}>{item.isActive ? 'Скрыть' : 'Показать'}</button><button className="is-danger" onClick={() => deletePromo(item)}>Удалить</button></div>
-      </article> })}</div> : <div className="promo-manager__empty"><strong>Акций пока нет</strong><span>Добавь первый слайд. На витрине блок появится автоматически.</span><button onClick={openCreatePromo}>Добавить слайд</button></div>}
+      <PageBuilder promos={promos} onCreatePromo={openCreatePromo} onEditPromo={openEditPromo} onTogglePromo={togglePromo} onDeletePromo={deletePromo} />
 
       {promoEditorOpen && <div className="promo-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoEditorOpen(false) }}>
         <form className="promo-editor" onSubmit={savePromo}>
@@ -852,7 +841,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
           <div className="promo-editor__footer"><button type="button" onClick={() => setPromoEditorOpen(false)}>Отмена</button><button className="promo-editor__save" disabled={promoSaving || promoUploading}>{promoSaving ? 'Сохраняем…' : 'Сохранить слайд'}</button></div>
         </form>
       </div>}
-      </div>
     </div>}
     {tab === 'prices' && <PriceApprovalDashboard products={products} initialSetup={priceSetup} onInventoryRefresh={load} />}
     {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
