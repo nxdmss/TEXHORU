@@ -405,8 +405,9 @@ html { scrollbar-gutter: stable; }
 }
 .texhoru-brand__section::before { content: ''; position: absolute; left: 0; top: 1px; bottom: 1px; width: 1px; background: var(--tx-line); }
 .texhoru-brand__subtitle { margin-top: 5px; color: var(--tx-muted); font: 500 9px/1.2 "IBM Plex Sans", sans-serif; letter-spacing: .02em; white-space: nowrap; }
+.storefront .brand .texhoru-brand { margin: 0; color: inherit; font-size: inherit !important; vertical-align: baseline; }
 .storefront .brand .texhoru-brand__line { margin: 0; color: inherit; font-size: inherit; vertical-align: baseline; }
-.storefront .brand .texhoru-brand__wordmark { margin: 0; color: var(--tx-ink); font: 700 1em/1 "IBM Plex Sans", sans-serif; letter-spacing: -.055em; vertical-align: baseline; }
+.storefront .brand .texhoru-brand__wordmark { margin: 0; color: var(--tx-ink); font: 700 1em/1 "IBM Plex Sans", sans-serif; font-size: 1em !important; letter-spacing: -.055em; vertical-align: baseline; }
 .storefront .brand .texhoru-brand__wordmark .brand-ru { margin: 0; color: var(--tx-accent); font: inherit; letter-spacing: inherit; vertical-align: baseline; }
 .storefront .brand .texhoru-brand__section { margin-left: 16px; color: var(--tx-ink); font: 600 22px/1.05 "IBM Plex Sans", sans-serif; letter-spacing: -.035em; vertical-align: baseline; }
 .storefront .header.header--storefront {
@@ -415,7 +416,7 @@ html { scrollbar-gutter: stable; }
   padding-block: 11px !important;
 }
 .storefront .header.header--storefront > .brand { font-size: 32px !important; }
-.storefront .header.header--storefront .texhoru-brand__section { font-size: 24px; }
+.storefront .header.header--storefront .texhoru-brand__section { font-size: 32px; }
 .storefront .header.header--no-search .header-actions { grid-column: 4; }
 .texhoru-panel-head > .texhoru-brand { flex: 0 1 auto; color: var(--tx-ink); font-family: "IBM Plex Sans", sans-serif; font-size: 20px; letter-spacing: 0; }
 .texhoru-panel-head .texhoru-brand__wordmark { color: var(--tx-ink); font: 700 1em/1 "IBM Plex Sans", sans-serif; letter-spacing: -.055em; }
@@ -582,18 +583,24 @@ html { scrollbar-gutter: stable; }
    basket behave like independent mobile screens. */
 @media (max-width: 699px) {
   .storefront { --mobile-nav-height: 66px; -webkit-tap-highlight-color: transparent; }
-  .storefront main { padding-bottom: calc(var(--mobile-nav-height) + 24px + env(safe-area-inset-bottom)); }
+  .storefront main {
+    position: relative;
+    z-index: 0;
+    padding-top: 8px;
+    padding-bottom: calc(var(--mobile-nav-height) + 24px + env(safe-area-inset-bottom));
+  }
 
   .storefront .header.header--storefront {
     position: sticky;
     z-index: 80;
     top: 0;
     grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-rows: 42px !important;
-    min-height: 58px !important;
-    height: 58px !important;
+    grid-template-rows: 54px !important;
+    min-height: calc(54px + env(safe-area-inset-top)) !important;
+    height: calc(54px + env(safe-area-inset-top)) !important;
     gap: 0 !important;
-    padding: max(6px, env(safe-area-inset-top)) 12px 6px !important;
+    padding: env(safe-area-inset-top) 12px 0 !important;
+    overflow: hidden;
     border-bottom: 1px solid rgba(22,22,25,.08) !important;
     background: rgba(255,255,255,.94) !important;
     backdrop-filter: blur(18px);
@@ -601,7 +608,7 @@ html { scrollbar-gutter: stable; }
   .storefront .header.header--storefront > .brand {
     grid-column: 1 !important;
     grid-row: 1 !important;
-    font-size: clamp(27px, 7.8vw, 32px) !important;
+    font-size: clamp(24px, 6.8vw, 28px) !important;
     letter-spacing: -.04em;
     min-width: 0;
     overflow: hidden;
@@ -611,7 +618,7 @@ html { scrollbar-gutter: stable; }
   .storefront .header.header--storefront .header-search-inline { display: none !important; }
   .storefront .header.header--storefront .texhoru-brand { max-width: 100%; }
   .storefront .header.header--storefront .texhoru-brand__line { max-width: 100%; }
-  .storefront .header.header--storefront .texhoru-brand__section { width: min(41vw, 176px); max-width: min(41vw, 176px); margin-left: 12px; padding-left: 12px; font-size: clamp(18px, 5.5vw, 23px); }
+  .storefront .header.header--storefront .texhoru-brand__section { width: min(45vw, 190px); max-width: min(45vw, 190px); margin-left: 12px; padding-left: 12px; font-size: 1em; }
   .storefront .mobile-page-search {
     position: relative;
     z-index: 2;
@@ -630,7 +637,7 @@ html { scrollbar-gutter: stable; }
   .storefront .cart-page-screen.cart-drawer {
     width: calc(100% - 28px);
     min-height: calc(100dvh - 160px);
-    margin: 14px auto 28px;
+    margin: 8px auto 28px;
   }
   .storefront .category-page-screen .category-menu__grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
   .storefront .category-page-screen .category-menu__tile { min-height: 0; }
@@ -821,8 +828,8 @@ html { scrollbar-gutter: stable; }
 }
 
 @media (max-width: 360px) {
-  .storefront .header.header--storefront > .brand { font-size: 26px !important; }
-  .storefront .header.header--storefront .texhoru-brand__section { font-size: 17px; }
+  .storefront .header.header--storefront > .brand { font-size: 23px !important; }
+  .storefront .header.header--storefront .texhoru-brand__section { font-size: 1em; }
   .storefront .header.header--storefront { padding-inline: 10px !important; }
   .mobile-dock { left: 8px; right: 8px; }
   .category-menu__grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
