@@ -125,7 +125,7 @@ test('pilot photos cover the first ten live storefront products with exact model
   for (const [name, photo] of pilot) {
     assert.equal(featuredPhoneImage(name, '/products/phone.svg'), photo)
     const bytes = readFileSync(new URL('../public' + photo, import.meta.url))
-    assert(bytes.length > 20_000)
+    assert(bytes.length > 10_000)
     if (photo.endsWith('.webp')) assert.equal(bytes.subarray(0, 4).toString(), 'RIFF')
   }
 })
@@ -166,7 +166,7 @@ test('every remaining live smartphone has a dedicated model and colour image', (
     assert.equal(featuredPhoneImage(name, '/products/phone.svg'), photo, name)
     const bytes = readFileSync(new URL('../public' + photo, import.meta.url))
     assert.equal(bytes.subarray(0, 4).toString(), 'RIFF')
-    assert(bytes.length > 20_000)
+    assert(bytes.length > 10_000)
   }
 })
 

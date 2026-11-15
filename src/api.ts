@@ -1,5 +1,6 @@
 import type { Product } from './types'
 import type { StorefrontLayout } from './page-layout'
+import { phoneCatalogProfile } from './phone-catalog-profiles'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
@@ -187,26 +188,29 @@ const stockLabel = (value: ApiProduct['stockState']): Product['stock'] => {
   return 'В наличии'
 }
 
-const mapProduct = (item: ApiProduct): Product => ({
-  id: item.id,
-  oneCId: item.oneCId ?? undefined,
-  sku: item.sku,
-  slug: item.slug,
-  name: item.name,
-  category: item.category.name as Product['category'],
-  brand: item.brand,
-  price: item.price,
-  oldPrice: item.oldPrice ?? undefined,
-  badge: item.badge ?? undefined,
-  stock: stockLabel(item.stockState),
-  stockQty: item.stockQty,
-  image: item.image || '/products/phone.svg',
-  shortSpec: item.shortSpec,
-  description: item.description,
-  specs: Array.isArray(item.specs) ? item.specs : [],
-  warranty: item.warranty,
-  deliveryNote: item.deliveryNote,
-})
+const mapProduct = (item: ApiProduct): Product => {
+  const sourced = phoneCatalogProfile(item.name)
+  return {
+    id: item.id,
+    oneCId: item.oneCId ?? undefined,
+    sku: item.sku,
+    slug: item.slug,
+    name: item.name,
+    category: item.category.name as Product['category'],
+    brand: item.brand,
+    price: item.price,
+    oldPrice: item.oldPrice ?? undefined,
+    badge: item.badge ?? undefined,
+    stock: stockLabel(item.stockState),
+    stockQty: item.stockQty,
+    image: item.image || '/products/phone.svg',
+    shortSpec: item.shortSpec || sourced?.shortSpec || '',
+    description: item.description || sourced?.description || '',
+    specs: Array.isArray(item.specs) && item.specs.length ? item.specs : sourced?.specs || [],
+    warranty: item.warranty,
+    deliveryNote: item.deliveryNote,
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
