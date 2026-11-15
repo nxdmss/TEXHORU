@@ -18,6 +18,7 @@ import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, 
 import { api, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, storefrontBlocksFor, type StorefrontBlock, type StorefrontDevice, type StorefrontLayout } from './page-layout'
 import { TexhoruBrand } from './TexhoruBrand'
+import { PROMO_STANDARDS, promoPresetsFor, type PromoPreset } from './promo-presets'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -546,16 +547,30 @@ function AdminPage({ onBack }: { onBack: () => void }) {
 
   const notifyPromoChanged = () => window.dispatchEvent(new Event('texhoru:promos-changed'))
 
-  const promoStandards: Record<StorefrontDevice, { label: string; width: number; height: number; ratio: number }> = {
-    desktop: { label: 'Компьютер · 1920×720 · 8:3', width: 1920, height: 720, ratio: 8 / 3 },
-    tablet: { label: 'Планшет · 1600×900 · 16:9', width: 1600, height: 900, ratio: 16 / 9 },
-    mobile: { label: 'Телефон · 1080×1350 · 4:5', width: 1080, height: 1350, ratio: 4 / 5 },
-  }
+  const promoStandards = PROMO_STANDARDS
+  const promoPresets = promoPresetsFor(promoDevice)
   const activePromoImage = promoDraft.images[promoDevice]
   const updatePromoImage = (patch: Partial<PromoImageDraft>) => setPromoDraft((current) => ({
     ...current,
     images: { ...current.images, [promoDevice]: { ...current.images[promoDevice], ...patch } },
   }))
+
+  const applyPromoPreset = (preset: PromoPreset & { image: string }) => {
+    const category = apiCategories.find((item) => item.name.trim().toLocaleLowerCase('ru-RU') === preset.category.toLocaleLowerCase('ru-RU'))?.name
+      || apiCategories.find((item) => item.name.toLocaleLowerCase('ru-RU').includes(preset.caption.toLocaleLowerCase('ru-RU')))?.name
+      || promoDraft.category
+    setPromoDraft((current) => ({
+      ...current,
+      kicker: 'РЕКЛАМА',
+      title: preset.title,
+      body: preset.caption,
+      ctaLabel: 'Смотреть',
+      category,
+      tone: preset.tone,
+      images: { ...current.images, [promoDevice]: { image: preset.image, imageX: 50, imageY: 50, imageZoom: 1 } },
+    }))
+    setPromoImageInfo(`Готовый макет · ${promoStandards[promoDevice].label}`)
+  }
 
   const openCreatePromo = (blockId: string, device: StorefrontDevice) => {
     const categoryName = apiCategories.find((item) => item.isActive !== false)?.name ?? 'Смартфоны'
@@ -690,6 +705,28 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     if (!confirm(`Удалить слайд «${item.title || 'Без названия'}» только из версии «${deviceLabel}»?`)) return
     try { await api.adminDeletePromo(item.id); await load(); notifyPromoChanged() }
     catch (e) { setError(e instanceof Error ? e.message : 'Не удалось удалить акцию') }
+  }
+
+  const installPromoPresetSet = async (blockId: string, device: StorefrontDevice) => {
+    const blockPromos = promos.filter((item) => item.blockId === blockId && item.device === device)
+    const existingSources = new Set(blockPromos.map((item) => parsePromoFrame(item.image).src))
+    const missing = promoPresetsFor(device).filter((preset) => !existingSources.has(preset.image))
+    if (!missing.length) return
+    const firstSort = blockPromos.length ? Math.max(...blockPromos.map((item) => item.sortOrder ?? 0)) + 10 : 0
+    setLoading(true); setError('')
+    try {
+      await Promise.all(missing.map((preset, index) => {
+        const category = apiCategories.find((item) => item.name.trim().toLocaleLowerCase('ru-RU') === preset.category.toLocaleLowerCase('ru-RU'))?.name
+          || apiCategories.find((item) => item.name.toLocaleLowerCase('ru-RU').includes(preset.caption.toLocaleLowerCase('ru-RU')))?.name
+          || apiCategories.find((item) => item.isActive !== false)?.name || 'Все'
+        return api.adminCreatePromo({
+          blockId, device, kicker: 'РЕКЛАМА', title: preset.title, body: preset.caption, ctaLabel: 'Смотреть', category,
+          image: encodePromoFrame(preset.image, 50, 50, 1), tone: preset.tone, sortOrder: firstSort + index * 10, isActive: true,
+        })
+      }))
+      await load(); notifyPromoChanged()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось добавить фирменные макеты') }
+    finally { setLoading(false) }
   }
 
   const createCategory = async (event: FormEvent) => {
@@ -851,13 +888,13 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </div>}
 
     {tab === 'content' && <div className="admin-content-editor">
-      <PageBuilder promos={promos} onCreatePromo={openCreatePromo} onEditPromo={openEditPromo} onTogglePromo={togglePromo} onDeletePromo={deletePromo} />
+      <PageBuilder promos={promos} onCreatePromo={openCreatePromo} onInstallPromoPresets={installPromoPresetSet} onEditPromo={openEditPromo} onTogglePromo={togglePromo} onDeletePromo={deletePromo} />
 
       {promoEditorOpen && <div className="promo-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoEditorOpen(false) }}>
         <form className="promo-editor" onSubmit={savePromo}>
           <div className="promo-editor__head"><div><p className="eyebrow">{promoDevice === 'desktop' ? 'Компьютер' : promoDevice === 'tablet' ? 'Планшет' : 'Телефон'} · отдельная лента</p><h2>{editingPromoId ? 'Изменить слайд' : 'Новый слайд'}</h2><span>Этот слайд существует только в выбранной версии сайта.</span></div><button type="button" onClick={() => setPromoEditorOpen(false)} aria-label="Закрыть"><Icon name="close" /></button></div>
           <div className="promo-editor__body">
-            <div className="promo-editor__visual">
+            <div className={`promo-editor__visual is-${promoDevice}`}>
               <div
                 className={`promo-editor__crop-stage is-${promoDevice}${activePromoImage.image ? ' has-image' : ''}`}
                 onDragOver={(event) => event.preventDefault()}
@@ -887,6 +924,13 @@ function AdminPage({ onBack }: { onBack: () => void }) {
                 <small>Положение и масштаб сохраняются только для выбранной версии экрана.</small>
               </div>}
               <div className="promo-editor__image-info"><strong>{promoStandards[promoDevice].label}</strong><span>{promoImageInfo}</span></div>
+              <section className="promo-editor__presets" aria-label="Готовые рекламные макеты">
+                <div className="promo-editor__presets-head"><div><strong>Готовые рекламные макеты</strong><span>Каждый нарисован отдельно под этот экран</span></div><b>{promoStandards[promoDevice].shortLabel}</b></div>
+                <div className="promo-editor__presets-grid">{promoPresets.map((preset) => <button type="button" key={preset.id}
+                  className={activePromoImage.image === preset.image ? 'is-active' : ''} onClick={() => applyPromoPreset(preset)}>
+                  <img src={preset.image} alt="" /><span><strong>{preset.title}</strong><small>{preset.caption}</small></span>
+                </button>)}</div>
+              </section>
             </div>
             <div className="promo-editor__fields">
               <label><span>Название в админке</span><input value={promoDraft.title} onChange={(e) => setPromoDraft({ ...promoDraft, title: e.target.value })} placeholder="Например: Осенняя акция" /></label>
