@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 
 const MIME_BY_EXT: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.avif': 'image/avif' }
 const EXT_BY_MIME: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/avif': '.avif' }
+const RETAIL_MEDIA_ROOTS = ['05.ru', 'mvideo.ru', 'dns-shop.ru']
 type UploadedImage = { originalname: string; mimetype: string; size: number; buffer: Buffer }
 type MediaFolder = 'products' | 'promos'
 
@@ -63,6 +64,31 @@ export class MediaService {
 
   uploadProductImage(file: UploadedImage) { return this.uploadImage(file, 'products') }
   uploadPromoImage(file: UploadedImage) { return this.uploadImage(file, 'promos') }
+
+  async importRetailProductImage(rawUrl: string) {
+    let url: URL
+    try { url = new URL(rawUrl) } catch { throw new UnsupportedMediaTypeException('Некорректная ссылка изображения') }
+    const allowed = (candidate: URL) => candidate.protocol === 'https:' && !candidate.username && !candidate.password
+      && !candidate.port && RETAIL_MEDIA_ROOTS.some(root => candidate.hostname === root || candidate.hostname.endsWith('.' + root))
+    if (!allowed(url)) throw new UnsupportedMediaTypeException('Изображение находится вне разрешённого домена магазина')
+    let response: Response | undefined
+    for (let redirect = 0; redirect < 4; redirect++) {
+      response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { accept: 'image/avif,image/webp,image/png,image/jpeg' } })
+      if (response.status < 300 || response.status >= 400) break
+      const location = response.headers.get('location')
+      if (!location) throw new UnsupportedMediaTypeException('Магазин вернул пустое перенаправление изображения')
+      url = new URL(location, url)
+      if (!allowed(url)) throw new UnsupportedMediaTypeException('Изображение перенаправлено вне разрешённого домена магазина')
+    }
+    if (!response?.ok) throw new UnsupportedMediaTypeException(`Не удалось получить изображение: HTTP ${response?.status || 0}`)
+    const contentLength = Number(response.headers.get('content-length') || 0)
+    if (contentLength > 8 * 1024 * 1024) throw new UnsupportedMediaTypeException('Изображение больше 8 МБ')
+    const mimetype = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+    if (!EXT_BY_MIME[mimetype]) throw new UnsupportedMediaTypeException('Магазин вернул файл неподдерживаемого формата')
+    const buffer = Buffer.from(await response.arrayBuffer())
+    if (buffer.length > 8 * 1024 * 1024) throw new UnsupportedMediaTypeException('Изображение больше 8 МБ')
+    return this.uploadProductImage({ originalname: basename(url.pathname) || 'product', mimetype, size: buffer.length, buffer })
+  }
 
   private async openLocalImage(filename: string, folder: MediaFolder) {
     const safeName = basename(filename)
