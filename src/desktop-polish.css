@@ -30,6 +30,47 @@
   line-height: 1;
 }
 
+/* The header always uses one immutable sequence:
+   identity → search/blank space → account actions → catalog. */
+.storefront .header-search-spacer {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+}
+
+/* A favorite is an icon state, not a separate circular control. */
+.storefront .product-card__favorite,
+.storefront .catalog-featured .product-card__favorite,
+.storefront .catalog--favorites .product-card__favorite {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #68686f;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.storefront .product-card__favorite:hover,
+.storefront .product-card__favorite.is-active,
+.storefront .catalog-featured .product-card__favorite:hover,
+.storefront .catalog-featured .product-card__favorite.is-active,
+.storefront .catalog--favorites .product-card__favorite:hover,
+.storefront .catalog--favorites .product-card__favorite.is-active {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tx-accent);
+}
+
+.storefront .product-card__favorite:active { transform: scale(.9); }
+.storefront .product-card__favorite > .tx-icon { width: 22px; height: 22px; }
+.storefront .product-card__favorite.is-active > .tx-icon { fill: currentColor; }
+
 .customer-dashboard-head {
   margin: 38px 0 30px;
   padding-bottom: 26px;
@@ -157,7 +198,14 @@
   border-radius: 4px;
 }
 
-@media (min-width: 901px) {
+@media (min-width: 801px) {
+  .storefront .header.header--storefront,
+  .storefront .header.header--no-search {
+    grid-template-columns: max-content minmax(180px, 1fr) auto auto !important;
+    grid-template-rows: minmax(48px, auto) !important;
+    align-items: center;
+  }
+
   .storefront .header.header--storefront > .brand,
   .storefront .header.header--storefront .texhoru-brand,
   .storefront .header.header--storefront .texhoru-brand__line {
@@ -173,20 +221,60 @@
     text-overflow: clip;
   }
 
-  .storefront .header.header--no-search {
-    grid-template-columns: max-content minmax(32px, 1fr) auto auto !important;
+  .storefront .header.header--storefront > .brand {
+    grid-column: 1;
+    grid-row: 1;
   }
 
-  .storefront .header.header--no-search > .brand { grid-column: 1; }
+  .storefront .header.header--storefront :is(.header-search-inline, .header-search-spacer) {
+    grid-column: 2;
+    grid-row: 1;
+  }
 
-  .storefront .header.header--no-search .header-actions {
+  .storefront .header.header--storefront .header-actions {
     grid-column: 3;
+    grid-row: 1;
     justify-self: end;
+    align-self: center;
   }
 
-  .storefront .header.header--no-search .header-tools {
+  .storefront .header.header--storefront .header-tools {
     grid-column: 4;
+    grid-row: 1;
     justify-self: end;
+    align-self: center;
+  }
+}
+
+@media (min-width: 801px) and (max-width: 1100px) {
+  .storefront .header.header--storefront {
+    grid-template-columns: max-content minmax(40px, 1fr) auto auto !important;
+    gap: 9px !important;
+  }
+
+  .storefront .header.header--storefront > .brand,
+  .storefront .header.header--storefront .texhoru-brand__section { font-size: 24px !important; }
+
+  .storefront .header.header--storefront .header-actions { gap: 8px !important; }
+
+  .storefront .header.header--storefront .header-actions :is(.ghost-button, .cart-button) {
+    gap: 6px;
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+
+  .storefront .header.header--storefront .header-menu-button {
+    width: auto;
+    padding-inline: 12px;
+  }
+
+  .storefront .header.header--storefront .header-menu-button span { display: inline; }
+}
+
+@media (min-width: 700px) and (max-width: 800px) {
+  .storefront .header.header--storefront .header-search-spacer {
+    grid-column: 2;
+    grid-row: 2;
   }
 }
 
@@ -213,4 +301,8 @@
   .storefront .cart-page-screen .cart-empty {
     min-height: calc(100dvh - 170px);
   }
+}
+
+@media (max-width: 699px) {
+  .storefront .header-search-spacer { display: none; }
 }
