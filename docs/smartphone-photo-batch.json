@@ -1,9 +1,9 @@
 {
   "createdAt": "2026-11-15",
-  "purpose": "Transparent ecommerce cutouts for the active TEXHORU smartphone catalog",
-  "format": "960x640 WebP with alpha transparency",
-  "method": "Generated as individual model-and-colour product cutouts and reviewed through exact-name mapping tests",
-  "files": 26,
-  "variantsCovered": 29,
-  "notes": "Storage-only variants intentionally share the same model-and-colour image. Existing Apple and pilot HONOR assets cover the other 10 active smartphone variants."
+  "purpose": "Exact model-and-colour product images for the active TEXHORU smartphone catalog",
+  "format": "960x640 WebP on a storefront-white canvas",
+  "method": "Matched against manufacturer, DNS, M.Video and other exact-model retailer product pages; no generated phone likenesses remain in this batch",
+  "files": 28,
+  "variantsCovered": 31,
+  "notes": "Storage-only variants intentionally share the same model-and-colour image. Existing Apple assets cover the other 8 active smartphone variants. Administrator-uploaded product photos remain higher priority."
 }

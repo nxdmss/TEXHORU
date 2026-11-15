@@ -1,0 +1,29 @@
+{
+  "checkedAt": "2026-11-15",
+  "policy": "Exact model match. Variant RAM and storage are parsed from the 1C product name. Existing administrator-entered fields override these profiles.",
+  "sources": {
+    "Apple iPhone 15": "https://support.apple.com/en-us/111831",
+    "Apple iPhone 16": "https://support.apple.com/en-us/121029",
+    "HONOR 600": "https://www.dns-shop.ru/product/characteristics/4242ee3c25b5d21a/657-smartfon-honor-600-256-gb-cernyj/",
+    "HONOR 600 Pro": "https://www.dns-shop.ru/product/characteristics/364fffe325b5d21a/657-smartfon-honor-600-pro-512-gb-cernyj/",
+    "HONOR X9d": "https://www.dns-shop.ru/product/characteristics/57b0d818870bd9cb/679-smartfon-honor-x9d-256-gb-koricnevyj/",
+    "HONOR X7e": "https://www.dns-shop.ru/product/d90ffd774787d21a/661-smartfon-honor-x7e-256-gb-cernyj/",
+    "HONOR X5eS": "https://www.dns-shop.ru/product/characteristics/1b3859c3ecf973a6/69-smartfon-honor-x5es-64-gb-cernyj/",
+    "HUAWEI nova 15 Max": "https://www.dns-shop.ru/product/characteristics/bf20c61c5030d582/684-smartfon-huawei-nova-15-max-256-gb-zolotistyj/",
+    "Samsung Galaxy S25": "https://www.dns-shop.ru/catalog/recipe/6914a510ac5e6b71/samsung-galaxy-s25/",
+    "Samsung Galaxy S25 Ultra": "https://www.dns-shop.ru/product/characteristics/ea2863d7d216d582/69-smartfon-samsung-galaxy-s25-ultra-256-gb-cernyj/",
+    "Samsung Galaxy S26": "https://www.dns-shop.ru/product/characteristics/18786f6d3258d582/63-smartfon-samsung-galaxy-s26-256-gb-cernyj/",
+    "Samsung Galaxy S26 Ultra": "https://www.dns-shop.ru/product/characteristics/afc37b880c8cd0a4/69-smartfon-samsung-galaxy-s26-ultra-256-gb-cernyj/",
+    "POCO F8 Ultra": "https://www.po.co/global/product/poco-f8-ultra/specs/",
+    "POCO M8 5G": "https://www.dns-shop.ru/product/characteristics/de7a51e6bf8cd21a/677-smartfon-poco-m8-5g-256-gb-zelenyj/",
+    "POCO X8 Pro": "https://www.dns-shop.ru/product/characteristics/6d4414d6fa95d0a4/659-smartfon-poco-x8-pro-512-gb-belyj/",
+    "POCO X8 Pro Max": "https://www.dns-shop.ru/product/67f3f7be07afd21a/683-smartfon-poco-x8-pro-max-256-gb-cernyj/",
+    "Xiaomi 15T Pro": "https://www.dns-shop.ru/product/characteristics/379de6867110d21a/683-smartfon-xiaomi-15t-pro-256-gb-cernyj/",
+    "Xiaomi 17T": "https://www.dns-shop.ru/product/characteristics/e67c63a65eb84aa4/659-smartfon-xiaomi-17t-512-gb-cernyj/",
+    "Xiaomi 17T Pro": "https://www.dns-shop.ru/product/characteristics/8a1aaec333dfd21a/683-smartfon-xiaomi-17t-pro-1024-gb-cernyj/",
+    "realme 16 Pro": "https://www.dns-shop.ru/product/characteristics/932605f8e095d21a/678-smartfon-realme-16-pro-512-gb-seryj/",
+    "realme C100x": "https://www.dns-shop.ru/product/characteristics/bc37fdeb1eb7d21a/68-smartfon-realme-c100x-256-gb-bezevyj/",
+    "TECNO CAMON 50 Ultra": "https://www.dns-shop.ru/product/34c86c662272d9cb/678-smartfon-tecno-camon-50-ultra-256-gb-cernyj/",
+    "Google Pixel 11 Pro": "https://www.dns-shop.ru/product/characteristics/219b3eae9b75d9cb/63-smartfon-google-pixel-11-pro-256-gb-cernyj/"
+  }
+}
