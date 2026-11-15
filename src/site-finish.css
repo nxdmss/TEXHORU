@@ -596,14 +596,8 @@ textarea { font-weight: 600; }
 .storefront .product-story { margin-top: clamp(56px, 7vw, 104px); }
 
 .storefront .product-story__head {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 24px;
   margin-bottom: 22px;
 }
-
-.storefront .product-story__head .eyebrow { margin: 0 0 8px; }
 
 .storefront .product-story__head h2 {
   margin: 0;
@@ -612,43 +606,53 @@ textarea { font-weight: 600; }
   letter-spacing: -.045em;
 }
 
-.storefront .product-story__head > span {
-  color: #8b8b91;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+.storefront .product-story__stage {
+  position: relative;
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  overflow: hidden;
 }
 
 .storefront .product-story__track {
   display: flex;
-  gap: 16px;
+  gap: 0;
   width: 100%;
-  padding: 0 0 18px;
+  min-width: 0;
+  padding: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
-  scrollbar-width: thin;
-  scrollbar-color: #c9c9ce transparent;
+  scrollbar-width: none;
 }
+
+.storefront .product-story__track::-webkit-scrollbar { display: none; }
 
 .storefront .product-story__panel {
-  flex: 0 0 min(760px, 64vw);
-  min-height: 480px;
+  flex: 0 0 100%;
+  min-width: 100%;
+  max-width: 100%;
+  width: 100%;
+  height: 520px;
+  min-height: 520px;
   padding: clamp(32px, 4vw, 56px);
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
+  overflow-y: auto;
   scroll-snap-align: start;
   scroll-snap-stop: always;
+  scrollbar-width: none;
 }
 
+.storefront .product-story__panel::-webkit-scrollbar { display: none; }
+
 .storefront .product-story__panel--description { background: #17171a; color: #fff; }
-.storefront .product-story__panel--specs { flex-basis: min(920px, 72vw); background: #f1f1f3; color: var(--tx-ink); }
-.storefront .product-story__panel--service { flex-basis: min(640px, 56vw); background: var(--tx-accent); color: #fff; }
+.storefront .product-story__panel--specs { flex-basis: 100%; background: #f1f1f3; color: var(--tx-ink); }
+.storefront .product-story__panel--service { flex-basis: 100%; background: var(--tx-accent); color: #fff; }
 
 .storefront .product-story__index {
   display: block;
-  margin-bottom: clamp(56px, 8vw, 120px);
+  margin-bottom: clamp(56px, 8vw, 100px);
   color: currentColor;
   font-size: 9px;
   font-weight: 600;
@@ -656,6 +660,9 @@ textarea { font-weight: 600; }
   opacity: .58;
   text-transform: uppercase;
 }
+
+.storefront .product-story__panel--specs .product-story__index,
+.storefront .product-story__panel--service .product-story__index { margin-bottom: 38px; }
 
 .storefront .product-story__panel h3 {
   max-width: 22ch;
@@ -741,15 +748,59 @@ textarea { font-weight: 600; }
   line-height: 1.5;
 }
 
+.storefront .editorial-arrow,
+.storefront .carousel-hit {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  display: grid !important;
+  place-items: center;
+  width: 46px !important;
+  height: 58px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline-offset: 4px;
+  background: transparent !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .8));
+  transform: translateY(-50%);
+  cursor: pointer;
+  transition: transform 150ms ease, opacity 150ms ease;
+}
+
+.storefront .editorial-arrow:hover,
+.storefront .carousel-hit:hover { transform: translateY(-50%) scale(1.12); }
+
+.storefront .editorial-arrow:focus-visible,
+.storefront .carousel-hit:focus-visible { outline: 2px solid var(--tx-accent); }
+
+.storefront .editorial-arrow > .tx-icon,
+.storefront .carousel-hit > .tx-icon {
+  display: block !important;
+  width: 30px !important;
+  height: 30px !important;
+  stroke-width: 2.2;
+}
+
+.storefront .editorial-arrow--left,
+.storefront .carousel-hit--left { left: 14px !important; }
+
+.storefront .editorial-arrow--right,
+.storefront .carousel-hit--right { right: 14px !important; }
+
+.storefront .carousel-hit::after { content: none !important; }
+
 .storefront .product-studio > .related-block { padding-top: clamp(64px, 8vw, 110px); }
 
 @media (max-width: 900px) {
   .storefront .product-studio__hero { grid-template-columns: 1fr; }
   .storefront .product-studio__visual { min-height: 520px; }
   .storefront .product-studio__summary { min-height: 520px; }
-  .storefront .product-story__panel { flex-basis: min(760px, 82vw); }
-  .storefront .product-story__panel--specs { flex-basis: min(860px, 88vw); }
-  .storefront .product-story__panel--service { flex-basis: min(640px, 76vw); }
+  .storefront .product-story__panel,
+  .storefront .product-story__panel--specs,
+  .storefront .product-story__panel--service { flex-basis: 100%; }
 }
 
 @media (max-width: 699px) {
@@ -787,16 +838,19 @@ textarea { font-weight: 600; }
   .storefront .product-story { margin-top: 58px; }
   .storefront .product-story__head { margin-bottom: 16px; }
   .storefront .product-story__head h2 { font-size: 30px; }
-  .storefront .product-story__head > span { font-size: 8px; }
-  .storefront .product-story__track { gap: 10px; margin-right: -14px; width: calc(100% + 14px); padding-right: 14px; }
+  .storefront .product-story__track { gap: 0; margin: 0; width: 100%; padding: 0; }
 
   .storefront .product-story__panel,
   .storefront .product-story__panel--specs,
   .storefront .product-story__panel--service {
-    flex-basis: calc(100vw - 42px);
-    min-height: 450px;
+    flex-basis: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    width: 100%;
+    height: 470px;
+    min-height: 470px;
     padding: 28px 22px;
-    border-radius: 6px;
+    border-radius: 0;
   }
 
   .storefront .product-story__index { margin-bottom: 62px; }
@@ -805,4 +859,16 @@ textarea { font-weight: 600; }
   .storefront .product-story__panel .spec-list { grid-template-columns: 1fr; gap: 16px; margin-top: 28px; }
   .storefront .product-story__panel .product-page__service > div { grid-template-columns: 78px minmax(0, 1fr); padding: 15px; }
   .storefront .product-studio > .related-block { padding-top: 64px; }
+
+  .storefront .editorial-arrow,
+  .storefront .carousel-hit { width: 36px !important; height: 48px !important; }
+
+  .storefront .editorial-arrow > .tx-icon,
+  .storefront .carousel-hit > .tx-icon { width: 25px !important; height: 25px !important; }
+
+  .storefront .editorial-arrow--left,
+  .storefront .carousel-hit--left { left: 5px !important; }
+
+  .storefront .editorial-arrow--right,
+  .storefront .carousel-hit--right { right: 5px !important; }
 }

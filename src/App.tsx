@@ -31,6 +31,10 @@ const restoreFavorites = () => {
     return Array.isArray(value) ? value.filter((id): id is number => Number.isInteger(id) && id > 0).slice(0, 100) : []
   } catch { return [] }
 }
+const scrollProductStory = (productId: number, direction: -1 | 1) => {
+  const track = document.getElementById(`product-story-track-${productId}`)
+  if (track) track.scrollBy({ left: track.clientWidth * direction, behavior: 'smooth' })
+}
 type AccountTab = 'active' | 'history' | 'profile'
 type AdminTab = 'overview' | 'products' | 'content' | 'prices' | 'orders' | 'notifications' | 'sync' | 'audit'
 type CreatedOrder = { number: number; trackingToken: string; paymentMethod: 'ONLINE' | 'ON_RECEIPT' }
@@ -249,7 +253,7 @@ function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOp
           </div>
         })}
       </div>
-      {items.length > 1 && <><button className="carousel-hit carousel-hit--left" onClick={() => move(-1)} aria-label="Предыдущий баннер"><Icon name="chevronLeft" /></button><button className="carousel-hit carousel-hit--right" onClick={() => move(1)} aria-label="Следующий баннер"><Icon name="chevronRight" /></button><div className="carousel-dots" aria-label="Слайды">{items.map((item, index) => <button key={`${item.id}-dot`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div></>}
+      {items.length > 1 && <><button className="carousel-hit carousel-hit--left" onClick={() => move(-1)} aria-label="Предыдущий баннер"><Icon name="chevronLeft" /></button><button className="carousel-hit carousel-hit--right" onClick={() => move(1)} aria-label="Следующий баннер"><Icon name="chevronRight" /></button></>}
     </div></div>
   </section>
 }
@@ -1265,34 +1269,35 @@ function App() {
             <button className="product-page__buy" disabled={!available} onClick={() => cartQuantity ? navigate('/cart') : addToCart(product)}><Icon name={cartQuantity ? 'arrow' : 'cart'} />{cartQuantity ? `В корзине · ${cartQuantity}` : 'Добавить в корзину'}</button>
             <button type="button" className={'product-page__favorite' + (favorite ? ' is-active' : '')} aria-pressed={favorite} onClick={() => toggleFavorite(product)}><Icon name="heart" /><span>{favorite ? 'Сохранено' : 'Избранное'}</span></button>
           </div>
-          <p className="product-studio__note">Оплата при оформлении · Поможем с выбором и получением</p>
         </aside>
       </div>
 
       <section className="product-story" aria-labelledby={`product-story-${product.id}`}>
-        <header className="product-story__head"><div><p className="eyebrow">Детали</p><h2 id={`product-story-${product.id}`}>Товар по слоям</h2></div><span>Листай →</span></header>
-        <div className="product-story__track" tabIndex={0} aria-label="Описание, характеристики и сервис">
-          <article className="product-story__panel product-story__panel--description">
-            <span className="product-story__index">01 / О модели</span>
-            <h3>{product.shortSpec || product.name}</h3>
-            <p>{product.description || 'Подробное описание появится после обновления каталога.'}</p>
-          </article>
+        <header className="product-story__head"><h2 id={`product-story-${product.id}`}>Детали</h2></header>
+        <div className="product-story__stage">
+          <button type="button" className="editorial-arrow editorial-arrow--left" onClick={() => scrollProductStory(product.id, -1)} aria-label="Предыдущий блок"><Icon name="chevronLeft" /></button>
+          <div className="product-story__track" id={`product-story-track-${product.id}`} tabIndex={0} aria-label="Описание, характеристики и сервис">
+            <article className="product-story__panel product-story__panel--description">
+              <span className="product-story__index">О товаре</span>
+              <h3>{product.shortSpec || product.name}</h3>
+              {product.description && product.description !== product.shortSpec && <p>{product.description}</p>}
+            </article>
 
-          <article className="product-story__panel product-story__panel--specs" id="product-specifications">
-            <span className="product-story__index">02 / Характеристики</span>
-            <h3>Главное внутри</h3>
-            <dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
-          </article>
+            <article className="product-story__panel product-story__panel--specs" id="product-specifications">
+              <span className="product-story__index">Характеристики</span>
+              <dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
+            </article>
 
-          <article className="product-story__panel product-story__panel--service">
-            <span className="product-story__index">03 / Сервис</span>
-            <h3>После выбора</h3>
-            <div className="product-page__service"><div><span>Получение</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div>
-          </article>
+            <article className="product-story__panel product-story__panel--service">
+              <span className="product-story__index">Сервис</span>
+              <div className="product-page__service"><div><span>Получение</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div>
+            </article>
+          </div>
+          <button type="button" className="editorial-arrow editorial-arrow--right" onClick={() => scrollProductStory(product.id, 1)} aria-label="Следующий блок"><Icon name="chevronRight" /></button>
         </div>
       </section>
 
-      {related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}
+      {related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><h2>Похожее</h2></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}
     </section>
   }
 
