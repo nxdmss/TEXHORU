@@ -14,5 +14,5 @@ export function AdminIcon({ name }: { name: AdminIconName }) {
     refresh: <><path d="M20 10a8 8 0 1 0-1 7M20 4v6h-6"/></>,
     plus: <><path d="M12 4v16M4 12h16"/></>,
   }
-  return <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
+  return <svg className="tx-icon tx-icon--admin" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }

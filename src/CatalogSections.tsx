@@ -2,6 +2,7 @@ import { ALL_CATALOG, categorySelection, categorySegments, categoryTree, childre
 import { catalogBranches, type CatalogEntry } from './catalog-groups'
 import './catalog-navigation.css'
 import { browseLabel } from './catalog-navigation'
+import { Icon } from './Icon'
 
 type Props = {
   items: CatalogEntry[]
@@ -47,15 +48,15 @@ function OneCCatalogSections({ items, selection, onSelect, searching }: Props) {
           : 'Открывай разделы последовательно. Все группы загружаются из каталога магазина.'}</p>
       </div>
       {path && <button type="button" className="store-category-back" onClick={() =>
-        onSelect(parts.length === 1 ? ALL_CATALOG : categorySelection(parts.slice(0, -1).join(' / ')))}>← Назад</button>}
+        onSelect(parts.length === 1 ? ALL_CATALOG : categorySelection(parts.slice(0, -1).join(' / ')))}><Icon name="back" />Назад</button>}
     </div>
     {!!folders.length && <div className="store-category-folders">
       {folders.map(folder => <button type="button" className="store-category-folder" key={folder.path}
         onClick={() => onSelect(categorySelection(folder.path))}>
-        <span className="store-category-folder__icon" aria-hidden="true">▣</span>
+        <span className="store-category-folder__icon" aria-hidden="true"><Icon name="box" /></span>
         <strong>{browseLabel(folder.title)}</strong>
         <small>{count(folder.path)} товаров</small>
-        <span className="store-category-folder__arrow" aria-hidden="true">↗</span>
+        <span className="store-category-folder__arrow" aria-hidden="true"><Icon name="chevronRight" /></span>
       </button>)}
     </div>}
     {path && !folders.length && <div className="store-category-leaf">Модели и цены — ниже.</div>}

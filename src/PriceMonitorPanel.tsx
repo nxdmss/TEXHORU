@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiProduct, type MatchCandidate, type MonitorJob, type MonitorSource, type PriceMonitorItem, type MatchOutcome } from './api'
+import { Icon } from './Icon'
 import './price-monitor-simple.css'
 
 const rub = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽'
@@ -53,7 +54,7 @@ function SourceEvidence({ item }: { item: PriceMonitorItem }) {
     <a className="mp-source-link" href={link} target="_blank" rel="noopener noreferrer"
       title={'Открыть сохранённую карточку товара на 05.ru: ' + link}
       aria-label={'Проверить цену в источнике 05.ru: ' + item.externalName}>
-      Проверить на 05.ru <span aria-hidden="true">↗</span>
+      Проверить на 05.ru <Icon name="external" />
     </a>
     {fromParser && <small className="mp-proof-meta">
       Считано: {prettyDate(item.lastSuccessAt)}
@@ -415,7 +416,7 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
           return <button className="mp-folder" key={child} onClick={() => { setPath(child); setOpened(null) }}>
             <b>{name}</b>
             <small>{count} товаров</small>
-            <span className="mp-folder-arrow" aria-hidden="true">›</span>
+            <span className="mp-folder-arrow" aria-hidden="true"><Icon name="chevronRight" /></span>
           </button>
         })}
       </div>}
