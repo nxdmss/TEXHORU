@@ -18,6 +18,7 @@ import './storefront-layout.css'
 import './experience-upgrade.css'
 import './mobile-overhaul.css'
 import './icon-system.css'
+import './desktop-polish.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

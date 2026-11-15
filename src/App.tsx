@@ -1263,16 +1263,18 @@ function App() {
     : isCheckoutPage ? 'Оформление' : isAccountPage || authScreen ? 'Личный кабинет'
     : orderMatch ? 'Заказ' : mockPaymentMatch ? 'Оплата' : isProductPage ? 'Товар'
     : journeyMatch ? selectedJourneyBrand?.name || 'Смартфоны' : 'Главная'
+  const headerHasSearch = !isFavoritesPage && !isCartPage && !isAccountPage && !authScreen
+    && !isCheckoutPage && !orderMatch && !mockPaymentMatch
 
   return <div className={isAdminPage ? "app-shell" : "app-shell storefront"}>
   {!isAdminPage && <a className="skip-link" href="#main-content">Перейти к товарам</a>}
-  {!isAdminPage && <header className={'header header--storefront' + (isFavoritesPage ? ' header--no-search' : '')}>
+  {!isAdminPage && <header className={'header header--storefront' + (!headerHasSearch ? ' header--no-search' : '')}>
     <button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand section={headerSection} /></button>
     <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div>
-    {!isFavoritesPage && <label className="header-search-inline"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch || isCatalogPage || isCartPage) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>}
+    {headerHasSearch && <label className="header-search-inline"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch || isCatalogPage || isCartPage) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><span>Очистить</span></button>}</label>}
     <div className="header-actions">
       <button className={'ghost-button header-favorites' + (favoritesOnly ? ' is-active' : '')} onClick={showFavorites} aria-pressed={favoritesOnly}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button>
-      <button className="ghost-button header-account" onClick={() => navigate('/account')} aria-current={isAccountPage || authScreen ? 'page' : undefined}><Icon name="user" /><span>Кабинет</span></button>
+      <button className="ghost-button header-account" onClick={() => navigate('/account')} aria-current={isAccountPage || authScreen ? 'page' : undefined}><Icon name="user" /><span>Личный кабинет</span></button>
       <button className="cart-button" onClick={() => navigate('/cart')}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>
     </div>
   </header>}
