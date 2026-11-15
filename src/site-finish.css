@@ -396,6 +396,22 @@ textarea { font-weight: 600; }
   .storefront .product-card .product-card__add { bottom: 11px !important; }
 }
 
+/* Product photography sits directly on the store's white canvas. */
+.storefront .product-card .product-media,
+.storefront .product-card:hover .product-media,
+.storefront .catalog-featured .product-media,
+.storefront .product-page__visual,
+.storefront .product-studio__visual,
+.storefront .cart-line__image,
+.storefront .checkout-item__image {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.storefront .product-studio__visual {
+  border-color: transparent !important;
+}
+
 /* Product studio: independent image and purchase objects followed by a
    swipeable editorial story. No table chrome or decorative separators. */
 .storefront .product-studio {

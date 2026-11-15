@@ -88,7 +88,7 @@ export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuRes
   return {
     name, price: found.price, oldPrice: old && old > found.price ? old : null, inStock,
     externalSku: String(product?.sku || '') || new URL(url).pathname.match(/-(\d+)\/$/)?.[1] || null,
-    categoryName: objectName(product?.category) || snapshot.category || 'Товары 05.ru', brand, url, attributes,
+    categoryName: objectName(product?.category) || snapshot.category || 'Товары 05.ru', brand, url, attributes, specs,
     seller: objectName(single?.seller) || snapshot.seller || null, region: objectName(single?.eligibleRegion) || snapshot.region || null, priceSource: found.source,
   }
 }

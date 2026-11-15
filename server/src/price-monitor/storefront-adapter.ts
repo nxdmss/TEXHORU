@@ -14,6 +14,7 @@ export type StoreProductResult = {
   brand: string
   url: string
   attributes: Identity
+  specs: Array<{ label: string; value: string }>
   seller: string | null
   region: string | null
   priceSource: string
@@ -201,7 +202,7 @@ export function extractRetailerProduct(snapshot: ProductSnapshot, url: string, c
     categoryName: objectName(product?.category) || snapshot.category || 'Товары ' + config.name,
     brand,
     url,
-    attributes,
+    attributes, specs,
     seller: objectName(offer?.seller) || snapshot.seller || config.name,
     region: snapshot.region,
     priceSource: found.source,
