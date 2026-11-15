@@ -27,14 +27,9 @@ export function HomeCollections({ products, roots, onSelect, onSmartphones, titl
           && !/\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(productImage(product))
       })
       const title = browseLabel(node.title)
-      const number = String(index + 1).padStart(2, '0')
-      const groupLabel = node.children.length
-        ? `${node.children.length} ${node.children.length === 1 ? 'раздел' : node.children.length < 5 ? 'раздела' : 'разделов'}`
-        : 'Подборка'
       return <button type="button" key={node.path} aria-label={`Открыть категорию ${title}`}
         style={{ animationDelay: `${index * 45}ms` }}
         onClick={() => /^смартфоны?$/i.test(node.title) ? onSmartphones() : onSelect(categorySelection(node.path))}>
-        <div className="home-collection-meta"><span>{number}</span><small>{groupLabel}</small></div>
         <div className="home-collection-image">{cover
           ? <ProductImage name={cover.name} image={cover.image} alt="" />
           : <CategoryIllustration title={node.title} />}</div>

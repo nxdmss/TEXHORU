@@ -1,0 +1,24 @@
+/* One typographic voice across the storefront and management surfaces. */
+:root {
+  --font-sans: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+html,
+body,
+body *,
+body *::before,
+body *::after {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace !important;
+}
+
+body { font-weight: 500; }
+
+/* The popular-products status is information, not a boxed table row. */
+.storefront .catalog-toolbar {
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+}
+
+/* Category cards contain only customer-facing content. */
+.storefront .home-collection-meta { display: none !important; }
