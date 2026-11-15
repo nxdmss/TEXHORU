@@ -74,53 +74,56 @@ textarea { font-weight: 600; }
 }
 
 .storefront .section-head--catalog .catalog-toolbar__controls {
-  width: auto;
+  display: grid;
+  grid-template-columns: 132px 138px 154px minmax(190px, 218px) 82px;
+  width: max-content;
   max-width: 100%;
   align-self: end;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid rgba(22, 22, 25, .07);
-  border-radius: 8px;
-  background: #f6f6f8;
+  align-items: end;
+  justify-content: end;
+  gap: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .storefront .section-head--catalog :is(.catalog-filter-field, .catalog-price-filter) {
   display: grid;
-  grid-template-rows: 12px 42px;
-  gap: 6px;
+  grid-template-rows: 12px 44px;
+  gap: 8px;
   min-width: 0;
 }
 
 .storefront .section-head--catalog :is(.catalog-filter-field, .catalog-price-filter) > span {
-  padding-inline: 2px;
-  color: #77777e;
+  padding: 0;
+  color: #8b8b91;
   font-size: 9px;
   font-weight: 600;
   line-height: 12px;
-  letter-spacing: .06em;
+  letter-spacing: .09em;
   text-transform: uppercase;
 }
 
 .storefront .section-head--catalog .catalog-filter-field select,
 .storefront .catalog-stock-toggle__control,
-.storefront .section-head--catalog .catalog-price-filter input {
-  min-height: 42px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: #fff;
+.storefront .catalog-price-filter__inputs {
+  min-height: 44px;
+  border: 0;
+  border-bottom: 1px solid #cfcfd4;
+  border-radius: 0;
+  background: transparent;
   color: var(--tx-ink);
   font-size: 12px;
   font-weight: 600;
-  box-shadow: 0 1px 0 rgba(22, 22, 25, .04);
+  box-shadow: none;
+  transition: border-color 160ms ease, color 160ms ease;
 }
 
 .storefront .section-head--catalog .catalog-filter-field select {
-  min-width: 138px;
-  padding: 8px 30px 8px 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 26px 8px 0;
 }
-
-.storefront .section-head--catalog .catalog-filter-field:last-of-type select { min-width: 206px; }
 
 .storefront .section-head--catalog .catalog-stock-toggle {
   display: grid;
@@ -135,15 +138,44 @@ textarea { font-weight: 600; }
   display: flex;
   align-items: center;
   gap: 9px;
-  min-width: 132px;
-  padding: 0 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
 }
 
 .storefront .catalog-stock-toggle__control input {
-  width: 15px;
-  height: 15px;
+  position: relative;
+  width: 32px;
+  height: 18px;
   margin: 0;
-  accent-color: var(--tx-accent);
+  appearance: none;
+  border: 1px solid #b9b9bf;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.storefront .catalog-stock-toggle__control input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #77777e;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.storefront .catalog-stock-toggle__control input:checked {
+  border-color: var(--tx-accent);
+  background: var(--tx-accent);
+}
+
+.storefront .catalog-stock-toggle__control input:checked::after {
+  background: #fff;
+  transform: translateX(14px);
 }
 
 .storefront .catalog-stock-toggle__control b { font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -154,49 +186,61 @@ textarea { font-weight: 600; }
 
 .storefront .catalog-price-filter__inputs {
   display: grid;
-  grid-template-columns: repeat(2, 74px);
-  gap: 1px;
-  overflow: hidden;
-  border-radius: 4px;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  overflow: visible;
 }
 
 .storefront .section-head--catalog .catalog-price-filter input {
-  width: 74px;
+  width: 100%;
   min-width: 0;
-  padding: 8px 10px;
-  border-radius: 0;
+  padding: 8px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--tx-ink);
+  font-size: 12px;
+  font-weight: 600;
   box-shadow: none;
 }
 
-.storefront .section-head--catalog :is(select, input):focus {
-  position: relative;
-  z-index: 1;
-  border-color: var(--tx-accent);
-  outline: 0;
+.storefront .section-head--catalog :is(.catalog-filter-field, .catalog-price-filter).is-active > span {
+  color: var(--tx-accent);
+}
+
+.storefront .section-head--catalog .catalog-filter-field.is-active select,
+.storefront .section-head--catalog .catalog-filter-field.is-active .catalog-stock-toggle__control,
+.storefront .section-head--catalog .catalog-price-filter.is-active .catalog-price-filter__inputs,
+.storefront .section-head--catalog :is(.catalog-filter-field select, .catalog-price-filter__inputs):focus-within {
+  border-bottom-color: var(--tx-accent);
 }
 
 .storefront .section-head--catalog .catalog-reset {
   align-self: end;
-  min-width: 88px;
-  min-height: 42px;
-  padding: 0 12px;
+  width: 82px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
   border: 0;
-  border-radius: 4px;
-  background: #19191c;
-  color: #fff;
+  border-bottom: 1px solid var(--tx-accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tx-accent);
   font-size: 10px;
   font-weight: 600;
 }
 
 .storefront .section-head--catalog .catalog-reset:disabled {
-  background: #e9e9ec;
-  color: #aaaab0;
+  border-bottom-color: #dedee2;
+  background: transparent;
+  color: #b6b6bb;
   cursor: default;
 }
 
 .storefront .section-head--catalog .catalog-reset:not(:disabled):hover {
-  background: var(--tx-accent);
-  color: #fff;
+  border-bottom-color: var(--tx-ink);
+  background: transparent;
+  color: var(--tx-ink);
 }
 
 .storefront .catalog-toolbar--featured {
@@ -227,6 +271,48 @@ textarea { font-weight: 600; }
   letter-spacing: .01em;
 }
 
+/* Compact cards end on the price line: no duplicated stock or text action. */
+.storefront .product-card .product-card__stock { display: none !important; }
+
+.storefront .product-card .product-card__footer { display: contents !important; }
+
+.storefront .product-card .product-card__add {
+  position: absolute !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #f0003c !important;
+  box-shadow: none !important;
+}
+
+.storefront .product-card .product-card__add > span { display: none !important; }
+.storefront .product-card .product-card__add::after { content: none !important; }
+
+.storefront .product-card .product-card__add > .tx-icon {
+  display: block !important;
+  width: 23px !important;
+  height: 23px !important;
+  color: currentColor;
+  stroke-width: 2.4;
+}
+
+.storefront .product-card .product-card__add:hover:not(:disabled) {
+  color: #c9002f !important;
+  transform: scale(1.1) !important;
+}
+
+.storefront .product-card .product-card__add:disabled { color: #c8c8cd !important; }
+
 /* Smartphone brands behave as one clear, persistent filter row. */
 .storefront .phone-journey__brand {
   color: var(--tx-ink) !important;
@@ -239,7 +325,6 @@ textarea { font-weight: 600; }
 
 .storefront .phone-journey__brand.is-active {
   color: var(--tx-accent) !important;
-  font-size: clamp(16px, 1.35vw, 21px) !important;
   font-weight: 700 !important;
 }
 
@@ -259,6 +344,11 @@ textarea { font-weight: 600; }
 }
 
 @media (max-width: 900px) {
+  .storefront .section-head--catalog .catalog-toolbar__controls {
+    grid-template-columns: 1fr 1fr 1.1fr 1.55fr 76px;
+    gap: 14px;
+  }
+
   .storefront .category-page-screen .category-menu__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
@@ -287,8 +377,8 @@ textarea { font-weight: 600; }
   .storefront .section-head--catalog .catalog-toolbar__controls {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
-    gap: 9px !important;
-    padding: 9px;
+    gap: 16px 14px !important;
+    padding: 0;
   }
 
   .storefront .section-head--catalog .catalog-filter-field select,
@@ -302,5 +392,6 @@ textarea { font-weight: 600; }
 
   .storefront .section-head--catalog .catalog-reset { width: 100%; }
 
-  .storefront .phone-journey__brand.is-active { font-size: 17px !important; }
+  .storefront .product-card { padding-block: 11px !important; }
+  .storefront .product-card .product-card__add { bottom: 11px !important; }
 }

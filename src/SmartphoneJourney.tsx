@@ -55,8 +55,8 @@ export function SmartphonePortal({ onOpen, featured }: { onOpen: OpenAction; fea
   </section>
 }
 
-export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count }: {
-  brands: ShopBrand[]; activeBrand?: ShopBrand; onOpen: OpenAction; children?: ReactNode; count?: number
+export function SmartphoneJourney({ brands, activeBrand, onOpen, children }: {
+  brands: ShopBrand[]; activeBrand?: ShopBrand; onOpen: OpenAction; children?: ReactNode
 }) {
   const inBrand = Boolean(activeBrand)
   const heading = activeBrand?.name || 'Все смартфоны'
@@ -70,7 +70,6 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
       </nav>
       <header className="phone-journey__intro">
         <h1 className="phone-journey__heading">{heading}</h1>
-        <p className="phone-journey__subheading">{inBrand ? (count ?? 0) + ' товаров' : (count ?? 0) + ' смартфонов'}</p>
       </header>
       <nav className="phone-journey__brands" aria-label="Фильтр по производителю">
         <button className={'phone-journey__brand' + (!inBrand ? ' is-active' : '')} type="button" aria-current={!inBrand ? 'page' : undefined}
