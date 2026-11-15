@@ -41,7 +41,6 @@ export class ContentService {
 
   private defaultLayout() {
     const desktop = [
-      { id: 'home-collections', type: 'collections', width: 12, visible: true, title: 'Категории' },
       { id: 'home-promos', type: 'promo', width: 12, visible: true, title: 'Акции' },
       { id: 'home-products', type: 'products', width: 12, visible: true, title: 'Популярные товары' },
     ]
@@ -49,8 +48,8 @@ export class ContentService {
       version: 2,
       devices: {
         desktop,
-        tablet: [desktop[1], desktop[0], desktop[2]].map((block) => ({ ...block })),
-        mobile: [desktop[1], desktop[0], desktop[2]].map((block) => ({ ...block })),
+        tablet: desktop.map((block) => ({ ...block })),
+        mobile: desktop.map((block) => ({ ...block })),
       },
     }
   }
@@ -58,10 +57,13 @@ export class ContentService {
   private normalizeLayout(value: unknown) {
     const source = value && typeof value === 'object' ? value as { blocks?: unknown; devices?: Record<string, unknown> } : {}
     const defaults = this.defaultLayout()
-    const allowedTypes = new Set(['collections', 'promo', 'products', 'smartphones', 'text'])
+    const allowedTypes = new Set(['promo', 'products', 'text'])
+    const retiredTypes = new Set(['collections', 'smartphones'])
     const allowedWidths = new Set([4, 6, 8, 12])
     const normalizeBlocks = (input: unknown, fallback: Array<Record<string, unknown>>, device: string) => {
-      const values = Array.isArray(input) && input.length ? input : fallback
+      const sourceValues = Array.isArray(input) && input.length ? input : fallback
+      const currentValues = sourceValues.filter((raw) => !raw || typeof raw !== 'object' || !retiredTypes.has(String((raw as Record<string, unknown>).type ?? '')))
+      const values = currentValues.length ? currentValues : fallback
       const ids = new Set<string>()
       const blocks = values.slice(0, 24).map((raw, index) => {
         if (!raw || typeof raw !== 'object') throw new BadRequestException(`Некорректный блок ${index + 1} (${device})`)

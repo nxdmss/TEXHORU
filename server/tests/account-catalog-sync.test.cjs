@@ -177,8 +177,8 @@ test('customer lifecycle, access boundaries, and resumable bounded catalog excha
     await t.test('storefront editor keeps drafts private until an administrator publishes them', async () => {
       const initial = await request('/content/layout', undefined, null, false, 'GET')
       assert.equal(initial.status, 200)
-      assert.deepEqual(initial.body.layout.devices.desktop.map(item => item.type), ['collections', 'promo', 'products'])
-      assert.deepEqual(initial.body.layout.devices.mobile.map(item => item.type), ['promo', 'collections', 'products'])
+      assert.deepEqual(initial.body.layout.devices.desktop.map(item => item.type), ['promo', 'products'])
+      assert.deepEqual(initial.body.layout.devices.mobile.map(item => item.type), ['promo', 'products'])
       assert.equal((await request('/admin/content/layout', undefined, undefined, false, 'GET')).status, 401)
       const layout = { version: 2, devices: {
         desktop: [{ id: 'intro', type: 'text', width: 6, visible: true, eyebrow: 'TEXHORU', title: 'Новая главная', body: 'Черновик' }, { id: 'catalog', type: 'products', width: 6, visible: true, title: 'Выбор магазина' }],
@@ -190,7 +190,7 @@ test('customer lifecycle, access boundaries, and resumable bounded catalog excha
       assert.deepEqual(saved.body.draft.devices.desktop.map(item => item.id), ['intro', 'catalog'])
       assert.deepEqual(saved.body.draft.devices.mobile.map(item => item.id), ['intro-mobile'])
       const beforePublish = await request('/content/layout', undefined, null, false, 'GET')
-      assert.deepEqual(beforePublish.body.layout.devices.desktop.map(item => item.type), ['collections', 'promo', 'products'])
+      assert.deepEqual(beforePublish.body.layout.devices.desktop.map(item => item.type), ['promo', 'products'])
       const published = await request('/admin/content/layout/publish', { layout }, staffCookie)
       assert.equal(published.status, 201, JSON.stringify(published.body))
       const publicLayout = await request('/content/layout', undefined, null, false, 'GET')

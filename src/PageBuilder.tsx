@@ -6,9 +6,7 @@ import './page-builder.css'
 
 const definitions: Array<{ type: StorefrontBlockType; label: string; hint: string; icon: IconName }> = [
   { type: 'promo', label: 'Реклама', hint: 'Акционный слайдер', icon: 'desktop' },
-  { type: 'collections', label: 'Разделы', hint: 'Категории магазина', icon: 'menu' },
   { type: 'products', label: 'Товары', hint: 'Популярные позиции', icon: 'box' },
-  { type: 'smartphones', label: 'Смартфоны', hint: 'Большой вход в раздел', icon: 'phone' },
   { type: 'text', label: 'Текст', hint: 'Заголовок и описание', icon: 'plus' },
 ]
 
@@ -41,9 +39,7 @@ const freshBlock = (type: StorefrontBlockType): StorefrontBlock => ({
 })
 
 function BlockPreview({ block }: { block: StorefrontBlock }) {
-  if (block.type === 'collections') return <div className="page-builder-mock page-builder-mock--collections"><strong>{block.title || 'Категории'}</strong><div>{[1,2,3,4].map((item) => <i key={item} />)}</div></div>
   if (block.type === 'products') return <div className="page-builder-mock page-builder-mock--products"><strong>{block.title || 'Популярные товары'}</strong><div>{[1,2,3,4].map((item) => <i key={item} />)}</div></div>
-  if (block.type === 'smartphones') return <div className="page-builder-mock page-builder-mock--phone"><span>Каталог</span><b>Смартфоны</b><i><Icon name="arrow" /></i></div>
   return <div className="page-builder-mock page-builder-mock--text"><span>{block.eyebrow || 'TEXHORU'}</span><b>{block.title || 'Новый заголовок'}</b><p>{block.body || 'Текст для покупателей'}</p></div>
 }
 
@@ -94,7 +90,7 @@ function PromoBlockPreview({ promos, onManage }: {
 export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo, onDeletePromo }: PageBuilderProps) {
   const [layout, setLayout] = useState<StorefrontLayout>(() => defaultStorefrontLayout())
   const [savedLayout, setSavedLayout] = useState<StorefrontLayout>(() => defaultStorefrontLayout())
-  const [selectedId, setSelectedId] = useState('home-collections')
+  const [selectedId, setSelectedId] = useState('home-promos')
   const [device, setDevice] = useState<StorefrontDevice>('desktop')
   const [past, setPast] = useState<StorefrontLayout[]>([])
   const [future, setFuture] = useState<StorefrontLayout[]>([])

@@ -820,6 +820,41 @@ textarea { font-weight: 600; }
 }
 
 @media (max-width: 699px) {
+  /* The desktop cabinet rail must collapse before the phone canvas.  The
+     previous late desktop rule kept a 280px sidebar and squeezed the order
+     panel outside the viewport. */
+  .storefront .customer-dashboard {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0 !important;
+    min-width: 0;
+  }
+  .storefront .customer-sidebar {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border-right: 0;
+  }
+  .storefront .customer-sidebar nav {
+    display: flex;
+    width: 100%;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .storefront .customer-sidebar nav::-webkit-scrollbar { display: none; }
+  .storefront .customer-sidebar nav button {
+    flex: 1 0 auto;
+    min-width: 0;
+    padding-inline: 9px;
+  }
+  .storefront .customer-dashboard-content {
+    width: 100%;
+    min-width: 0;
+    padding: 22px 0 0 !important;
+  }
+
   .storefront .product-studio { width: calc(100% - 28px) !important; padding-top: 12px; padding-bottom: 48px; }
   .storefront .product-studio__back { min-height: 32px; }
   .storefront .product-studio__hero { gap: 10px; margin-top: 10px; }

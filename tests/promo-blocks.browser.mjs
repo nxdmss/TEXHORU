@@ -61,12 +61,12 @@ try {
   assert.equal(await manager.getByText('Фото только блока B', { exact: true }).count(), 0)
   page.once('dialog', dialog => dialog.accept())
   await manager.getByRole('button', { name: 'Удалить', exact: true }).click()
-  await manager.getByText('В этом блоке ещё нет фото', { exact: true }).waitFor()
+  await manager.getByText('В этой версии ещё нет слайдов', { exact: true }).waitFor()
 
   assert.equal(await prisma.promoBanner.findUnique({ where: { id: first.id } }), null)
   assert.equal((await prisma.promoBanner.findUnique({ where: { id: second.id } })).blockId, 'promo-b')
 
-  await manager.getByRole('button', { name: 'Добавить первое фото' }).click()
+  await manager.getByRole('button', { name: 'Добавить первый слайд' }).click()
   const editor = page.locator('.promo-editor')
   await editor.waitFor()
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZK5sAAAAASUVORK5CYII=', 'base64')

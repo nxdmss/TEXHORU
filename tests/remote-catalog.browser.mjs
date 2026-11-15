@@ -55,7 +55,7 @@ try {
   await panel.getByText('Apple iPhone 16 0', { exact: true }).waitFor()
   for (const heading of ['Код', 'Артикул', 'Наименование', 'Вид / единица', 'Розничная / закупочная', 'Остаток', 'Статус']) await panel.getByText(heading, { exact: true }).waitFor()
   assert.equal(await panel.locator('.onec-table__row.is-item').count(), 100)
-  await panel.getByRole('button', { name: 'Далее →', exact: true }).click()
+  await panel.getByRole('button', { name: 'Далее', exact: true }).click()
   await page.waitForFunction(() => document.querySelectorAll('.onec-table__row.is-item').length === 25)
   await panel.getByRole('textbox', { name: 'Поиск по номенклатуре' }).fill('MYE024')
   await panel.getByText('Apple iPhone 16 24', { exact: true }).waitFor()

@@ -1,4 +1,4 @@
-export type StorefrontBlockType = 'collections' | 'promo' | 'products' | 'smartphones' | 'text'
+export type StorefrontBlockType = 'promo' | 'products' | 'text'
 export type StorefrontBlockWidth = 4 | 6 | 8 | 12
 export type StorefrontDevice = 'desktop' | 'tablet' | 'mobile'
 
@@ -18,7 +18,6 @@ export type StorefrontLayouts = Record<StorefrontDevice, StorefrontBlock[]>
 export type StorefrontLayout = { version: 2; devices: StorefrontLayouts }
 
 const baseBlocks = (): StorefrontBlock[] => [
-  { id: 'home-collections', type: 'collections', width: 12, visible: true, title: 'Категории' },
   { id: 'home-promos', type: 'promo', width: 12, visible: true, title: 'Акции' },
   { id: 'home-products', type: 'products', width: 12, visible: true, title: 'Популярные товары' },
 ]
@@ -31,15 +30,18 @@ export const defaultStorefrontLayout = (): StorefrontLayout => {
     version: 2,
     devices: {
       desktop,
-      tablet: [desktop[1], desktop[0], desktop[2]].map((block) => ({ ...block })),
-      mobile: [desktop[1], desktop[0], desktop[2]].map((block) => ({ ...block })),
+      tablet: cloneBlocks(desktop),
+      mobile: cloneBlocks(desktop),
     },
   }
 }
 
 const normalizeBlocks = (blocks: unknown, fallback: StorefrontBlock[]) => {
   if (!Array.isArray(blocks) || !blocks.length) return cloneBlocks(fallback)
-  return blocks.map((block) => ({ ...(block as StorefrontBlock), visible: (block as StorefrontBlock).visible !== false }))
+  const allowed = new Set<StorefrontBlockType>(['promo', 'products', 'text'])
+  const normalized = blocks.filter((block) => block && typeof block === 'object' && allowed.has((block as StorefrontBlock).type))
+    .map((block) => ({ ...(block as StorefrontBlock), visible: (block as StorefrontBlock).visible !== false }))
+  return normalized.length ? normalized : cloneBlocks(fallback)
 }
 
 export const normalizeStorefrontLayout = (value?: Partial<StorefrontLayout> | { version?: number; blocks?: StorefrontBlock[] } | null): StorefrontLayout => {

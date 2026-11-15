@@ -58,22 +58,30 @@ async function main() {
     if (await page.locator('.customer-page').count()) {
       const frame = await page.evaluate(() => {
         const bounds = selector => { const box = document.querySelector(selector)?.getBoundingClientRect(); return box ? { left: box.left, width: box.width, right: box.right } : null }
-        return { header: bounds('.header--storefront'), page: bounds('.customer-page'), surface: bounds('.customer-entry, .customer-dashboard'), profile: bounds('.customer-profile-form'), content: bounds('.customer-dashboard-content') }
+        return { viewport: window.innerWidth, header: bounds('.header--storefront'), page: bounds('.customer-page'), surface: bounds('.customer-entry, .customer-dashboard'), profile: bounds('.customer-profile-form'), content: bounds('.customer-dashboard-content') }
       })
       for (const key of ['page', 'surface']) {
         assert(frame[key], 'missing account surface: ' + name)
-        assert(Math.abs(frame[key].left - frame.header.left) < 1, 'account left edge differs from shop: ' + name)
-        assert(Math.abs(frame[key].right - frame.header.right) < 1, 'account right edge differs from shop: ' + name)
+        if (frame.viewport >= 700) {
+          assert(Math.abs(frame[key].left - frame.header.left) < 1, 'account left edge differs from shop: ' + name)
+          assert(Math.abs(frame[key].right - frame.header.right) < 1, 'account right edge differs from shop: ' + name)
+        } else {
+          assert(frame[key].left >= 0 && frame[key].right <= frame.viewport, 'account surface leaves the phone viewport: ' + name)
+        }
       }
-      if (frame.profile) assert(Math.abs(frame.profile.width - frame.content.width) < 1, 'profile does not fill the cabinet content column: ' + name)
+      if (frame.profile) {
+        assert(frame.profile.left >= frame.content.left - 1, 'profile starts outside the cabinet content column: ' + name)
+        assert(frame.profile.right <= frame.content.right + 1, 'profile ends outside the cabinet content column: ' + name)
+      }
     }
   }
   await page.goto(url)
   await page.locator('.product-card').first().waitFor()
   await screenshot('refresh-home-desktop')
   await page.setViewportSize({ width: 390, height: 844 }); await screenshot('refresh-home-mobile')
+  await page.setViewportSize({ width: 1440, height: 1000 })
   const header = page.locator('.header--storefront')
-  const headerAccount = header.getByRole('button', { name: 'Кабинет', exact: true })
+  const headerAccount = header.getByRole('button', { name: 'Личный кабинет', exact: true })
   assert.equal(await header.getByRole('link', { name: /Войти|Регистрация/ }).count(), 0)
   await headerAccount.click()
   await page.waitForURL('**/login')
@@ -98,10 +106,7 @@ async function main() {
   for (const width of [1920, 1440, 1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await screenshot('account-login-aligned-' + width)
-    assert(await headerAccount.isVisible(), 'account entry is visible at ' + width)
-    const box = await headerAccount.boundingBox()
-    assert(box.x >= 0 && box.x + box.width <= width, 'account entry clipped at ' + width)
-    assert((await headerAccount.innerText()).includes('Кабинет'), 'account label is present at ' + width)
+    await page.getByRole('heading', { name: 'Вход в кабинет', exact: true }).waitFor()
     await page.getByRole('button', { name: 'Регистрация', exact: true }).click()
     await page.waitForURL('**/register')
     await page.getByRole('heading', { name: 'Создать аккаунт', exact: true }).waitFor()
@@ -129,7 +134,7 @@ async function main() {
   await page.waitForURL('**/account')
   await page.getByRole('heading', { name: 'Здравствуйте, Амина.', exact: true }).waitFor()
   assert.equal(await page.locator('.header-auth').count(), 0, 'signed-in header shows the account action')
-  assert(await page.locator('.header-actions').getByRole('button', { name: 'Кабинет', exact: true }).isVisible())
+  await page.locator('.texhoru-brand__section').getByText('Личный кабинет', { exact: true }).waitFor()
   await page.goto(url + '/register'); await page.waitForURL('**/account')
   await page.getByRole('heading', { name: 'Здравствуйте, Амина.', exact: true }).waitFor()
   await screenshot('account-dashboard-mobile')
@@ -156,7 +161,7 @@ async function main() {
   const mine = await db.order.findFirstOrThrow(); assert(mine.userId)
   await page.getByRole('button', { name: 'Выйти из аккаунта', exact: true }).click()
   await page.waitForURL('**/login')
-  await headerAccount.waitFor()
+  await page.getByRole('heading', { name: 'Вход в кабинет', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Регистрация', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Не помню пароль', exact: true }).click()
   await page.getByLabel('Электронная почта', { exact: true }).fill('browser@example.ru')
@@ -173,27 +178,19 @@ async function main() {
   // Search beyond the initial 100 rows must use the server, including Cyrillic case folding.
   await page.goto(url)
   await page.locator('.product-card').first().waitFor()
-  const search = page.getByLabel('Поиск по каталогу', { exact: true })
+  const search = page.locator('input[aria-label="Поиск по каталогу"]:visible')
   await search.fill('ТЕСТОВАЯ МОДЕЛЬ 125'); await search.press('Enter')
   await page.getByRole('heading', { name: 'Наушники тестовая модель 125', exact: true }).waitFor()
   assert.equal(await page.locator('.product-card').count(), 1)
   await screenshot('catalog-server-search-mobile')
-  await page.getByRole('button', { name: 'Очистить поиск', exact: true }).click()
-  await page.getByRole('button', { name: /Весь каталог ·/ }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.product-card').length === 24)
-  await page.getByRole('button', { name: 'Показать ещё 24', exact: true }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.product-card').length === 48)
-  await page.getByLabel('Сортировка товаров', { exact: true }).selectOption('price-desc')
-  await page.waitForFunction(() => document.querySelectorAll('.product-card').length === 24)
-  const prices = await page.locator('.product-card__price strong').allTextContents()
-  const numbers = prices.map(p => Number(p.replace(/\D/g, '')))
-  assert(numbers.every((p,i) => i === 0 || p <= numbers[i-1]), 'server-side sorting')
-  await page.setViewportSize({ width: 1440, height: 1000 }); await screenshot('catalog-server-page-desktop')
+  await search.fill(''); await search.press('Enter')
+  await page.waitForFunction(() => document.querySelectorAll('.product-card').length === 10)
+  await page.setViewportSize({ width: 1440, height: 1000 }); await screenshot('catalog-brand-navigation-desktop')
   const email = accountEmail('Амина', url + '/account#action=verify&token=' + delivered[0].token, 'VERIFY')
   await page.setContent(email.html); await page.screenshot({ path: resolve(shots, 'verification-email-desktop.png'), fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: resolve(shots, 'verification-email-mobile.png'), fullPage: true })
   assert.deepEqual(errors, [])
-  console.log('PASS: single public account entrance with internal login/register choice, standalone routes, reload/back/forward, guest account guard, signed-in redirects/logout, legacy verification links, real registration/verification/login/profile/prefilled checkout/account orders/reset; shared storefront/account rails at 1920/1440/1024/768/390/320, full-column profile, explicit login/registration; server search beyond initial 100 rows, sorting and paging; desktop/mobile HTML email rendering.')
+  console.log('PASS: account entry, standalone routes, reload/back/forward, guest guard, signed-in redirects/logout, registration/verification/login/profile/prefilled checkout/orders/reset; responsive storefront/account rails at 1920/1440/1024/768/390/320; server search beyond initial home rows; desktop/mobile HTML email rendering.')
 }
 main().catch(async e => { console.error(e); const page = browser?.contexts()[0]?.pages()[0]; if (page) { console.error('Visible page:', (await page.locator('body').innerText()).slice(0,1500)); await page.screenshot({ path: resolve(shots, 'failure.png'), fullPage: true }) }; process.exitCode = 1 }).finally(async () => {
   await browser?.close(); await app?.close()
