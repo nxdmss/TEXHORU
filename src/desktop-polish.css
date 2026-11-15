@@ -214,6 +214,7 @@
     grid-row: 1;
     justify-self: end;
     align-self: center;
+    gap: 14px;
   }
 
   .storefront .header.header--storefront .header-tools {
