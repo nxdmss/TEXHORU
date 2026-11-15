@@ -12,6 +12,7 @@ import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 import { PriceUpdateWorkflow } from './price-update.workflow'
+import { curateProductSpecs, type SourcedSpec } from '../products/spec-templates'
 
 // Small 1C batches should not read 50 catalog pages before matching.
 const FAST_MATCH_MAX_ITEMS = 40
@@ -200,6 +201,37 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   currentPriceUpdate() { return this.priceUpdate.current() }
   cancelPriceUpdate(id: string) { return this.priceUpdate.cancel(id) }
 
+  private async applySourcedSpecs(
+    tx: Prisma.TransactionClient,
+    productId: number,
+    sourceKey: StoreKey,
+    sourceUrl: string,
+    rawSpecs: SourcedSpec[],
+  ) {
+    const product = await tx.product.findUnique({ where: { id: productId }, include: { category: true } })
+    if (!product) return null
+    const specs = curateProductSpecs(product, rawSpecs)
+    if (!specs.length) return product
+    const attributes = product.attributes && typeof product.attributes === 'object' && !Array.isArray(product.attributes)
+      ? product.attributes as Record<string, unknown> : {}
+    const marker = attributes._specSource && typeof attributes._specSource === 'object'
+      ? attributes._specSource as Record<string, unknown> : null
+    const current = Array.isArray(product.specs) ? product.specs : []
+    // A manager's manually entered specification always wins. Automatic
+    // refreshes may replace only an empty or previously source-managed block.
+    if (current.length && marker?.managed !== true) return product
+    return tx.product.update({
+      where: { id: productId },
+      data: {
+        specs: jsonValue(specs),
+        attributes: jsonValue({ ...attributes, _specSource: {
+          managed: true, source: sourceKey, url: sourceUrl, updatedAt: new Date().toISOString(),
+        } }),
+      },
+      include: { category: true },
+    })
+  }
+
   async onModuleInit() {
     this.stopped = false
     // Finish startup writes before the 1C profile bootstrap transaction starts.
@@ -343,7 +375,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const check = compareItems(product, { name: link.externalName, attributes: link.attributes })
       const blockers = manualConfirmationBlockers(product, { name: link.externalName, attributes: link.attributes })
       if (blockers.length) throw new BadRequestException(`Нельзя подтвердить карточку: ${blockers.join(', ')}. Проверь модель, бренд и тип товара.`)
-      if (link.productId === productId && link.matchStatus === 'CONFIRMED' && link.confirmedFingerprint === fingerprint({ name: link.externalName, attributes: link.attributes }) && link.confirmedProductFingerprint === fingerprint(product)) {
+      const linkAttributes = link.attributes && typeof link.attributes === 'object' && !Array.isArray(link.attributes)
+        ? link.attributes as Record<string, unknown> : {}
+      const sourceSpecs = Array.isArray(linkAttributes._sourceSpecs)
+        ? linkAttributes._sourceSpecs as SourcedSpec[] : []
+      const enrichedProduct = sourceSpecs.length
+        ? await this.applySourcedSpecs(tx, productId, link.source.key as StoreKey, link.externalUrl, sourceSpecs) || product
+        : product
+      if (link.productId === productId && link.matchStatus === 'CONFIRMED' && link.confirmedFingerprint === fingerprint({ name: link.externalName, attributes: link.attributes }) && link.confirmedProductFingerprint === fingerprint(enrichedProduct)) {
         return tx.competitorProduct.findUniqueOrThrow({ where: { id }, include: { product: true, source: true } })
       }
       // Explicit user confirmation is allowed with missing fields; the UI lists them.
@@ -355,7 +394,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       })
       const row = await tx.competitorProduct.update({ where: { id }, data: {
         productId, matchStatus: 'CONFIRMED', confirmedAt: new Date(),
-        confirmedFingerprint: fingerprint({ name: link.externalName, attributes: link.attributes }), confirmedProductFingerprint: fingerprint(product),
+        confirmedFingerprint: fingerprint({ name: link.externalName, attributes: link.attributes }), confirmedProductFingerprint: fingerprint(enrichedProduct),
       }, include: { product: true, source: true } })
       await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing, manuallyOverriddenConflicts: check.conflicts } } })
       return row
@@ -500,9 +539,18 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       } else if (suggestedProductId && matchStatus !== 'CONFIRMED' && matchStatus !== 'REVIEW_REQUIRED') {
         matchStatus = 'SUGGESTED'
       }
+      const sourceSpecs = (result.specs || []).map(item => ({
+        label: String(item.label || '').replace(/\s+/g, ' ').trim(),
+        value: String(item.value || '').replace(/\s+/g, ' ').trim(),
+      })).filter(item => item.label && item.value).slice(0, 80)
+      const storedAttributes = { ...result.attributes, _sourceSpecs: sourceSpecs }
+      if (matchStatus === 'CONFIRMED' && productId && sourceSpecs.length) {
+        const enriched = await this.applySourcedSpecs(tx, productId, storeKeyFromUrl(result.url), result.url, sourceSpecs)
+        if (enriched) confirmedProductFingerprint = fingerprint(enriched)
+      }
       const now = new Date()
       const data = { sourceId, productId, externalName: result.name, externalSku: result.externalSku,
-        attributes: jsonValue(result.attributes), seller: result.seller, region: result.region, priceSource: result.priceSource,
+        attributes: jsonValue(storedAttributes), seller: result.seller, region: result.region, priceSource: result.priceSource,
         latestPrice: result.price, oldPrice: result.oldPrice, inStock: result.inStock, lastCheckedAt: now, lastSuccessAt: now, lastError: null,
         matchStatus, confirmedFingerprint, confirmedProductFingerprint,
         ...(autoConfirmed ? { confirmedAt: now } : {}),

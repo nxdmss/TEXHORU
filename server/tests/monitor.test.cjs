@@ -18,6 +18,7 @@ const { IntegrationsController } = require('../dist/integrations/integrations.co
 const { rankSearchLinks, rankSearchLinksForInspection } = require('../dist/price-monitor/search-discovery')
 const { canDeclareNoMatch } = require('../dist/price-monitor/match-outcome')
 const { DnsParser, MvideoParser, storeKeyFromUrl, extractRetailerProduct } = require('../dist/price-monitor/storefront-adapter')
+const { curateProductSpecs } = require('../dist/products/spec-templates')
 const fixture = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/05ru-iphone17pro.json'), 'utf8'))
 const name = fixture.snapshot.h1
 const product = { name: 'Apple iPhone 17 Pro 12GB/256GB Cosmic Orange eSIM', brand: 'Apple' }
@@ -48,6 +49,31 @@ test('Identifies Apple variants across Russian/English; flags memory, colour, SI
   for (const wrong of [name.replace('256', '512'), name.replace('оранжевый', 'синий'), name.replace('E-Sim', 'nano SIM'), name + ' восстановленный']) assert.equal(compareItems(product, { name: wrong }).score, 0)
   assert.notEqual(identity({ name: 'Samsung Galaxy S25+' }).model, identity({ name: 'Samsung Galaxy S25' }).model)
   assert.equal(identity({ name: 'Айфон 17 ПМ 256 оранж eSIM' }).model, 'iphone 17 pro max')
+})
+
+test('Product-type templates keep only useful sourced characteristics', () => {
+  const phone = curateProductSpecs(
+    { name: 'Смартфон Honor 600 5G 8/256Gb черный', brand: 'Honor', category: 'Смартфоны' },
+    [
+      { label: 'Тип экрана', value: 'AMOLED' },
+      { label: 'Диагональ экрана', value: '6.7"' },
+      { label: 'Процессор', value: 'Snapdragon 7 Gen 3' },
+      { label: 'Оперативная память', value: '8 ГБ' },
+      { label: 'Встроенная память', value: '256 ГБ' },
+      { label: 'Условия акции', value: 'Скидка по карте' },
+      { label: 'Цвет корпуса', value: 'Чёрный' },
+    ],
+  )
+  assert.deepEqual(phone.map(item => item.label), [
+    'Экран', 'Диагональ', 'Процессор', 'Оперативная память', 'Встроенная память', 'Цвет',
+  ])
+  const cable = curateProductSpecs(
+    { name: 'Кабель USB-C — Lightning 1 м', category: 'Кабели' },
+    [{ label: 'Разъём 1', value: 'USB-C' }, { label: 'Разъём 2', value: 'Lightning' }, { label: 'Длина кабеля', value: '1 м' }],
+  )
+  assert.deepEqual(cable, [
+    { label: 'Разъём 1', value: 'USB-C' }, { label: 'Разъём 2', value: 'Lightning' }, { label: 'Длина', value: '1 м' },
+  ])
 })
 
 test('iPhone 17 Lavender matches Russian purple and pink aliases only for the base model', () => {
