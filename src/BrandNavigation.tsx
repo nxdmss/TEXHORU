@@ -22,6 +22,12 @@ const families: BrandFamily[] = [
   { id: 'realme', label: 'realme', match: /\brealme\b/i, model: name => matched(name, /\b(realme\s+[A-Z0-9]+(?:\s+Pro)?)/i, 'realme') },
   { id: 'tecno', label: 'TECNO', match: /\btecno\b/i, model: name => matched(name, /\b(TECNO\s+[A-Z]+\s+\d+(?:\s+Ultra)?)/i, 'TECNO') },
   { id: 'pixel', label: 'Google Pixel', match: /\b(?:google\s+)?pixel\b/i, model: name => matched(name, /\b((?:Google\s+)?Pixel\s+\d+(?:\s+Pro)?)/i, 'Google Pixel') },
+  { id: 'oppo', label: 'OPPO', match: /\boppo\b/i, model: name => matched(name, /\b(OPPO\s+[A-Z]+\d+(?:\s+(?:Pro|5G))?)/i, 'OPPO') },
+  { id: 'vivo', label: 'vivo', match: /\bvivo\b/i, model: name => matched(name, /\b(vivo\s+[A-Z]\d+(?:\s+Pro)?)/i, 'vivo') },
+  { id: 'infinix', label: 'Infinix', match: /\binfinix\b/i, model: name => matched(name, /\b(Infinix\s+[A-Z]+(?:\s+\d+)?(?:\s+Pro)?)/i, 'Infinix') },
+  { id: 'nintendo', label: 'Nintendo', match: /\bnintendo\b/i, model: name => matched(name, /\b(Nintendo\s+Switch(?:\s+(?:OLED|Lite))?)/i, 'Nintendo Switch') },
+  { id: 'xbox', label: 'Xbox', match: /\bxbox\b/i, model: name => matched(name, /\b(Xbox\s+Series\s+[XS])/i, 'Xbox') },
+  { id: 'jbl', label: 'JBL', match: /\bjbl\b/i, model: name => matched(name, /\b(JBL\s+[A-Z0-9-]+)/i, 'JBL') },
 ]
 
 type ModelEntry = { label: string; query: string; product: Product }
