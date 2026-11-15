@@ -1,0 +1,261 @@
+/* Desktop admin shell. This layer owns the wide-screen geometry and prevents
+   legacy panels or tables from widening the whole application. */
+@media (min-width: 781px) {
+  .app-shell:has(> .admin-control) {
+    display: block;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: clip;
+    background: #f5f5f7;
+  }
+
+  .admin-control {
+    --admin-sidebar-width: 232px;
+    display: grid;
+    grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
+    width: 100%;
+    max-width: 100vw;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: clip;
+    background: #f5f5f7;
+  }
+
+  .admin-control.admin-control--builder {
+    --admin-sidebar-width: 208px;
+    grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
+  }
+
+  .admin-control .admin-sidebar {
+    position: sticky;
+    z-index: 20;
+    top: 0;
+    width: var(--admin-sidebar-width);
+    min-width: 0;
+    height: 100vh;
+    padding: 25px 16px 18px;
+    overflow: hidden;
+    border-right: 1px solid #2b2b2e;
+    background: #171719;
+    box-shadow: none;
+  }
+
+  .admin-control .admin-brand {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    padding: 0 9px 29px;
+    border-bottom: 1px solid #303034;
+  }
+
+  .admin-control .admin-brand .texhoru-brand { font-size: 28px; }
+  .admin-control .admin-brand .texhoru-brand__subtitle { margin-top: 8px; color: #8e8e95; }
+
+  .admin-control .admin-tabs {
+    display: grid;
+    align-content: start;
+    gap: 26px;
+    min-height: 0;
+    margin: 24px -5px 0 0;
+    padding: 0 5px 20px 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border: 0;
+    scrollbar-color: #4a4a50 transparent;
+    scrollbar-width: thin;
+  }
+
+  .admin-control .admin-tab-group { gap: 8px; }
+  .admin-control .admin-tab-group > span { padding-left: 11px; color: #77777f; font-size: 9px; letter-spacing: .1em; }
+  .admin-control .admin-tab-group > div { display: grid; gap: 4px; }
+
+  .admin-control .admin-tab-group button,
+  .admin-control .admin-tabs-extra button {
+    width: 100%;
+    min-height: 43px;
+    padding: 10px 11px;
+    gap: 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #bdbdc3;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .admin-control .admin-tab-group button:hover:not(.active),
+  .admin-control .admin-tabs-extra button:hover:not(.active) { background: #242427; color: #fff; }
+
+  .admin-control .admin-tab-group button.active,
+  .admin-control .admin-tabs-extra button.active {
+    background: var(--tx-accent);
+    color: #fff;
+    box-shadow: none;
+  }
+
+  .admin-control .admin-tabs-extra { padding: 0; }
+  .admin-control .admin-tabs-extra > summary { padding: 5px 11px; color: #85858c; font-size: 10px; }
+
+  .admin-control .admin-sidebar-bottom {
+    flex: 0 0 auto;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 15px;
+    border-top: 1px solid #303034;
+  }
+
+  .admin-control .admin-sidebar-bottom button {
+    min-height: 40px;
+    padding: 10px 11px;
+    border: 0;
+    border-radius: 6px;
+    color: #aaaab1;
+    font-size: 10px;
+  }
+
+  .admin-control .admin-sidebar-bottom button:first-child { border: 1px solid #37373c; color: #d5d5da; }
+  .admin-control .admin-sidebar-bottom button:hover { background: #242427; color: #fff; }
+
+  .admin-control .admin-workspace {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 1460px;
+    min-width: 0;
+    margin: 0 auto;
+    padding: 34px clamp(28px, 4vw, 64px) 72px;
+    overflow: hidden;
+  }
+
+  .admin-control .admin-workspace--builder {
+    width: 100%;
+    max-width: none;
+    padding: 22px clamp(16px, 2vw, 32px) 52px;
+  }
+
+  .admin-control .admin-workspace > *,
+  .admin-control .admin-workspace :is(.admin-quests, .admin-metrics, .admin-products-v2, .admin-catalog-workspace, .admin-sync, .pu-root, .mp-shell, .onec-mirror, .admin-content-editor) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .admin-control .admin-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    min-width: 0;
+    margin: 0 0 32px;
+    padding: 0 0 23px;
+    border-bottom: 1px solid #dedee3;
+  }
+
+  .admin-control .admin-top > div:first-child { min-width: 0; }
+  .admin-control .admin-top .eyebrow { margin: 0 0 6px; color: #85858c; font-size: 10px; }
+  .admin-control .admin-top h1 { margin: 0; font-size: clamp(30px, 3vw, 42px); line-height: 1; letter-spacing: -.045em; }
+  .admin-control .admin-top__actions { flex: 0 0 auto; gap: 8px; }
+
+  .admin-control .admin-top__actions button {
+    min-height: 40px;
+    padding: 9px 13px;
+    border: 1px solid #d8d8dd;
+    border-radius: 7px;
+    background: #fff;
+    color: #313136;
+    font-size: 11px;
+  }
+
+  .admin-control .api-state {
+    min-height: 40px;
+    padding: 0 8px;
+    border-radius: 0;
+    background: transparent;
+    font-size: 10px;
+  }
+
+  .admin-control .admin-overview-heading { padding: 3px 0 18px; }
+  .admin-control .admin-overview-heading h2 { margin: 7px 0 0; font-size: clamp(24px, 2.2vw, 31px); letter-spacing: -.035em; }
+
+  .admin-control .admin-quests {
+    display: grid;
+    grid-template-columns: minmax(0, 1.16fr) repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    width: 100%;
+  }
+
+  .admin-control .admin-quest {
+    min-width: 0;
+    min-height: 220px;
+    padding: 22px;
+    gap: 22px;
+    overflow: hidden;
+    border: 1px solid #dedee3;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 12px 35px rgba(25,25,32,.035);
+  }
+
+  .admin-control .admin-quest:hover { border-color: #bcbcc3; transform: translateY(-2px); }
+  .admin-control .admin-quest-primary { border-color: #171719; background: #171719; box-shadow: 0 16px 42px rgba(20,20,25,.12); }
+  .admin-control .admin-quest > strong { min-width: 0; font-size: clamp(24px, 2.25vw, 34px); overflow-wrap: anywhere; }
+  .admin-control .admin-quest-footer { gap: 12px; min-width: 0; }
+
+  .admin-control .admin-metrics-main {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+    padding-top: 16px;
+  }
+
+  .admin-control .admin-metrics-main article {
+    min-width: 0;
+    min-height: 112px;
+    padding: 18px;
+    overflow: hidden;
+    border: 1px solid #dedee3;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: none;
+  }
+
+  .admin-control .admin-metrics-main span { max-width: calc(100% - 28px); color: #77777e; font-size: 10px; overflow-wrap: anywhere; }
+  .admin-control .admin-metrics-main strong { font-size: clamp(29px, 2.8vw, 40px); letter-spacing: -.05em; }
+
+  .admin-control .admin-overview-more {
+    margin-top: 12px;
+    padding: 15px 18px;
+    overflow: hidden;
+    border: 1px solid #dedee3;
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .admin-control :is(.admin-table, .onec-table-wrap, .admin-feed) {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-control :is(.admin-editor, .promo-editor) { max-width: min(1180px, calc(100vw - 40px)); }
+}
+
+@media (min-width: 781px) and (max-width: 1220px) {
+  .admin-control { --admin-sidebar-width: 206px; }
+  .admin-control.admin-control--builder { --admin-sidebar-width: 190px; }
+  .admin-control .admin-workspace { padding: 28px 28px 60px; }
+  .admin-control .admin-quests { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-control .admin-quest-primary { grid-column: 1 / -1; min-height: 184px; }
+  .admin-control .admin-quest-primary > strong br { display: none; }
+  .admin-control .admin-metrics-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 781px) and (max-width: 930px) {
+  .admin-control { --admin-sidebar-width: 190px; }
+  .admin-control .admin-workspace { padding-inline: 20px; }
+  .admin-control .admin-top { align-items: flex-start; }
+  .admin-control .admin-top__actions button span { display: none; }
+  .admin-control .admin-top__actions button { padding-inline: 10px; }
+}

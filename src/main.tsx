@@ -19,6 +19,7 @@ import './experience-upgrade.css'
 import './mobile-overhaul.css'
 import './icon-system.css'
 import './desktop-polish.css'
+import './admin-desktop.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
