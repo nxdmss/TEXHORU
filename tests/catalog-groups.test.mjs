@@ -109,6 +109,27 @@ test('local iPhone photographs match model and colour and preserve uploaded phot
   assert.equal(featuredPhoneImage('Apple iPhone Air Space Black', ''), '/products/apple/iphone-air-black.png')
 })
 
+test('pilot photos cover the first ten live storefront products with exact model and colour', () => {
+  const pilot = [
+    ['Смартфон Apple iPhone 15 128 Гб черный', '/products/apple/iphone-15-black.png'],
+    ['Смартфон Apple iPhone 15 128 Гб синий', '/products/apple/iphone-15-blue.png'],
+    ['Смартфон Apple iPhone 15 256 Гб черный', '/products/apple/iphone-15-black.png'],
+    ['Apple iPhone 11 64Gb Black АКБ 75%', '/products/apple/iphone-11-black.webp'],
+    ['Apple iPhone 11 Pro Max 256 Графит АКБ 80%', '/products/apple/iphone-11-pro-max-graphite.webp'],
+    ['Смартфон Apple iPhone 16 128 Гб черный', '/products/apple/iphone-16-black.png'],
+    ['Смартфон Apple iPhone 16 128 Гб белый', '/products/apple/iphone-16-white.png'],
+    ['Смартфон Apple iPhone 16 128 Гб ультрамарин', '/products/apple/iphone-16-ultramarine.webp'],
+    ['Смартфон Honor 600 5G 8/256Gb черный', '/products/honor/honor-600-black.webp'],
+    ['Смартфон HONOR X9d 8/256Gb RU, Графитовый', '/products/honor/honor-x9d-graphite.webp'],
+  ]
+  for (const [name, photo] of pilot) {
+    assert.equal(featuredPhoneImage(name, '/products/phone.svg'), photo)
+    const bytes = readFileSync(new URL('../public' + photo, import.meta.url))
+    assert(bytes.length > 20_000)
+    if (photo.endsWith('.webp')) assert.equal(bytes.subarray(0, 4).toString(), 'RIFF')
+  }
+})
+
 test('category menu skips common 1C wrapper folders while preserving native paths and counts', () => {
   const roots = categoryTree(['МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Apple', 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Xiaomi', 'МОБИЛЬНАЯ СВЯЗЬ / Аксессуары / Кабели'])
   const menu = categoryMenuRoot(roots)
