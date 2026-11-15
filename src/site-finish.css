@@ -608,9 +608,9 @@ textarea { font-weight: 600; }
 
 .storefront .product-story__stage {
   position: relative;
-  width: 100vw;
-  max-width: 100vw;
-  margin-left: calc(50% - 50vw);
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
   overflow: hidden;
 }
 
