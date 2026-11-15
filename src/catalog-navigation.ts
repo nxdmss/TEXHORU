@@ -74,6 +74,34 @@ const iphonePhotoColors: Record<string, readonly string[]> = {
   '17-pro-max': ['white', 'blue', 'orange'],
 }
 const pilotWebpPhotos = new Set(['11-black', '11-pro-max-graphite', '16-ultramarine'])
+const catalogPhonePhotos: Array<[RegExp, string]> = [
+  [/\bhonor\s*x9d\b.*(?:бежев|beige)/i, '/products/honor/honor-x9d-beige.webp'],
+  [/\bhonor\s*x9d\b.*(?:мятн|mint)/i, '/products/honor/honor-x9d-mint.webp'],
+  [/\bhonor\s*600\s*pro\b.*(?:золот|gold)/i, '/products/honor/honor-600-pro-gold.webp'],
+  [/\bhonor\s*x7e\b.*(?:голуб|blue)/i, '/products/honor/honor-x7e-blue.webp'],
+  [/\bhonor\s*x5es\b.*(?:ч[её]рн|black)/i, '/products/honor/honor-x5es-black.webp'],
+  [/\bhonor\s*600\b(?!\s*pro).*(?:оранж|orange)/i, '/products/honor/honor-600-orange.webp'],
+  [/\bhuawei\s*nova\s*15\s*max\b.*(?:розов|pink)/i, '/products/huawei/huawei-nova-15-max-pink.webp'],
+  [/\bsamsung\s*(?:galaxy\s*)?s25\s*ultra\b.*(?:titanium\s*black|ч[её]рн|black)/i, '/products/samsung/samsung-s25-ultra-titanium-black.webp'],
+  [/\bsamsung\s*(?:galaxy\s*)?s25\b(?!\s*ultra).*(?:т[её]мно-син|dark\s*blue|navy)/i, '/products/samsung/samsung-s25-dark-blue.webp'],
+  [/\bsamsung\s*(?:galaxy\s*)?s25\b(?!\s*ultra).*(?:сер|gray|grey|silver)/i, '/products/samsung/samsung-s25-gray.webp'],
+  [/\bsamsung\s*(?:galaxy\s*)?a17\b.*(?:ч[её]рн|black)/i, '/products/samsung/samsung-a17-black.webp'],
+  [/\bsamsung\s*(?:galaxy\s*)?s26\s*ultra\b.*(?:ч[её]рн|black)/i, '/products/samsung/samsung-s26-ultra-black.webp'],
+  [/\bsamsung\s*(?:galaxy\s*)?s26\b(?!\s*ultra).*(?:ч[её]рн|black)/i, '/products/samsung/samsung-s26-black.webp'],
+  [/\bpoco\s*f8\s*pro\b.*(?:ч[её]рн|black)/i, '/products/poco/poco-f8-pro-black.webp'],
+  [/\bpoco\s*m8\b.*(?:зел[её]н|green)/i, '/products/poco/poco-m8-5g-green.webp'],
+  [/\bpoco\s*x8\s*pro\s*max\b.*(?:ч[её]рн|black)/i, '/products/poco/poco-x8-pro-max-black.webp'],
+  [/\bxiaomi\s*15t\s*pro\b.*(?:ч[её]рн|black)/i, '/products/xiaomi/xiaomi-15t-pro-black.webp'],
+  [/\bxiaomi\s*17t\s*pro\b.*(?:ч[её]рн|black)/i, '/products/xiaomi/xiaomi-17t-pro-black.webp'],
+  [/\bxiaomi\s*17t\b(?!\s*pro).*(?:ч[её]рн|black)/i, '/products/xiaomi/xiaomi-17t-black.webp'],
+  [/\bpoco\s*x8\s*pro\b(?!\s*max).*(?:бел|white)/i, '/products/poco/poco-x8-pro-white.webp'],
+  [/\bpoco\s*f8\s*ultra\b.*(?:ч[её]рн|black)/i, '/products/poco/poco-f8-ultra-black.webp'],
+  [/\brealme\s*16\s*pro\b.*(?:графит|graphite)/i, '/products/realme/realme-16-pro-graphite.webp'],
+  [/\brealme\s*c100x\b.*(?:син|blue)/i, '/products/realme/realme-c100x-blue.webp'],
+  [/\brealme\s*c100x\b.*(?:бел|white)/i, '/products/realme/realme-c100x-white.webp'],
+  [/\btecno\s*camon\s*50\s*ultra\b.*(?:ч[её]рн|black)/i, '/products/tecno/tecno-camon-50-ultra-black.webp'],
+  [/\b(?:google\s*)?pixel\s*11\s*pro\b.*(?:obsidian|ч[её]рн|black)/i, '/products/google/google-pixel-11-pro-obsidian.webp'],
+]
 export function featuredPhoneImage(name: string, image?: string) {
   if (image && !/\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(image)) return image
   const fallback = image || '/products/phone.svg'
@@ -85,6 +113,8 @@ export function featuredPhoneImage(name: string, image?: string) {
   if (/\bhonor\s*x9d\b/i.test(name) && /ч[её]рн|black|графит|graphite/i.test(name)) {
     return '/products/honor/honor-x9d-graphite.webp'
   }
+  const catalogPhoto = catalogPhonePhotos.find(([pattern]) => pattern.test(name))?.[1]
+  if (catalogPhoto) return catalogPhoto
 
   const match = name.match(/\biphone\s*(1[1-7])\s*(pro\s*max|pro|plus|mini|air|e)?\b/i)
   const variant = (match?.[2] || '').toLowerCase().replace(/\s+/g, '-')

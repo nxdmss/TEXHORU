@@ -1,0 +1,9 @@
+{
+  "createdAt": "2026-11-15",
+  "purpose": "Transparent ecommerce cutouts for the active TEXHORU smartphone catalog",
+  "format": "960x640 WebP with alpha transparency",
+  "method": "Generated as individual model-and-colour product cutouts and reviewed through exact-name mapping tests",
+  "files": 26,
+  "variantsCovered": 29,
+  "notes": "Storage-only variants intentionally share the same model-and-colour image. Existing Apple and pilot HONOR assets cover the other 10 active smartphone variants."
+}
