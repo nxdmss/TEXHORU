@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { api, type OneCExcludedGroup, type OneCNomenclaturePage, type OneCRemoteGroup, type RemoteCatalogStatus } from './api'
+import { Icon } from './Icon'
 import './RemoteCatalogPanel.css'
 
 const jobLabels: Record<string, string> = {
@@ -182,7 +183,7 @@ export function RemoteCatalogPanel() {
         <div className={'onec-tree__row' + (isSelected ? ' is-selected' : '')} style={{ '--tree-depth': depth } as CSSProperties}>
           <button className="onec-tree__toggle" aria-label={isOpen ? 'Свернуть' : 'Развернуть'} disabled={!nested}
             onClick={() => setExpanded(current => { const next = new Set(current); next.has(group.oneCId) ? next.delete(group.oneCId) : next.add(group.oneCId); return next })}>
-            {nested ? isOpen ? '⌄' : '›' : ''}
+            {nested && <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} />}
           </button>
           <button className="onec-tree__name" title={group.name} onClick={() => openGroup(group)}>
             <span className="onec-folder" aria-hidden="true" /><span>{group.name}</span>
@@ -220,7 +221,7 @@ export function RemoteCatalogPanel() {
       <span>Задайте профиль PRODUCTION и ONE_C_PRODUCTION_BASE_ID — после этого зеркало начнёт наполняться автоматически.</span>
     </div> : <>
       <div className="onec-mirror__toolbar">
-        <div className="onec-search"><span aria-hidden="true">⌕</span><input aria-label="Поиск по номенклатуре"
+        <div className="onec-search"><Icon name="search" /><input aria-label="Поиск по номенклатуре"
           placeholder="Найти по коду, артикулу или названию…" value={search} onChange={event => setSearch(event.target.value)} /></div>
         <div className="onec-mirror__toolbar-stats">
           <span><b>{mirrorCount.toLocaleString('ru-RU')}</b> позиций из 1С</span>
@@ -253,8 +254,8 @@ export function RemoteCatalogPanel() {
         <main className="onec-list">
           <nav className="onec-breadcrumbs" aria-label="Путь в номенклатуре">
             <button onClick={() => { setSelectedGroup(''); setPage(0) }}>Номенклатура</button>
-            {path.map(group => <span key={group.oneCId}><i>›</i><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
-            {query && <span><i>›</i><b>Поиск: {query}</b></span>}
+            {path.map(group => <span key={group.oneCId}><Icon name="chevronRight" /><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
+            {query && <span><Icon name="chevronRight" /><b>Поиск: {query}</b></span>}
           </nav>
           {selected && <section className={'onec-group-actions' + (selected.fullyImportedAt ? ' is-complete' : '')}>
             <div><strong>{selected.name}</strong><span>{selected.fullyImportedAt ? 'Группа уже загружена на сайт' : 'Какие товары добавить на сайт?'}</span></div>
@@ -267,7 +268,7 @@ export function RemoteCatalogPanel() {
                 <span /><span>Код</span><span>Артикул</span><span>Наименование</span><span>Вид / единица</span><span>Розничная / закупочная</span><span>Остаток</span><span>Статус</span>
               </div>
               {groupRows.map(group => <button className="onec-table__row is-group" key={group.oneCId} onClick={() => openGroup(group)}>
-                <span><span className="onec-folder" /><b>{group.name}</b><small>{group.itemCount.toLocaleString('ru-RU')} позиций</small>{group.fullyImportedAt && <i>На сайте</i>}<em aria-hidden="true">›</em></span>
+                <span><span className="onec-folder" /><b>{group.name}</b><small>{group.itemCount.toLocaleString('ru-RU')} позиций</small>{group.fullyImportedAt && <i>На сайте</i>}<em aria-hidden="true"><Icon name="chevronRight" /></em></span>
               </button>)}
               {itemRows.map(item => <div className={'onec-table__row is-item' + (item.deletionMark ? ' is-deleted' : '')} key={item.oneCId}>
                 <span><input type="checkbox" aria-label={`Выбрать ${item.name}`} disabled={item.deletionMark} checked={selectedItemIds.has(item.oneCId)} onChange={() => toggleItem(item.oneCId)} /></span>
@@ -286,9 +287,9 @@ export function RemoteCatalogPanel() {
             <p>{mirrorCount ? 'Выберите другую группу или измените запрос.' : 'Агент перенесёт только названия, коды и группы. Полные данные загружаются после вашего выбора.'}</p>
           </div>}
           {pageData && pageData.total > pageData.pageSize && <div className="onec-pagination">
-            <button disabled={page === 0} onClick={() => setPage(value => value - 1)}>← Назад</button>
+            <button disabled={page === 0} onClick={() => setPage(value => value - 1)}><Icon name="back" />Назад</button>
             <span>Страница {page + 1} из {totalPages} · {pageData.total.toLocaleString('ru-RU')} позиций</span>
-            <button disabled={page + 1 >= totalPages} onClick={() => setPage(value => value + 1)}>Далее →</button>
+            <button disabled={page + 1 >= totalPages} onClick={() => setPage(value => value + 1)}>Далее<Icon name="arrow" /></button>
           </div>}
         </main>
       </div>

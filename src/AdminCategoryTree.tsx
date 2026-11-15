@@ -3,6 +3,7 @@ import { categorySegments, categoryTree, childrenAtPath } from './onec-category-
 import './AdminCategoryTree.css'
 import { browseLabel } from './catalog-navigation'
 import { AdminIcon } from './AdminIcon'
+import { Icon } from './Icon'
 
 type Props = {
   categoryNames: string[]
@@ -27,7 +28,7 @@ export function AdminCategoryTree({ categoryNames, productCategoryNames, selecte
 
   return <nav className="admin-tree-nav" aria-label="Категории товаров">
     <div className="admin-tree-location">
-      {selectedPath && <button className="admin-tree-back" type="button" onClick={() => onSelect(parent)}>← Назад</button>}
+      {selectedPath && <button className="admin-tree-back" type="button" onClick={() => onSelect(parent)}><Icon name="back" />Назад</button>}
       <span className="admin-tree-kicker">Сейчас открыто</span>
       <strong>{browseLabel(title)}</strong>
       <small>{selectedPath ? count(selectedPath) : total} товаров</small>
@@ -38,7 +39,7 @@ export function AdminCategoryTree({ categoryNames, productCategoryNames, selecte
         <span className="admin-tree-icon" aria-hidden="true"><AdminIcon name="products" /></span>
         <span className="admin-tree-label">{browseLabel(child.title)}</span>
         <span className="admin-tree-count">{count(child.path)}</span>
-        <span className="admin-tree-arrow" aria-hidden="true">›</span>
+        <span className="admin-tree-arrow" aria-hidden="true"><Icon name="chevronRight" /></span>
       </button>)}
       {!folders.length && <div className="admin-tree-leaf">{!total ? 'Каталог пуст. Добавь товары через «Подключить из 1С».' : 'Товары — в карточках ниже.'}</div>}
     </div>

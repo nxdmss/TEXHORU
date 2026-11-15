@@ -73,7 +73,7 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen, favorit
       <span className="product-card__stock" data-stock={product.stock === 'Под заказ' ? 'preorder' : cartLimit(product) ? 'in' : 'out'}><i aria-hidden="true" />{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
       <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
         onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
-        <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span>
+        <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span><Icon name={cartQuantity ? 'arrow' : 'plus'} />
       </button>
     </div>
   </article>
@@ -249,7 +249,7 @@ function StorefrontPromoCarousel({ items, onOpen }: { items: PromoBanner[]; onOp
           </div>
         })}
       </div>
-      {items.length > 1 && <><button className="carousel-hit carousel-hit--left" onClick={() => move(-1)} aria-label="Предыдущий баннер" /><button className="carousel-hit carousel-hit--right" onClick={() => move(1)} aria-label="Следующий баннер" /><div className="carousel-dots" aria-label="Слайды">{items.map((item, index) => <button key={`${item.id}-dot`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div></>}
+      {items.length > 1 && <><button className="carousel-hit carousel-hit--left" onClick={() => move(-1)} aria-label="Предыдущий баннер"><Icon name="chevronLeft" /></button><button className="carousel-hit carousel-hit--right" onClick={() => move(1)} aria-label="Следующий баннер"><Icon name="chevronRight" /></button><div className="carousel-dots" aria-label="Слайды">{items.map((item, index) => <button key={`${item.id}-dot`} className={index === slideIndex ? 'active' : ''} onClick={() => setSlideIndex(index)} aria-label={`Слайд ${index + 1}`} />)}</div></>}
     </div></div>
   </section>
 }
@@ -407,8 +407,8 @@ function ProductEditor({
           </div>
 
           <div className="admin-editor__section">
-            <div className="admin-editor__section-head"><strong>Характеристики</strong><button type="button" onClick={addSpec}>+ Добавить</button></div>
-            <div className="admin-spec-editor">{value.specs.map((spec, index) => <div className="admin-spec-row" key={index}><input value={spec.label} onChange={(e) => updateSpec(index, 'label', e.target.value)} placeholder="Параметр: Экран" /><input value={spec.value} onChange={(e) => updateSpec(index, 'value', e.target.value)} placeholder="Значение: 6.3 OLED" /><button type="button" onClick={() => removeSpec(index)} aria-label="Удалить характеристику">×</button></div>)}</div>
+            <div className="admin-editor__section-head"><strong>Характеристики</strong><button type="button" onClick={addSpec}><Icon name="plus" />Добавить</button></div>
+            <div className="admin-spec-editor">{value.specs.map((spec, index) => <div className="admin-spec-row" key={index}><input value={spec.label} onChange={(e) => updateSpec(index, 'label', e.target.value)} placeholder="Параметр: Экран" /><input value={spec.value} onChange={(e) => updateSpec(index, 'value', e.target.value)} placeholder="Значение: 6.3 OLED" /><button type="button" onClick={() => removeSpec(index)} aria-label="Удалить характеристику"><Icon name="close" /></button></div>)}</div>
           </div>
 
           <div className="admin-editor__section">
@@ -797,7 +797,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'products' && <div className="admin-products-v2">
       <details className="admin-category-panel">
         <summary>Разделы каталога</summary>
-        <div className="admin-category-panel__head"><div><span>Каталог</span><strong>Группы товаров</strong></div><button className="admin-category-add" onClick={() => setCategoryCreating((value) => !value)}>+ Группа</button></div>
+        <div className="admin-category-panel__head"><div><span>Каталог</span><strong>Группы товаров</strong></div><button className="admin-category-add" onClick={() => setCategoryCreating((value) => !value)}><AdminIcon name="plus" />Группа</button></div>
         {categoryCreating && <form className="admin-category-create" onSubmit={createCategory}><input autoFocus required placeholder="Название группы" value={categoryDraft.name} onChange={(e) => setCategoryDraft({ name: e.target.value, slug: slugifyProduct(e.target.value) })} /><input required placeholder="slug" value={categoryDraft.slug} onChange={(e) => setCategoryDraft({ ...categoryDraft, slug: slugifyProduct(e.target.value) })} /><div><button type="button" onClick={() => setCategoryCreating(false)}>Отмена</button><button>Создать</button></div></form>}
         <AdminCategoryTree categoryNames={apiCategories.filter(c => c.isActive !== false).map(c => c.name)}
           productCategoryNames={adminCategoryItems} selectedPath={adminPath}
@@ -805,7 +805,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </details>
 
       <div className="admin-catalog-workspace" key={adminPath || 'all'}>
-        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={connectProducts}>Связи с 05.ru</button><button onClick={() => openCreateProduct()}>+ Вручную</button></div></div>
+        <div className="admin-catalog-toolbar"><div><p className="eyebrow">Товары</p><h2>{adminPath ? browseLabel(adminPath.split(' / ').at(-1) || '') : 'Каталог товаров'}</h2></div><div className="admin-catalog-toolbar__actions"><label className="admin-product-search"><Icon name="search" /><input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Название, бренд или SKU" /></label><button className="admin-add-product" onClick={connectProducts}><AdminIcon name="sync" />Связи с 05.ru</button><button onClick={() => openCreateProduct()}><AdminIcon name="plus" />Вручную</button></div></div>
         {adminPath && <nav className="admin-category-context" aria-label="Путь категории">
           <button type="button" onClick={() => {setAdminSection('');setProductSearch('')}}>Все разделы</button>
           {categorySegments(adminPath).map((part,index,parts) => <span key={index}><span aria-hidden="true">/</span>
@@ -826,11 +826,12 @@ function AdminPage({ onBack }: { onBack: () => void }) {
             <button key={child.path} className="admin-folder-card" onClick={() => { setAdminCategory('ALL'); setAdminSection(categorySelection(child.path)) }}>
               <b><AdminIcon name="products" />{browseLabel(child.title)}</b>
               <span>{products.filter(p => (showDuplicateRows || !p.duplicateOf) && (storefrontPath(p.category?.name || '', p.name) === child.path || storefrontPath(p.category?.name || '', p.name).startsWith(child.path + ' / '))).length} товаров</span>
+              <AdminIcon name="arrow" />
             </button>)}
           </div>}
         {<>{(productGroups.length > 0 || productSearch.trim()) && <div className="catalog-result-count">{productGroups.reduce((n, g) => n + g.items.length, 0)} товаров · показано до {adminLimit}</div>}
         <div className="admin-product-groups">{productGroups.filter((_, i) => productGroups.slice(0, i).reduce((n, g) => n + g.items.length, 0) < adminLimit).map((group) => <section className="admin-product-group" key={group.category.id}>
-          <div className="admin-product-group__head"><div><h3>{browseLabel(adminPath.split(' / ').at(-1) || group.category.name.split(' / ').at(-1) || '')}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}>+ Добавить в группу</button></div>
+          <div className="admin-product-group__head"><div><h3>{browseLabel(adminPath.split(' / ').at(-1) || group.category.name.split(' / ').at(-1) || '')}</h3><span>{group.total} {group.total === 1 ? 'товар' : 'товаров'}</span></div><button onClick={() => openCreateProduct(group.category.id)}><AdminIcon name="plus" />Добавить в группу</button></div>
           {group.items.length ? <div className="admin-product-grid">{group.items.slice(0, Math.max(0, adminLimit - productGroups.slice(0, productGroups.indexOf(group)).reduce((n, g) => n + g.items.length, 0))).map((item) => <article className={item.status === 'ARCHIVED' ? 'admin-product-tile is-archived' : 'admin-product-tile'} key={item.id}>
             <button className="admin-product-tile__main" onClick={() => openEditProduct(item)}>
               <div className="admin-product-tile__image"><ProductImage name={item.name} image={item.image} alt="" />{item.status === 'ARCHIVED' && <span>Скрыт</span>}</div>
@@ -881,7 +882,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
               </div>
               {activePromoImage.image && <div className="promo-editor__crop-controls">
                 <div className="promo-editor__crop-label"><span>Масштаб</span><strong>{Math.round(activePromoImage.imageZoom * 100)}%</strong></div>
-                <div className="promo-editor__crop-slider"><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom - .08, 1, 2.5) })}>−</button><input type="range" min="1" max="2.5" step="0.01" value={activePromoImage.imageZoom} onChange={(event) => updatePromoImage({ imageZoom: Number(event.target.value) })} /><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom + .08, 1, 2.5) })}>+</button><button type="button" className="promo-editor__crop-reset" onClick={() => updatePromoImage({ imageX: 50, imageY: 50, imageZoom: 1 })}>Сбросить</button></div>
+                <div className="promo-editor__crop-slider"><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom - .08, 1, 2.5) })} aria-label="Уменьшить масштаб"><Icon name="minus" /></button><input type="range" min="1" max="2.5" step="0.01" value={activePromoImage.imageZoom} onChange={(event) => updatePromoImage({ imageZoom: Number(event.target.value) })} /><button type="button" onClick={() => updatePromoImage({ imageZoom: clampPromo(activePromoImage.imageZoom + .08, 1, 2.5) })} aria-label="Увеличить масштаб"><Icon name="plus" /></button><button type="button" className="promo-editor__crop-reset" onClick={() => updatePromoImage({ imageX: 50, imageY: 50, imageZoom: 1 })}>Сбросить</button></div>
                 <small>Положение и масштаб сохраняются только для выбранной версии экрана.</small>
               </div>}
               <div className="promo-editor__image-info"><strong>{promoStandards[promoDevice].label}</strong><span>{promoImageInfo}</span></div>

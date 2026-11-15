@@ -17,6 +17,7 @@ import './storefront-refresh.css'
 import './storefront-layout.css'
 import './experience-upgrade.css'
 import './mobile-overhaul.css'
+import './icon-system.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

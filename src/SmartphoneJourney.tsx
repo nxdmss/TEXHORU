@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { Product } from './types'
 import { featuredPhoneImage } from './catalog-navigation'
+import { Icon } from './Icon'
 import './smartphone-journey.css'
 
 export type ShopBrand = { name: string; slug: string; count: number }
@@ -48,7 +49,7 @@ export function SmartphonePortal({ onOpen, featured }: { onOpen: OpenAction; fea
       <div className="phone-portal__copy">
         <span className="phone-portal__kicker">TEXHORU / КАТАЛОГ</span>
         <strong>СМАРТФОНЫ</strong>
-        <span className="phone-portal__link">Выбрать модель <span aria-hidden="true">→</span></span>
+        <span className="phone-portal__link">Выбрать модель <Icon name="arrow" /></span>
       </div>
     </button>
   </section>
