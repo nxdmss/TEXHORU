@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -33,6 +33,21 @@ test('У карточек цен нет обходной кнопки массо
   const links = read('src/PriceMonitorPanel.tsx')
   assert.doesNotMatch(links, /monitorBulkApply|updateAllPrices/)
   assert.doesNotMatch(links, /Применить цены 05\.ru к товарам/)
+})
+
+test('Фирменные рекламные макеты существуют во всех экранных стандартах', () => {
+  const directory = resolve(root, 'public/promos/presets')
+  const files = readdirSync(directory).filter((name) => name.endsWith('.svg')).sort()
+  const campaigns = ['blue-work', 'electric-play', 'scarlet-mobile', 'sonic-color']
+  const standards = { desktop: [1920, 600], tablet: [1600, 900], mobile: [1080, 608] }
+  assert.equal(files.length, campaigns.length * Object.keys(standards).length)
+  for (const campaign of campaigns) for (const [device, [width, height]] of Object.entries(standards)) {
+    const name = `${campaign}-${device}.svg`
+    assert.ok(files.includes(name), `Нет макета ${name}`)
+    const svg = read(`public/promos/presets/${name}`)
+    assert.match(svg, new RegExp(`width="${width}" height="${height}"`), `${name}: неверный размер`)
+    assert.match(svg, new RegExp(`viewBox="0 0 ${width} ${height}"`), `${name}: неверный viewBox`)
+  }
 })
 
 // All/selected price-update behaviour is exercised by tests/price-demo.browser.mjs

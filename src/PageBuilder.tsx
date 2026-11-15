@@ -63,6 +63,7 @@ const inlinePromoStyle = (image: string): CSSProperties => {
 type PageBuilderProps = {
   promos: PromoBanner[]
   onCreatePromo: (blockId: string, device: StorefrontDevice) => void
+  onInstallPromoPresets: (blockId: string, device: StorefrontDevice) => void
   onEditPromo: (promo: PromoBanner, device: StorefrontDevice) => void
   onTogglePromo: (promo: PromoBanner) => void
   onDeletePromo: (promo: PromoBanner) => void
@@ -87,7 +88,7 @@ function PromoBlockPreview({ promos, onManage }: {
   </div>
 }
 
-export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo, onDeletePromo }: PageBuilderProps) {
+export function PageBuilder({ promos, onCreatePromo, onInstallPromoPresets, onEditPromo, onTogglePromo, onDeletePromo }: PageBuilderProps) {
   const [layout, setLayout] = useState<StorefrontLayout>(() => defaultStorefrontLayout())
   const [savedLayout, setSavedLayout] = useState<StorefrontLayout>(() => defaultStorefrontLayout())
   const [selectedId, setSelectedId] = useState('home-promos')
@@ -280,7 +281,7 @@ export function PageBuilder({ promos, onCreatePromo, onEditPromo, onTogglePromo,
     {promoManagerBlock && <div className="page-builder-promo-modal" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoManagerBlockId('') }}>
       <section className="page-builder-promo-dialog" role="dialog" aria-modal="true" aria-label={`Фотографии блока ${promoManagerBlock.title || 'Реклама'}`}>
         <header><div><span>Независимая лента · {deviceLabels[device].label}</span><h3>{promoManagerBlock.title || 'Реклама'}</h3><p>{promoManagerItems.length ? `${promoManagerItems.length} слайдов только для этой версии` : 'В этой версии пока нет рекламных слайдов'}</p></div><button type="button" onClick={() => setPromoManagerBlockId('')} aria-label="Закрыть"><Icon name="close" /></button></header>
-        <div className="page-builder-promo-dialog__actions"><button type="button" onClick={() => onCreatePromo(promoManagerBlock.id, device)}><Icon name="plus" />Добавить слайд</button><span>Другие устройства не изменятся.</span></div>
+        <div className="page-builder-promo-dialog__actions"><div><button type="button" onClick={() => onCreatePromo(promoManagerBlock.id, device)}><Icon name="plus" />Добавить слайд</button><button type="button" className="is-preset" onClick={() => onInstallPromoPresets(promoManagerBlock.id, device)}>Добавить фирменные 4</button></div><span>Другие устройства не изменятся.</span></div>
         {promoManagerItems.length ? <div className="page-builder-promo-dialog__grid">{promoManagerItems.map((item, index) => <article className={item.isActive ? '' : 'is-hidden'} key={item.id}>
           <button type="button" className={`page-builder-promo-dialog__image is-${device}`} onClick={() => onEditPromo(item, device)} aria-label={`Редактировать фото ${index + 1}`}><img src={inlinePromoFrame(item.image).src} style={inlinePromoStyle(item.image)} alt="" /><b>{index + 1}</b>{!item.isActive && <em>Скрыто</em>}</button>
           <div><strong>{item.title || `Фото ${index + 1}`}</strong><span>Порядок: {item.sortOrder}</span></div>
