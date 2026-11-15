@@ -12,7 +12,17 @@ body *::after {
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace !important;
 }
 
-body { font-weight: 500; }
+body {
+  font-weight: 600;
+  letter-spacing: .006em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea { font-weight: 600; }
 
 /* The popular-products status is information, not a boxed table row. */
 .storefront .catalog-toolbar {
@@ -22,3 +32,134 @@ body { font-weight: 500; }
 
 /* Category cards contain only customer-facing content. */
 .storefront .home-collection-meta { display: none !important; }
+
+/* The catalog index uses the same wide rail as the rest of the shop. */
+.storefront .category-page-screen.category-menu {
+  width: min(var(--storefront-frame, 1580px), calc(100% - (var(--storefront-gutter, 24px) * 2))) !important;
+  max-width: none !important;
+  margin: 20px auto 56px !important;
+}
+
+.storefront .category-page-screen .category-menu__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+}
+
+.storefront .category-page-screen .category-menu__tile {
+  min-height: 242px;
+  padding: 20px !important;
+}
+
+.storefront .category-page-screen .category-menu__caption strong {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: .01em;
+}
+
+.storefront .category-page-screen .category-menu__caption small {
+  font-weight: 600;
+  letter-spacing: .015em;
+}
+
+/* Inside a department the title and filters form one compact control row. */
+.storefront .catalog .section-head--catalog {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 18px 30px;
+  margin-bottom: 18px;
+  padding: 0;
+  border: 0;
+}
+
+.storefront .section-head--catalog .catalog-toolbar__controls {
+  width: auto;
+  max-width: 100%;
+  align-self: end;
+  justify-content: flex-end;
+  gap: 10px 12px;
+}
+
+.storefront .section-head--catalog .catalog-filter-field select {
+  min-height: 40px;
+  padding: 8px 28px 8px 12px;
+  border: 1px solid var(--tx-line);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--tx-ink);
+  font-size: 12px;
+}
+
+.storefront .catalog-toolbar--featured {
+  margin-bottom: 20px;
+  padding: 2px 0 8px;
+}
+
+/* IBM Plex Mono needs a little more weight at small storefront sizes. */
+.storefront .product-card__brand {
+  font-weight: 600 !important;
+  letter-spacing: .075em !important;
+}
+
+.storefront .product-open h3 {
+  font-weight: 600 !important;
+  line-height: 1.32 !important;
+  letter-spacing: .005em !important;
+}
+
+.storefront .product-card__price strong {
+  font-weight: 700 !important;
+  letter-spacing: -.015em !important;
+}
+
+.storefront .product-card__stock,
+.storefront .product-card__add {
+  font-weight: 600 !important;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 1180px) {
+  .storefront .catalog .section-head--catalog {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .storefront .section-head--catalog .catalog-toolbar__controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .storefront .category-page-screen .category-menu__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 699px) {
+  .storefront .category-page-screen.category-menu {
+    width: calc(100% - 28px) !important;
+    margin: 4px auto 28px !important;
+  }
+
+  .storefront .category-page-screen .category-menu__grid { gap: 9px !important; }
+
+  .storefront .category-page-screen .category-menu__tile {
+    min-height: 0;
+    padding: 12px !important;
+  }
+
+  .storefront .category-page-screen .category-menu__caption strong {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  .storefront .catalog .section-head--catalog { gap: 12px; margin-bottom: 14px; }
+
+  .storefront .section-head--catalog .catalog-toolbar__controls {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 9px !important;
+  }
+}
