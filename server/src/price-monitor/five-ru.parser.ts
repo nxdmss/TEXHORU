@@ -13,6 +13,7 @@ export type ProductSnapshot = {
   oldPrice: string | null; availability: string | null; specs: Array<{ label: string; value: string }>
   seller?: string | null; region?: string | null; category?: string | null
   metaCurrency?: string | null
+  imageUrl?: string | null
 }
 
 export function fiveRuUrl(raw: string, mode: 'product' | 'catalog') {
@@ -47,6 +48,16 @@ function ldObjects(scripts: string[]) {
 }
 function byType(object: JsonObject, type: string) { return object['@type'] === type || (Array.isArray(object['@type']) && object['@type'].includes(type)) }
 function objectName(value: unknown) { return typeof value === 'string' ? value : value && typeof value === 'object' ? String((value as JsonObject).name || '') : '' }
+function productImageUrl(value: unknown, pageUrl: string, fallback?: string | null) {
+  const candidate = typeof value === 'string' ? value
+    : Array.isArray(value) ? value.find(item => typeof item === 'string')
+      : value && typeof value === 'object' ? String((value as JsonObject).url || (value as JsonObject).contentUrl || '')
+        : fallback || ''
+  try {
+    const url = new URL(String(candidate || fallback || ''), pageUrl)
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null
+  } catch { return null }
+}
 
 // Prices and stock never come from the entire page: it also contains recommendations and instalments.
 export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuResult {
@@ -89,6 +100,7 @@ export function extractFiveRu(snapshot: ProductSnapshot, url: string): FiveRuRes
     name, price: found.price, oldPrice: old && old > found.price ? old : null, inStock,
     externalSku: String(product?.sku || '') || new URL(url).pathname.match(/-(\d+)\/$/)?.[1] || null,
     categoryName: objectName(product?.category) || snapshot.category || 'Товары 05.ru', brand, url, attributes, specs,
+    imageUrl: productImageUrl(product?.image, url, snapshot.imageUrl),
     seller: objectName(single?.seller) || snapshot.seller || null, region: objectName(single?.eligibleRegion) || snapshot.region || null, priceSource: found.source,
   }
 }
@@ -253,6 +265,9 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
         availability: main.querySelector('[itemprop="availability"]')?.getAttribute('href') || text('[data-product-availability]'), specs,
         seller: text('.shop-info__link'), region: document.querySelector('.button-select-location__selected')?.textContent?.trim() || null,
         category: main.querySelector('a[href*="/cat/mc/"]')?.textContent?.trim() || null,
+        imageUrl: document.querySelector('meta[property="og:image"]')?.getAttribute('content')
+          || (main.querySelector('[itemprop="image"]') as HTMLImageElement | null)?.currentSrc
+          || (main.querySelector('img[src]') as HTMLImageElement | null)?.currentSrc || null,
       }
     })
   }

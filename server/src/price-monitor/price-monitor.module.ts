@@ -7,9 +7,10 @@ import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
 import { MonitorExchangeController } from './monitor-exchange.controller'
 import { OneCGuard } from '../integrations/onec.guard'
+import { MediaModule } from '../media/media.module'
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, MediaModule],
   controllers: [PriceMonitorController, MonitorExchangeController],
   providers: [PriceMonitorService, FiveRuParser, MvideoParser, DnsParser, MonitorExchangeService, OneCGuard],
 })

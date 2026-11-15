@@ -1067,12 +1067,13 @@ test('Validates GTIN and never accepts a conflicting variant just because its id
 })
 
 test('Parses recorded live product data; ignores instalment and unrelated Product offers', () => {
-  const result = extractFiveRu(fixture.snapshot, url)
+  const result = extractFiveRu({ ...fixture.snapshot, imageUrl: 'https://cdn.05.ru/images/iphone-17-pro.png' }, url)
   assert.equal(result.price, 96990)
   assert.equal(result.inStock, true)
   assert.equal(result.attributes.storage, '256')
   assert.equal(result.seller, '05.ru')
   assert.equal(result.region, 'Махачкала')
+  assert.equal(result.imageUrl, 'https://cdn.05.ru/images/iphone-17-pro.png')
   const used = extractFiveRu({ ...fixture.snapshot, scripts: fixture.snapshot.scripts.map(s => s.replace('NewCondition', 'UsedCondition')) }, url)
   assert.equal(used.attributes.condition, 'used')
   assert.equal(compareItems(product, { name: used.name, attributes: used.attributes }).score, 0)

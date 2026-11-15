@@ -15,6 +15,7 @@ export type StoreProductResult = {
   url: string
   attributes: Identity
   specs: Array<{ label: string; value: string }>
+  imageUrl: string | null
   seller: string | null
   region: string | null
   priceSource: string
@@ -83,6 +84,7 @@ export type ProductSnapshot = {
   seller: string | null
   region: string | null
   category: string | null
+  imageUrl?: string | null
 }
 type JsonObject = Record<string, unknown>
 
@@ -113,6 +115,16 @@ function hasType(value: JsonObject, type: string) {
 function objectName(value: unknown) {
   return typeof value === 'string' ? value : value && typeof value === 'object'
     ? String((value as JsonObject).name || '') : ''
+}
+function productImageUrl(value: unknown, pageUrl: string, fallback?: string | null) {
+  const candidate = typeof value === 'string' ? value
+    : Array.isArray(value) ? value.find(item => typeof item === 'string')
+      : value && typeof value === 'object' ? String((value as JsonObject).url || (value as JsonObject).contentUrl || '')
+        : fallback || ''
+  try {
+    const url = new URL(String(candidate || fallback || ''), pageUrl)
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null
+  } catch { return null }
 }
 function normalizeHost(host: string) { return host.toLowerCase().replace(/^www\./, '') }
 
@@ -202,7 +214,7 @@ export function extractRetailerProduct(snapshot: ProductSnapshot, url: string, c
     categoryName: objectName(product?.category) || snapshot.category || 'Товары ' + config.name,
     brand,
     url,
-    attributes, specs,
+    attributes, specs, imageUrl: productImageUrl(product?.image, url, snapshot.imageUrl),
     seller: objectName(offer?.seller) || snapshot.seller || config.name,
     region: snapshot.region,
     priceSource: found.source,
@@ -389,6 +401,9 @@ abstract class RetailerParserBase implements StorefrontAdapter, OnModuleDestroy 
         region: region?.trim() || null,
         category: Array.from(document.querySelectorAll('nav a, [aria-label*="breadcrumb"] a, .breadcrumb a'))
           .map(node => node.textContent?.trim() || '').filter(Boolean).slice(-1)[0] || null,
+        imageUrl: document.querySelector('meta[property="og:image"]')?.getAttribute('content')
+          || (main.querySelector('[itemprop="image"]') as HTMLImageElement | null)?.currentSrc
+          || (main.querySelector('img[src]') as HTMLImageElement | null)?.currentSrc || null,
       }
     }, snapshotConfig)
   }

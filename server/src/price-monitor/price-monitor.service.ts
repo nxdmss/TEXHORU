@@ -1,5 +1,5 @@
 import { knownPurchasePrice, retailPrice } from './retail-price-policy'
-import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common'
 import { createHash } from 'node:crypto'
 import { Prisma, ProductStatus, StockState } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
@@ -13,9 +13,11 @@ import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
 import { PriceUpdateWorkflow } from './price-update.workflow'
 import { curateProductSpecs, type SourcedSpec } from '../products/spec-templates'
+import { MediaService } from '../media/media.service'
 
 // Small 1C batches should not read 50 catalog pages before matching.
 const FAST_MATCH_MAX_ITEMS = 40
+const CATALOG_ENRICHMENT_REVISION = 'CATALOG_MEDIA_ENRICHMENT_V1'
 
 // Temporary demo policy: TEST prices can change by any percentage.
 function allowLargeTestPriceChange() {
@@ -193,6 +195,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     private readonly exchange: MonitorExchangeService,
     private readonly mvideo: MvideoParser,
     private readonly dns: DnsParser,
+    @Optional() private readonly media?: MediaService,
   ) {
     this.priceUpdate = new PriceUpdateWorkflow(prisma, db => this.bulkPriceSnapshot(db))
   }
@@ -243,6 +246,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'CANCELLED', leaseUntil: null, finishedAt: new Date() },
     }).catch(error => console.error('Отключение DNS/М.Видео:', error instanceof Error ? error.message : 'Ошибка'))
     if (process.env.MONITOR_WORKER_DISABLED === 'true') return
+    await this.queueCatalogEnrichment().catch(error => console.error('Подготовка фото и характеристик:', error instanceof Error ? error.message : 'Ошибка'))
     this.timer = setInterval(() => { void this.tick().catch(error => console.error('Мониторинг:', error instanceof Error ? error.message : 'Ошибка')) }, 1000)
     this.timer.unref()
   }
@@ -250,6 +254,28 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     this.stopped = true
     if (this.timer) clearInterval(this.timer)
     if (this.followUpTimer) clearTimeout(this.followUpTimer)
+  }
+
+  private async queueCatalogEnrichment() {
+    if (!this.media) return
+    const completed = await this.prisma.auditLog.findFirst({
+      where: { action: CATALOG_ENRICHMENT_REVISION, entity: 'Catalog' }, select: { id: true },
+    })
+    if (completed) return
+    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) return
+    const products = await this.prisma.product.findMany({
+      where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
+      select: { id: true }, orderBy: { id: 'asc' }, take: 5000,
+    })
+    if (!products.length) return
+    const job = await this.prisma.monitorJob.create({ data: {
+      kind: 'MATCH_1C', sourceKey: '05ru', url: null, maxPages: 1, perPage: products.length,
+      pendingUrls: products.map(product => 'product:' + product.id), visitedUrls: ['CATALOG_ENRICHMENT'],
+    } })
+    await this.prisma.auditLog.create({ data: {
+      action: CATALOG_ENRICHMENT_REVISION, entity: 'Catalog', entityId: job.id,
+      details: { products: products.length, source: '05ru', purpose: 'photos-and-specifications' },
+    } })
   }
   private source(key: StoreKey = '05ru') {
     requireEnabledStore(key)
@@ -449,7 +475,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     } finally { this.parsing = false }
   }
   private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false, autoConfirmExact = false, repairConflictingLinks: string[] = []) {
-    return this.prisma.$transaction(async tx => {
+    const saved = await this.prisma.$transaction(async tx => {
       const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
       let productId = existing?.productId || suggestedProductId || null
       let matchStatus = existing?.matchStatus || 'UNMATCHED'
@@ -583,6 +609,34 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
       return this.decorated(row)
     })
+    if (saved.matchStatus === 'CONFIRMED' && saved.product && result.imageUrl && this.media) {
+      try {
+        const product = await this.prisma.product.findUnique({ where: { id: saved.product.id } })
+        if (product) {
+          const attributes = product.attributes && typeof product.attributes === 'object' && !Array.isArray(product.attributes)
+            ? product.attributes as Record<string, unknown> : {}
+          const marker = attributes._imageSource && typeof attributes._imageSource === 'object'
+            ? attributes._imageSource as Record<string, unknown> : null
+          const placeholder = !product.image || /\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(product.image)
+          const managed = marker?.managed === true
+          if ((placeholder || managed) && marker?.sourceUrl !== result.imageUrl) {
+            const uploaded = await this.media.importRetailProductImage(result.imageUrl)
+            await this.prisma.product.update({ where: { id: product.id }, data: {
+              image: uploaded.url,
+              attributes: jsonValue({ ...attributes, _imageSource: {
+                managed: true, source: storeKeyFromUrl(result.url), sourceUrl: result.imageUrl,
+                productUrl: result.url, updatedAt: new Date().toISOString(),
+              } }),
+            } })
+            await this.prisma.auditLog.create({ data: { action: 'IMPORT_RETAIL_PRODUCT_IMAGE', entity: 'Product',
+              entityId: String(product.id), details: { source: result.url, image: result.imageUrl } } })
+          }
+        }
+      } catch (error) {
+        console.warn('Фото товара не импортировано:', error instanceof Error ? error.message : 'Ошибка')
+      }
+    }
+    return saved
   }
   // A saved 05.ru link is stronger evidence than a storefront search page.
   // Refresh its price from the *actual product URL*, never from stale stored prices.
