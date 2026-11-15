@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { api, type OneCExcludedGroup, type OneCNomenclaturePage, type OneCRemoteGroup, type RemoteCatalogStatus } from './api'
+import { api, type OneCExcludedGroup, type OneCFoundationStatus, type OneCNomenclaturePage, type OneCRemoteGroup, type RemoteCatalogStatus } from './api'
 import { Icon } from './Icon'
 import './RemoteCatalogPanel.css'
 
@@ -20,6 +20,7 @@ function shortDate(value?: string | null) {
 
 export function RemoteCatalogPanel() {
   const [status, setStatus] = useState<RemoteCatalogStatus | null>(null)
+  const [foundation, setFoundation] = useState<OneCFoundationStatus | null>(null)
   const [tree, setTree] = useState<OneCRemoteGroup[]>([])
   const [excludedGroups, setExcludedGroups] = useState<OneCExcludedGroup[]>([])
   const [mirrorCount, setMirrorCount] = useState(0)
@@ -66,9 +67,10 @@ export function RemoteCatalogPanel() {
       if (pending || document.hidden) return
       pending = true
       try {
-        const nextStatus = await api.remoteCatalog()
+        const [nextStatus, nextFoundation] = await Promise.all([api.remoteCatalog(), api.oneCFoundation()])
         if (!alive) return
         setStatus(nextStatus)
+        setFoundation(nextFoundation)
         if (!nextStatus.configured) { setPageData(null); return }
         const nextPagePromise = api.remoteNomenclature(selectedGroup, query, page)
         const loadTree = withTree || tree.length === 0
@@ -215,6 +217,15 @@ export function RemoteCatalogPanel() {
           <small>{agent ? 'Последний сигнал: ' + shortDate(agent.lastSeenAt) : 'После запуска агент появится здесь автоматически'}</small></div>
       </div>
     </header>
+
+    {foundation && <section className="onec-safety" aria-label="Безопасность обмена с 1С">
+      <div><span className={foundation.settings.mode === 'READ_ONLY' ? 'is-safe' : 'is-warning'} />
+        <p><strong>{foundation.settings.mode === 'READ_ONLY' ? '1С защищена от изменений' : 'Исходящий обмен требует внимания'}</strong>
+          <small>{foundation.settings.mode === 'READ_ONLY' ? 'Только чтение каталога, цен и остатков' : `Режим: ${foundation.settings.mode}`}</small></p></div>
+      <span>Подпись агента <b>{foundation.settings.requireSignedRequests ? 'обязательна' : 'переходный режим'}</b></span>
+      <span>Запись заказов <b>{foundation.serverKillSwitches.orderWrites && foundation.settings.allowOrderWrites ? 'разрешена' : 'выключена'}</b></span>
+      <span>Ожидают решения <b>{foundation.commandCounts.WAITING_APPROVAL || 0}</b></span>
+    </section>}
 
     {status && !status.configured ? <div className="onec-mirror__setup">
       <strong>На сервере не выбрана основная база 1С</strong>

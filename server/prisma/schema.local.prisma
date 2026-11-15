@@ -537,3 +537,91 @@ model OneCNomenclatureItem {
   @@index([baseId, active, parentId, name])
   @@index([baseId, active, code])
 }
+// Enterprise integration control plane. It is site-owned and cannot modify 1C
+// unless both the persisted policy and a server-side environment switch allow it.
+model OneCIntegrationSettings {
+  id                    String   @id @default("primary")
+  mode                  String   @default("READ_ONLY")
+  requireSignedRequests Boolean  @default(false)
+  allowCatalogRead      Boolean  @default(true)
+  allowOrderWrites      Boolean  @default(false)
+  allowPriceWrites      Boolean  @default(false)
+  allowOrderStatusRead  Boolean  @default(true)
+  updatedBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model OneCAgentDevice {
+  agentId      String   @id
+  baseId       String
+  name         String   @default("")
+  enabled      Boolean  @default(true)
+  keyVersion   Int      @default(1)
+  lastSeenAt   DateTime @default(now())
+  lastSignedAt DateTime?
+  lastIpHash   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([baseId, enabled, lastSeenAt])
+}
+
+model OneCAgentNonce {
+  nonce     String   @id
+  agentId   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([agentId, createdAt])
+}
+
+// Durable site-to-1C outbox. Approval and delivery are intentionally separate:
+// approval never bypasses READ_ONLY mode or the server kill switch.
+model IntegrationCommand {
+  id               String   @id @default(uuid())
+  dedupeKey        String   @unique
+  kind             String
+  entity           String
+  entityId         String?
+  payload          Json
+  status           String   @default("WAITING_APPROVAL")
+  requiresApproval Boolean  @default(true)
+  approvedBy       String?
+  approvedAt       DateTime?
+  attempts         Int      @default(0)
+  maxAttempts      Int      @default(5)
+  availableAt      DateTime @default(now())
+  leaseToken       String?  @unique
+  leaseUntil       DateTime?
+  lastError        String?
+  externalId       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  completedAt      DateTime?
+
+  @@index([status, availableAt, createdAt])
+  @@index([entity, entityId])
+  @@index([kind, status])
+}
+
+// Immutable inbox used to make repeated callbacks and status events harmless.
+model IntegrationEvent {
+  id             String   @id @default(uuid())
+  idempotencyKey String   @unique
+  source         String
+  kind           String
+  entity         String
+  entityId       String?
+  payloadHash    String
+  payload        Json
+  status         String   @default("RECEIVED")
+  error          String?
+  receivedAt     DateTime @default(now())
+  processedAt    DateTime?
+
+  @@index([source, kind, receivedAt])
+  @@index([status, receivedAt])
+  @@index([entity, entityId])
+}

@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config'
 import { AuthController, AccountController } from './auth.controller'
 import { AuthService } from './auth.service'
 import { AuthGuard, CustomerGuard, OptionalCustomerGuard } from '../common/auth.guard'
-import { AdminGuard } from '../common/admin.guard'
+import { AdminGuard, DirectorGuard } from '../common/admin.guard'
 
 @Module({
   imports: [JwtModule.registerAsync({
@@ -13,7 +13,7 @@ import { AdminGuard } from '../common/admin.guard'
     useFactory: (config: ConfigService) => ({ secret: config.get<string>('JWT_SECRET') ?? 'dev-only-change-me', signOptions: { expiresIn: '8h' } }),
   })],
   controllers: [AuthController, AccountController],
-  providers: [AuthService, AccountMailService, AuthGuard, CustomerGuard, OptionalCustomerGuard, AdminGuard],
-  exports: [JwtModule, AuthGuard, CustomerGuard, OptionalCustomerGuard, AdminGuard],
+  providers: [AuthService, AccountMailService, AuthGuard, CustomerGuard, OptionalCustomerGuard, AdminGuard, DirectorGuard],
+  exports: [JwtModule, AuthGuard, CustomerGuard, OptionalCustomerGuard, AdminGuard, DirectorGuard],
 })
 export class AuthModule {}

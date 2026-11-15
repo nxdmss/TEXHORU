@@ -8,10 +8,12 @@ import { OneCCatalogDto, OneCOrderStatusDto } from './integrations.dto'
 import { OneCPriceSyncService } from './price-sync.service'
 import { phoneVariantIndex } from '../products/phone-uniqueness'
 import { automaticTestCatalogScope } from './test-catalog-policy'
+import { createHash } from 'node:crypto'
+import { IntegrationFoundationService } from './integration-foundation.service'
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService) {}
+  constructor(private readonly prisma: PrismaService, private readonly orders: OrdersService, private readonly foundation: IntegrationFoundationService) {}
 
   private importing = false
 
@@ -262,23 +264,35 @@ export class IntegrationsService {
     return (hash >>> 0).toString(36)
   }
 
-  pendingOrders() {
-    return this.prisma.order.findMany({ where: { oneCSyncedAt: null, status: { not: 'CANCELLED' } }, include: { items: true }, orderBy: { createdAt: 'asc' }, take: 100 })
+  async pendingOrders() {
+    const ids = await this.foundation.approvedOrderIds()
+    if (!ids.length) return []
+    return this.prisma.order.findMany({ where: { id: { in: ids }, oneCSyncedAt: null, status: { not: 'CANCELLED' } }, include: { items: true }, orderBy: { createdAt: 'asc' }, take: 100 })
   }
 
   async ackOrder(id: string, oneCId: string) {
+    await this.foundation.assertOrderDeliveryEnabled()
     const order = await this.prisma.order.update({ where: { id }, data: { oneCId, oneCSyncedAt: new Date() } })
+    await this.foundation.completeOrderCommand(id, oneCId)
     await this.prisma.syncLog.create({ data: { direction: 'TO_1C', entity: 'ORDER', entityId: id, status: 'SUCCESS', message: oneCId } })
     return order
   }
 
   async orderStatus(dto: OneCOrderStatusDto) {
+    const settings = await this.foundation.settings()
+    if (!settings.allowOrderStatusRead) throw new HttpException('Приём статусов заказов из 1С выключен', 403)
+    const payload = { siteOrderId: dto.siteOrderId, status: dto.status }
+    const payloadHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
+    const receipt = await this.foundation.beginEvent({ idempotencyKey: dto.eventId || `order-status:${dto.siteOrderId}:${dto.status}`, source: '1C', kind: 'ORDER_STATUS', entity: 'ORDER', entityId: dto.siteOrderId, payloadHash, payload })
+    if (receipt.duplicate && receipt.event.status === 'PROCESSED') return { ok: true, duplicate: true, orderId: dto.siteOrderId, status: dto.status }
     try {
       const order = await this.orders.updateStatus(dto.siteOrderId, dto.status)
       await this.prisma.syncLog.create({ data: { direction: 'FROM_1C', entity: 'ORDER_STATUS', entityId: dto.siteOrderId, status: 'SUCCESS', message: dto.status } })
+      await this.foundation.finishEvent(receipt.event.id, 'PROCESSED')
       return { ok: true, orderId: order.id, status: order.status }
     } catch (error) {
       await this.prisma.syncLog.create({ data: { direction: 'FROM_1C', entity: 'ORDER_STATUS', entityId: dto.siteOrderId, status: 'FAILED', message: error instanceof Error ? error.message : 'Unknown error' } })
+      await this.foundation.finishEvent(receipt.event.id, 'FAILED', error instanceof Error ? error.message : 'Unknown error')
       throw error
     }
   }

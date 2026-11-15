@@ -11,3 +11,14 @@ export class AdminGuard implements CanActivate {
     return true
   }
 }
+
+@Injectable()
+export class DirectorGuard implements CanActivate {
+  canActivate(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest<{ user?: AuthPayload }>()
+    if (!request.user || !['DIRECTOR', 'ADMIN'].includes(request.user.role)) {
+      throw new ForbiddenException('Требуются права директора')
+    }
+    return true
+  }
+}

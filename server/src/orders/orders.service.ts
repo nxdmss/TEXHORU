@@ -52,6 +52,27 @@ export class OrdersService {
         },
         include: { items: true },
       })
+      await tx.integrationCommand.create({
+        data: {
+          dedupeKey: `order:create:${created.id}`,
+          kind: 'ORDER_CREATE',
+          entity: 'ORDER',
+          entityId: created.id,
+          status: 'WAITING_APPROVAL',
+          requiresApproval: true,
+          payload: {
+            schemaVersion: 1,
+            orderId: created.id,
+            number: created.number,
+            customer: { name: created.customerName, phone: created.customerPhone, email: created.customerEmail || null },
+            delivery: { method: created.deliveryMethod, address: created.deliveryAddress },
+            paymentMethod: created.paymentMethod,
+            comment: created.comment || null,
+            total: created.total,
+            items: rows.map(item => ({ oneCProductId: products.find(product => product.id === item.productId)?.oneCId || null, sku: item.sku, name: item.name, price: item.price, quantity: item.quantity })),
+          },
+        },
+      })
       for (const item of rows) {
         await tx.product.update({ where: { id: item.productId }, data: { reservedQty: { increment: item.quantity } } })
       }
@@ -59,6 +80,7 @@ export class OrdersService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
     await this.notifications.create('NEW_ORDER', `Новый заказ №${order.number}`, `${order.customerName} · ${order.total} ₽`, { orderId: order.id })
+    await this.audit.log(userId, 'CREATE_ORDER', 'Order', order.id, { number: order.number, total: order.total, oneCCommand: 'WAITING_APPROVAL' })
     return order
   }
 
@@ -85,6 +107,18 @@ export class OrdersService {
   async updateStatus(id: string, status: OrderStatus, userId?: string) {
     const order = await this.prisma.$transaction(async (tx) => {
       const current = await tx.order.findUniqueOrThrow({ where: { id }, include: { items: true } })
+      if (current.status === status) return current
+      const transitions: Record<OrderStatus, OrderStatus[]> = {
+        NEW: [OrderStatus.AWAITING_PAYMENT, OrderStatus.PAID, OrderStatus.ASSEMBLING, OrderStatus.CANCELLED],
+        AWAITING_PAYMENT: [OrderStatus.PAID, OrderStatus.CANCELLED],
+        PAID: [OrderStatus.ASSEMBLING, OrderStatus.READY, OrderStatus.CANCELLED],
+        ASSEMBLING: [OrderStatus.READY, OrderStatus.CANCELLED],
+        READY: [OrderStatus.DELIVERING, OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+        DELIVERING: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+        COMPLETED: [],
+        CANCELLED: [],
+      }
+      if (!transitions[current.status].includes(status)) throw new BadRequestException(`Недопустимый переход заказа: ${current.status} → ${status}`)
       const shouldRelease = ['CANCELLED', 'COMPLETED'].includes(status) && !current.reservationReleasedAt
       if (shouldRelease) {
         for (const item of current.items) {
@@ -95,6 +129,11 @@ export class OrdersService {
     })
     await this.notifications.create('ORDER_STATUS', `Заказ №${order.number}`, `Статус изменён: ${status}`, { orderId: id })
     await this.audit.log(userId, 'UPDATE_ORDER_STATUS', 'Order', id, { number: order.number, status })
+    if (userId) await this.prisma.integrationCommand.upsert({
+      where: { dedupeKey: `order:status:${id}:${status}` },
+      create: { dedupeKey: `order:status:${id}:${status}`, kind: 'ORDER_STATUS', entity: 'ORDER', entityId: id, status: 'WAITING_APPROVAL', requiresApproval: true, payload: { schemaVersion: 1, orderId: id, number: order.number, status } },
+      update: {},
+    })
     return order
   }
 }

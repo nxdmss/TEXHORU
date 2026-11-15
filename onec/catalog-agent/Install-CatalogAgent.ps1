@@ -31,7 +31,10 @@ foreach ($file in @('Run-CatalogAgent.ps1', 'Read-UT103.ps1')) {
 }
 $configPath = Join-Path $dir 'catalog-config.json'
 $agentId = [guid]::NewGuid().ToString()
-if (Test-Path $configPath) { $agentId = (Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json).AgentId }
+if (Test-Path $configPath) {
+    $savedAgentId = (Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json).AgentId
+    if ($savedAgentId) { $agentId = $savedAgentId }
+}
 @{ ApiHost = $hostName; BaseId = $baseId; AgentId = $agentId; KeyProtected = (ConvertFrom-SecureString $key); ConnectionProtected = (ConvertFrom-SecureString $connection); RetailPriceName = $retail; PurchasePriceName = $purchase } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
 $key.Dispose(); $connection.Dispose()
 $exe = Join-Path $PSHOME 'powershell.exe'

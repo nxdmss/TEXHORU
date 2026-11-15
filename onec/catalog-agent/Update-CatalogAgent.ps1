@@ -2,7 +2,13 @@
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $dir = Join-Path $env:LOCALAPPDATA 'TEXHORU\CatalogAgent'
-if (-not (Test-Path (Join-Path $dir 'catalog-config.json'))) { throw 'Сначала установите агент: настройки не найдены' }
+$configPath = Join-Path $dir 'catalog-config.json'
+if (-not (Test-Path $configPath)) { throw 'Сначала установите агент: настройки не найдены' }
+$config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if (-not $config.AgentId) {
+    $config | Add-Member -NotePropertyName AgentId -NotePropertyValue ([guid]::NewGuid().ToString()) -Force
+    $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding UTF8
+}
 Stop-ScheduledTask -TaskName 'TEXHORU Catalog Agent' -ErrorAction SilentlyContinue
 foreach ($file in @('Run-CatalogAgent.ps1', 'Read-UT103.ps1')) {
     Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri ('https://raw.githubusercontent.com/nxdmss/TEXHORU/main/onec/catalog-agent/' + $file) -OutFile (Join-Path $dir $file)

@@ -40,6 +40,7 @@ export class OneCCatalogDto {
 }
 
 export class OneCOrderStatusDto {
+  @IsOptional() @IsString() @MaxLength(100) eventId?: string
   @IsString() siteOrderId!: string
   @IsEnum(OrderStatus) status!: OrderStatus
 }

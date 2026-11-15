@@ -159,6 +159,22 @@ export type OneCPriceSyncStatus = {
     status: string; error: string | null; createdAt: string; deliveredAt: string | null }>
 }
 
+export type OneCFoundationStatus = {
+  settings: {
+    mode: 'READ_ONLY' | 'APPROVAL_REQUIRED' | 'ENABLED'
+    requireSignedRequests: boolean
+    allowCatalogRead: boolean
+    allowOrderWrites: boolean
+    allowPriceWrites: boolean
+    allowOrderStatusRead: boolean
+    updatedAt: string
+  }
+  serverKillSwitches: { orderWrites: boolean; priceWrites: boolean; policyChanges: boolean }
+  devices: Array<{ agentId: string; baseId: string; enabled: boolean; lastSeenAt: string; lastSignedAt: string | null }>
+  commandCounts: Record<string, number>
+  eventCounts: Record<string, number>
+}
+
 export type FiveRuImportResult = {
   ok: boolean
   sourceCategoryName: string
@@ -257,6 +273,7 @@ export const api = {
   remoteRestoreGroup(id: string) { return request<{ ok: boolean; name: string; groups: number; jobId: string | null }>('/admin/integrations/1c/remote/groups/' + encodeURIComponent(id) + '/restore', { method: 'POST' }) },
   remoteCatalogCreate(dto: { kind: 'GROUPS' | 'INDEX' | 'IMPORT'; mode: 'FULL' | 'DELTA'; groupId?: string; itemIds?: string[]; stockOnly?: boolean }) { return request('/admin/integrations/1c/remote/jobs', { method: 'POST', body: JSON.stringify(dto) }) },
   remoteCatalogAction(id: string, action: string) { return request('/admin/integrations/1c/remote/jobs/' + encodeURIComponent(id) + '/action', { method: 'POST', body: JSON.stringify({ action }) }) },
+  oneCFoundation() { return request<OneCFoundationStatus>('/admin/integrations/1c/foundation') },
   async products() { return (await request<ApiProduct[]>('/catalog/home')).map(mapProduct) },
   async product(id: number) { return mapProduct(await request<ApiProduct>('/products/' + id)) },
   async cartProducts(ids: number[]) { return (await request<ApiProduct[]>('/catalog/cart', { method: 'POST', body: JSON.stringify({ ids }) })).map(mapProduct) },

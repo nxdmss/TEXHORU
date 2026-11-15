@@ -1,6 +1,20 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { IntegrationsController } = require('../dist/integrations/integrations.controller')
+const { oneCBodyHash, oneCSignatureMessage, signOneCRequest, safeHexEqual } = require('../dist/integrations/onec-signature')
+
+test('1C agent signature binds method, path, time, nonce and exact body', () => {
+  const secret = 'a-secure-agent-secret-with-more-than-24-characters'
+  const body = Buffer.from('{"state":"idle"}', 'utf8')
+  const signature = signOneCRequest(secret, 'POST', '/api/integrations/1c/remote/poll', '1794700000', 'c4bd450ca8c44852bda6fdbcab9be821', body)
+
+  assert.equal(signature.length, 64)
+  assert.equal(safeHexEqual(signature, signature.toUpperCase()), true)
+  assert.equal(safeHexEqual(signature, signOneCRequest(secret, 'POST', '/api/integrations/1c/remote/poll', '1794700000', 'c4bd450ca8c44852bda6fdbcab9be821', body)), true)
+  assert.equal(safeHexEqual(signature, signOneCRequest(secret, 'POST', '/api/integrations/1c/remote/poll', '1794700000', 'different-nonce-0000', body)), false)
+  assert.equal(safeHexEqual(signature, signOneCRequest(secret, 'POST', '/api/integrations/1c/remote/poll', '1794700000', 'c4bd450ca8c44852bda6fdbcab9be821', Buffer.from('{"state":"error"}'))), false)
+  assert.equal(oneCSignatureMessage('post', '/x', '1', 'n', oneCBodyHash('a')), `POST\n/x\n1\nn\n${oneCBodyHash('a')}`)
+})
 
 test('reverse retail-price exchange requires an explicit TEST server switch', async () => {
   const calls = []

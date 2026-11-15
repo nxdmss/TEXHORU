@@ -12,7 +12,27 @@ function Unprotect([string]$Value) {
 function Invoke-AgentApi([string]$Method, [string]$Path, $Body) {
     $json = $Body | ConvertTo-Json -Depth 15 -Compress
     if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 524288) { throw 'PAYLOAD_TOO_LARGE' }
-    Invoke-RestMethod -Method $Method -Uri ('https://' + $script:config.ApiHost + '/api/integrations/1c/remote/' + $Path) -Headers $script:headers -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8' -TimeoutSec 40
+    $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+    $apiPath = '/api/integrations/1c/remote/' + $Path
+    $timestamp = [string][int64](([DateTime]::UtcNow - [DateTime]'1970-01-01T00:00:00Z').TotalSeconds)
+    $nonce = [guid]::NewGuid().ToString('N')
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hmac = $null
+    try {
+        $bodyHash = -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
+        $message = $Method.ToUpperInvariant() + "`n" + $apiPath + "`n" + $timestamp + "`n" + $nonce + "`n" + $bodyHash
+        $hmac = New-Object Security.Cryptography.HMACSHA256 -ArgumentList (,[Text.Encoding]::UTF8.GetBytes($script:apiKey))
+        $signature = -join ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($message)) | ForEach-Object { $_.ToString('x2') })
+    } finally {
+        $sha.Dispose()
+        if ($hmac) { $hmac.Dispose() }
+    }
+    $headers = @{}
+    foreach ($key in $script:headers.Keys) { $headers[$key] = $script:headers[$key] }
+    $headers['x-1c-timestamp'] = $timestamp
+    $headers['x-1c-nonce'] = $nonce
+    $headers['x-1c-signature'] = $signature
+    Invoke-RestMethod -Method $Method -Uri ('https://' + $script:config.ApiHost + $apiPath) -Headers $headers -Body $bytes -ContentType 'application/json; charset=utf-8' -TimeoutSec 40
 }
 function Write-CatalogLog([string]$Code) {
     $path = Join-Path $AgentDir 'catalog-agent.log'
@@ -23,9 +43,10 @@ try {
     $locked = $mutex.WaitOne(0)
     if (-not $locked) { return }
     $script:config = Get-Content -LiteralPath (Join-Path $AgentDir 'catalog-config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($script:config.ApiHost -notmatch '^(?=.{1,253}$)[a-zA-Z0-9]+([a-zA-Z0-9.-]*[a-zA-Z0-9])?$' -or -not $script:config.BaseId) { throw 'CONFIG' }
+    if ($script:config.ApiHost -notmatch '^(?=.{1,253}$)[a-zA-Z0-9]+([a-zA-Z0-9.-]*[a-zA-Z0-9])?$' -or -not $script:config.BaseId -or $script:config.AgentId -notmatch '^[0-9a-fA-F-]{36}$') { throw 'CONFIG' }
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $script:headers = @{ 'x-1c-key' = (Unprotect $script:config.KeyProtected); 'x-1c-base-kind' = 'PRODUCTION'; 'x-1c-base-id' = $script:config.BaseId }
+    $script:apiKey = Unprotect $script:config.KeyProtected
+    $script:headers = @{ 'x-1c-key' = $script:apiKey; 'x-1c-base-kind' = 'PRODUCTION'; 'x-1c-base-id' = $script:config.BaseId; 'x-1c-agent-id' = $script:config.AgentId }
     . (Join-Path $AgentDir 'Read-UT103.ps1')
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $poll = Invoke-AgentApi 'POST' 'poll' @{ agentId = $script:config.AgentId; state = 'idle' }
@@ -59,6 +80,7 @@ try {
     if ($script:connection) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($script:connection); $script:connection = $null }
     if ($connector) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($connector) }
     if ($script:headers) { $script:headers.Clear() }
+    $script:apiKey = $null
     [GC]::Collect(); [GC]::WaitForPendingFinalizers()
     if ($locked) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
