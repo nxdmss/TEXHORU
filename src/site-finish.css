@@ -78,17 +78,125 @@ textarea { font-weight: 600; }
   max-width: 100%;
   align-self: end;
   justify-content: flex-end;
-  gap: 10px 12px;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(22, 22, 25, .07);
+  border-radius: 8px;
+  background: #f6f6f8;
 }
 
-.storefront .section-head--catalog .catalog-filter-field select {
-  min-height: 40px;
-  padding: 8px 28px 8px 12px;
-  border: 1px solid var(--tx-line);
+.storefront .section-head--catalog :is(.catalog-filter-field, .catalog-price-filter) {
+  display: grid;
+  grid-template-rows: 12px 42px;
+  gap: 6px;
+  min-width: 0;
+}
+
+.storefront .section-head--catalog :is(.catalog-filter-field, .catalog-price-filter) > span {
+  padding-inline: 2px;
+  color: #77777e;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.storefront .section-head--catalog .catalog-filter-field select,
+.storefront .catalog-stock-toggle__control,
+.storefront .section-head--catalog .catalog-price-filter input {
+  min-height: 42px;
+  border: 1px solid transparent;
   border-radius: 4px;
   background: #fff;
   color: var(--tx-ink);
   font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(22, 22, 25, .04);
+}
+
+.storefront .section-head--catalog .catalog-filter-field select {
+  min-width: 138px;
+  padding: 8px 30px 8px 12px;
+}
+
+.storefront .section-head--catalog .catalog-filter-field:last-of-type select { min-width: 206px; }
+
+.storefront .section-head--catalog .catalog-stock-toggle {
+  display: grid;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+}
+
+.storefront .catalog-stock-toggle__control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 132px;
+  padding: 0 12px;
+}
+
+.storefront .catalog-stock-toggle__control input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--tx-accent);
+}
+
+.storefront .catalog-stock-toggle__control b { font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+.storefront .section-head--catalog .catalog-price-filter {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.storefront .catalog-price-filter__inputs {
+  display: grid;
+  grid-template-columns: repeat(2, 74px);
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.storefront .section-head--catalog .catalog-price-filter input {
+  width: 74px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.storefront .section-head--catalog :is(select, input):focus {
+  position: relative;
+  z-index: 1;
+  border-color: var(--tx-accent);
+  outline: 0;
+}
+
+.storefront .section-head--catalog .catalog-reset {
+  align-self: end;
+  min-width: 88px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: #19191c;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.storefront .section-head--catalog .catalog-reset:disabled {
+  background: #e9e9ec;
+  color: #aaaab0;
+  cursor: default;
+}
+
+.storefront .section-head--catalog .catalog-reset:not(:disabled):hover {
+  background: var(--tx-accent);
+  color: #fff;
 }
 
 .storefront .catalog-toolbar--featured {
@@ -119,6 +227,24 @@ textarea { font-weight: 600; }
   letter-spacing: .01em;
 }
 
+/* Smartphone brands behave as one clear, persistent filter row. */
+.storefront .phone-journey__brand {
+  color: var(--tx-ink) !important;
+  font-size: clamp(14px, 1.15vw, 18px) !important;
+  font-weight: 600 !important;
+  opacity: 1;
+}
+
+.storefront .phone-journey__brand::after { content: none !important; }
+
+.storefront .phone-journey__brand.is-active {
+  color: var(--tx-accent) !important;
+  font-size: clamp(16px, 1.35vw, 21px) !important;
+  font-weight: 700 !important;
+}
+
+.storefront .phone-journey__brand:not(.is-active):hover { color: #55555b !important; }
+
 @media (max-width: 1180px) {
   .storefront .catalog .section-head--catalog {
     grid-template-columns: 1fr;
@@ -128,6 +254,7 @@ textarea { font-weight: 600; }
   .storefront .section-head--catalog .catalog-toolbar__controls {
     width: 100%;
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 
@@ -161,5 +288,19 @@ textarea { font-weight: 600; }
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
     gap: 9px !important;
+    padding: 9px;
   }
+
+  .storefront .section-head--catalog .catalog-filter-field select,
+  .storefront .catalog-stock-toggle__control { width: 100%; min-width: 0; }
+
+  .storefront .section-head--catalog .catalog-price-filter { grid-column: 1 / -1; }
+
+  .storefront .catalog-price-filter__inputs { grid-template-columns: 1fr 1fr; }
+
+  .storefront .section-head--catalog .catalog-price-filter input { width: 100%; }
+
+  .storefront .section-head--catalog .catalog-reset { width: 100%; }
+
+  .storefront .phone-journey__brand.is-active { font-size: 17px !important; }
 }

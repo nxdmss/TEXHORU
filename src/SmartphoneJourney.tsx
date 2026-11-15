@@ -60,7 +60,6 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
 }) {
   const inBrand = Boolean(activeBrand)
   const heading = activeBrand?.name || 'Все смартфоны'
-  const visibleBrands = brands.filter(brand => brand.slug !== activeBrand?.slug)
   return <section className="phone-journey">
     <div className="phone-journey__inner" key={activeBrand?.slug || "all"}>
       <nav className="phone-journey__back" aria-label="Путь по каталогу">
@@ -74,9 +73,10 @@ export function SmartphoneJourney({ brands, activeBrand, onOpen, children, count
         <p className="phone-journey__subheading">{inBrand ? (count ?? 0) + ' товаров' : (count ?? 0) + ' смартфонов'}</p>
       </header>
       <nav className="phone-journey__brands" aria-label="Фильтр по производителю">
-        {inBrand && <button className="phone-journey__brand phone-journey__brand--all" type="button"
-          onClick={e => onOpen('/catalog/smartphones', e.currentTarget.querySelector('span'))}><span>Все смартфоны</span></button>}
-        {visibleBrands.map(brand => <button className="phone-journey__brand" key={brand.slug} type="button"
+        <button className={'phone-journey__brand' + (!inBrand ? ' is-active' : '')} type="button" aria-current={!inBrand ? 'page' : undefined}
+          onClick={e => onOpen('/catalog/smartphones', e.currentTarget.querySelector('span'))}><span>Все смартфоны</span></button>
+        {brands.map(brand => <button className={'phone-journey__brand' + (brand.slug === activeBrand?.slug ? ' is-active' : '')} key={brand.slug} type="button"
+          aria-current={brand.slug === activeBrand?.slug ? 'page' : undefined}
           onClick={e => onOpen('/catalog/smartphones/' + encodeURIComponent(brand.slug), e.currentTarget.querySelector('span'))}>
           <span>{brand.name}</span>
         </button>)}

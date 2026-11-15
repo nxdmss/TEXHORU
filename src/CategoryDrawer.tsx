@@ -75,6 +75,10 @@ export function CategoryDrawer({ products, roots, groups = [], onClose, onSelect
   }, [page])
 
   function open(node: OneCNode) {
+    // The full-page catalog is an entry point, not a second copy of the 1C
+    // folder browser. Open the same storefront section as the home tiles so
+    // products and useful child sections are visible immediately.
+    if (page) { onSelect(categorySelection(node.path)); return }
     if (!node.children.length) { onSelect(categorySelection(node.path)); return }
     setPath(node.path)
     requestAnimationFrame(() => panel.current?.querySelector<HTMLButtonElement>('.category-menu__back')?.focus())
