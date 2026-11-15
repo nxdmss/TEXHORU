@@ -1,19 +1,16 @@
-import { HomeCollections } from './HomeCollections'
 import { AccountPage } from './AccountPage'
 import { RemoteCatalogPanel } from './RemoteCatalogPanel'
 import { Icon } from './Icon'
 import { CartDrawer } from './CartDrawer'
-import { CategoryDrawer } from './CategoryDrawer'
+import { BrandNavigation } from './BrandNavigation'
 import { ProductImage } from './ProductImage'
 import { cartLimit, restoreCart } from './store-utils'
-import { CatalogSections } from './CatalogSections'
 import { inCatalogSection } from './catalog-groups'
-import { ALL_CATALOG, categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
+import { categorySegments, categorySelection, categoryTree, childrenAtPath, selectedCategoryPath } from './onec-category-tree'
 import { PriceApprovalDashboard } from './PriceApprovalDashboard'
 import { PageBuilder } from './PageBuilder'
 import { AdminIcon } from './AdminIcon'
 import { AdminCategoryTree } from './AdminCategoryTree'
-import { SmartphonePortal, SmartphoneJourney, shopBrands, brandForProduct, isSmartphone } from './SmartphoneJourney'
 import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { rankCatalogProducts } from './catalog-search'
@@ -972,7 +969,6 @@ function App() {
   const [apiOnline, setApiOnline] = useState(false)
   const [cart, setCart] = useState<CartLine[]>(() => { try { return restoreCart(localStorage.getItem('texhoru_cart')) } catch { return [] } })
   const [path, setPath] = useState(() => window.location.pathname)
-  const lastPhonePath = useRef('/catalog/smartphones')
 
   const refreshPromos = () => api.promos().then((items) => { setPromos(items); setPromosLoaded(true) }).catch(() => { setPromos([]); setPromosLoaded(false) })
   const refreshHomeLayout = () => api.storefrontLayout().then((state) => setHomeLayout(normalizeStorefrontLayout(state.layout))).catch(() => setHomeLayout(defaultStorefrontLayout()))
@@ -1035,23 +1031,6 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
   const journeyMatch = path.match(/^\/catalog\/smartphones(?:\/([^/]+))?\/?$/)
-  const openJourney = (url: string, source?: HTMLElement | null) => {
-    if (url === '/') { goHome(); return }
-    const next = () => {
-      if (window.location.pathname !== url) window.history.pushState({}, '', url)
-      setPath(url)
-      setCategory('Все')
-      setStoreSection('')
-      setQuery('')
-      setStoreLimit(24)
-    }
-    if (window.location.pathname === url) return
-    if (url.startsWith('/catalog/smartphones')) lastPhonePath.current = url
-    animateCatalog(() => {
-      next()
-      if (!journeyMatch) window.scrollTo({ top: 0, behavior: 'instant' })
-    }, source)
-  }
   const productMatch = path.match(/^\/product\/(\d+)\/?$/)
   const orderMatch = path.match(/^\/order\/([^/]+)\/?$/)
   const mockPaymentMatch = path.match(/^\/payment\/mock\/([^/]+)\/?$/)
@@ -1070,28 +1049,6 @@ function App() {
   useEffect(() => { setStoreLimit(24) }, [storeSection, category, query, sort, onlyAvailable, brandFilter, minPrice, maxPrice, favoritesOnly])
   const catalogTotal = catalogGroups.reduce((sum, group) => sum + group.count, 0) || catalogProducts.length
   const useRemoteCatalog = !favoritesOnly && catalogTotal > catalogProducts.length
-  const smartphoneBrands = useMemo(() => {
-    if (!useRemoteCatalog) return shopBrands(catalogProducts)
-    const counts = new Map<string, number>()
-    for (const group of catalogGroups) {
-      if (!/смартфон|smartphone/i.test(group.path) || /аксессуар|чехол|чехлы|защитн|кабель/i.test(group.path)) continue
-      const brand = /^(iphone|apple)$/i.test(group.brand) ? 'Apple' : /^(redmi|poco|xiaomi)$/i.test(group.brand) ? 'Xiaomi' : group.brand
-      counts.set(brand, (counts.get(brand) || 0) + group.count)
-    }
-    return [...counts].map(([name,count]) => ({ name, count, slug: name.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '') }))
-  }, [catalogProducts, catalogGroups, useRemoteCatalog])
-  const selectedJourneyBrand = journeyMatch?.[1] ? smartphoneBrands.find(brand => brand.slug === decodeURIComponent(journeyMatch[1])) : undefined
-  const journeyProducts = useMemo(() => {
-    const matches = catalogProducts.filter(product => isSmartphone(product)
-      && (!selectedJourneyBrand || brandForProduct(product) === selectedJourneyBrand.name))
-    const mix = (id: number) => {
-      let value = id | 0
-      value = Math.imul(value ^ (value >>> 16), 0x45d9f3b)
-      value = Math.imul(value ^ (value >>> 16), 0x45d9f3b)
-      return (value ^ (value >>> 16)) >>> 0
-    }
-    return matches.sort((left, right) => mix(left.id) - mix(right.id))
-  }, [catalogProducts, selectedJourneyBrand])
   const categoryRoots = useMemo(() => categoryTree(catalogGroups.length ? catalogGroups.map(group => group.path) : catalogProducts.map(p => storefrontPath(p.category,p.name))), [catalogProducts, catalogGroups])
   const filterBrands = useMemo(() => [...new Set((catalogGroups.length ? catalogGroups.map(group => group.brand) : catalogProducts.map(product => product.brand))
     .filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ru')), [catalogGroups, catalogProducts])
@@ -1115,24 +1072,22 @@ function App() {
       : sort === 'name' ? found.sort((a,b) => a.name.localeCompare(b.name, 'ru')) : q ? rankCatalogProducts(found, q) : found
   }, [category, query, catalogProducts, favoriteProducts, favoritesOnly, storeSection, selectedBrowsePath, browseChildren.length, sort, onlyAvailable, brandFilter, minPrice, maxPrice])
   const filtered = useRemoteCatalog && !isFeaturedView ? remoteCatalog.items : localFiltered
-  const visibleJourneyProducts = useRemoteCatalog ? remoteCatalog.items : journeyProducts
   useEffect(() => {
-    if (!useRemoteCatalog || (path !== '/' && !journeyMatch) || (!journeyMatch && isFeaturedView)) return
+    if (!useRemoteCatalog || path !== '/' || isFeaturedView) return
     let active = true
     const page = Math.ceil(storeLimit / 24)
     setRemoteLoading(true); setRemoteError('')
     if (page === 1) setRemoteCatalog({ items: [], total: 0, hasMore: false })
     const timer = window.setTimeout(() => {
-      void api.catalogPage({ page, take: 24, q: journeyMatch ? undefined : query.trim(), path: journeyMatch ? undefined : selectedBrowsePath || (category !== 'Все' ? category : undefined),
-        brand: journeyMatch ? selectedJourneyBrand?.name : brandFilter || undefined, smartphones: journeyMatch ? 'true' : undefined,
-        minPrice: minPrice ? Number(minPrice) : undefined, maxPrice: maxPrice ? Number(maxPrice) : undefined,
-        sort: journeyMatch ? 'recommended' : sort, available: onlyAvailable ? 'true' : undefined,
+      void api.catalogPage({ page, take: 24, q: query.trim(), path: selectedBrowsePath || (category !== 'Все' ? category : undefined),
+        brand: brandFilter || undefined, minPrice: minPrice ? Number(minPrice) : undefined, maxPrice: maxPrice ? Number(maxPrice) : undefined,
+        sort, available: onlyAvailable ? 'true' : undefined,
       }).then(result => { if (active) setRemoteCatalog(current => ({ ...result, items: page === 1 ? result.items : [...current.items, ...result.items.filter(item => !current.items.some(old => old.id === item.id))] })) })
         .catch(() => { if (active) setRemoteError('Не удалось загрузить товары. Попробуйте обновить страницу.') })
         .finally(() => { if (active) setRemoteLoading(false) })
     }, query.trim() ? 200 : 0)
     return () => { active = false; clearTimeout(timer) }
-  }, [useRemoteCatalog, isFeaturedView, path, query, category, selectedBrowsePath, selectedJourneyBrand?.name, sort, onlyAvailable, brandFilter, minPrice, maxPrice, storeLimit])
+  }, [useRemoteCatalog, isFeaturedView, path, query, category, selectedBrowsePath, sort, onlyAvailable, brandFilter, minPrice, maxPrice, storeLimit])
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   const addToCart = (product: Product) => {
     if (!cartLimit(product)) return
@@ -1153,7 +1108,6 @@ function App() {
   const changeQuantity = (productId: number, delta: number) => setCart(current => current.map(item => item.product.id === productId
     ? { ...item, quantity: Math.max(1, Math.min(cartLimit(item.product), item.quantity + delta)) } : item))
   const openProduct = (product: Product) => {
-    if (journeyMatch) lastPhonePath.current = path
     navigate(`/product/${product.id}`)
   }
   const jumpToCatalog = (nextCategory: Category = 'Все', preserveSearch = false) => {
@@ -1168,28 +1122,23 @@ function App() {
       window.requestAnimationFrame(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     }
   }
-  const jumpToStoreSection = (nextSection: string) => {
+  const openBrandModel = (model: string) => {
     setFavoritesOnly(false)
     setCategory('Все')
-    setQuery('')
-    setStoreSection(nextSection)
-    if (window.location.pathname !== '/') {
-      navigate('/')
-      window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
-    } else {
-      window.requestAnimationFrame(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-    }
+    setStoreSection('')
+    setBrandFilter('')
+    setMinPrice('')
+    setMaxPrice('')
+    setOnlyAvailable(false)
+    setQuery(model)
+    setStoreLimit(24)
+    navigate('/')
+    window.requestAnimationFrame(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
-  const renderCollectionsBlock = (block?: StorefrontBlock) => <HomeCollections products={catalogProducts} roots={categoryRoots}
-    title={block?.title} onSelect={selection => animateCatalog(() => jumpToStoreSection(selection))}
-    onSmartphones={() => openJourney('/catalog/smartphones')} />
-
-  const featuredPhone = catalogProducts.find(product => isSmartphone(product) && (product.stockQty ?? 0) > 0)
-  const renderSmartphoneBlock = () => featuredPhone ? <SmartphonePortal onOpen={openJourney} featured={featuredPhone} /> : null
 
   const renderPromoBlock = (block: StorefrontBlock) => {
     const items = promosLoaded ? promos.filter((item) => item.blockId === block.id && item.device === storefrontDevice && item.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder) : []
-    if (!items.length) return block.id === 'home-promos' ? renderSmartphoneBlock() : null
+    if (!items.length) return null
     return <StorefrontPromoCarousel items={items} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
   }
 
@@ -1206,12 +1155,10 @@ function App() {
 
       {!folderOnly && <>
         {!favoritesOnly && isFeaturedView && <div className="catalog-toolbar catalog-toolbar--featured"><div className="catalog-result-count" aria-live="polite">{String(filtered.length)} популярных моделей в наличии</div></div>}
-        {!favoritesOnly && !isFeaturedView && !query.trim() && <CatalogSections items={catalogGroups.length ? catalogGroups.map(group => ({ name: '', categoryName: group.path, count: group.count })) : catalogProducts.map(p => ({ name: p.name, categoryName: storefrontPath(p.category,p.name) }))} selection={storeSection} onSelect={jumpToStoreSection} hierarchical />}
         {(catalogLoading || (useRemoteCatalog && remoteLoading && !remoteCatalog.items.length)) && <div className="catalog-loading" role="status">Загружаем товары…</div>}
         {(catalogError || remoteError) && <div className="empty-search" role="alert">{catalogError || remoteError}<button className="catalog-more" onClick={() => window.location.reload()}>Повторить</button></div>}
         <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
           <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
-        {isFeaturedView && <button className="catalog-more" onClick={() => { setStoreSection(ALL_CATALOG); setCategory('Все'); }}>Весь каталог · {catalogTotal} товаров</button>}
         {!isFeaturedView && (useRemoteCatalog ? remoteCatalog.hasMore : filtered.length > storeLimit) &&
           <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n + 24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
         {!catalogLoading && !catalogError && !(useRemoteCatalog && (remoteLoading || remoteError)) && filtered.length === 0 && <div className="empty-search">{favoritesOnly ? 'В избранном пока пусто. Нажмите на сердце у нужного товара.' : 'Товары не найдены. Попробуйте другое название или выберите другой раздел.'}</div>}
@@ -1226,10 +1173,8 @@ function App() {
   const visibleHomeBlocks = storefrontBlocksFor(homeLayout, storefrontDevice).filter((block) => block.visible)
   const firstProductBlock = visibleHomeBlocks.find((block) => block.type === 'products')?.id
   const renderFeaturedBlock = (block: StorefrontBlock) => {
-    const content = block.type === 'collections' ? renderCollectionsBlock(block)
-      : block.type === 'promo' ? renderPromoBlock(block)
+    const content = block.type === 'promo' ? renderPromoBlock(block)
       : block.type === 'products' ? renderCatalogBlock(block, block.id === firstProductBlock)
-      : block.type === 'smartphones' ? renderSmartphoneBlock()
       : renderTextBlock(block)
     if (!content) return null
     return <div key={block.id} className={`storefront-layout__block storefront-layout__block--${block.type}`} data-width={block.width}
@@ -1246,7 +1191,7 @@ function App() {
     const cartQuantity = cart.find(line => line.product.id === product.id)?.quantity || 0
     const available = Boolean(cartLimit(product))
     return <section className="product-page product-studio" key={product.id}>
-      <button className="back-link product-studio__back" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /><span>Каталог</span></button>
+      <button className="back-link product-studio__back" onClick={() => navigate('/')}><Icon name="back" /><span>Каталог</span></button>
 
       <div className="product-page__layout product-studio__hero">
         <div className="product-page__visual product-studio__visual">
@@ -1304,15 +1249,9 @@ function App() {
   const tokenFromQuery = new URLSearchParams(window.location.search).get('token') || ''
   let content
   if (isAdminPage) content = <AdminPage onBack={goHome} />
-  else if (isCatalogPage) content = <CategoryDrawer page products={catalogProducts} groups={catalogGroups} roots={categoryRoots} onClose={goHome} onSelect={jumpToStoreSection} onAccount={() => navigate('/account')} />
+  else if (isCatalogPage) content = <section className="catalog-empty-page" aria-label="Каталог" />
   else if (isCartPage) content = <CartDrawer page cart={cart} online={apiOnline} onClose={goHome} onOpenProduct={openProduct} onQuantity={changeQuantity} onRemove={id => setCart(current => current.filter(item => item.product.id !== id))} onCheckout={() => navigate('/checkout')} />
-  else if (journeyMatch) content = <SmartphoneJourney brands={smartphoneBrands} activeBrand={selectedJourneyBrand} onOpen={openJourney}>
-    {visibleJourneyProducts.length > 0
-      ? <div className="product-grid">{visibleJourneyProducts.map(product =>
-          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
-      : <div className="empty-search">{useRemoteCatalog && remoteLoading ? 'Загружаем смартфоны…' : remoteError || 'В наличии нет смартфонов в этом разделе.'}</div>}
-    {useRemoteCatalog && remoteCatalog.hasMore && <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n+24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
-  </SmartphoneJourney>
+  else if (journeyMatch) content = <section className="catalog-empty-page" aria-label="Каталог" />
   else if (mockPaymentMatch) content = <MockPaymentPage paymentId={mockPaymentMatch[1]} trackingToken={tokenFromQuery} onDone={() => navigate(`/order/${tokenFromQuery}`)} />
   else if (orderMatch) content = <OrderStatusPage trackingToken={orderMatch[1]} onHome={goHome} />
   else if (isCheckoutPage) content = <CheckoutPage cart={cart} onBack={goHome} onCreated={(order) => { setCart([]); navigate(`/order/${order.trackingToken}`) }} />
@@ -1323,7 +1262,7 @@ function App() {
   const headerSection = isCartPage ? 'Корзина' : isCatalogPage ? 'Каталог' : isFavoritesPage ? 'Избранное'
     : isCheckoutPage ? 'Оформление' : isAccountPage || authScreen ? 'Личный кабинет'
     : orderMatch ? 'Заказ' : mockPaymentMatch ? 'Оплата' : isProductPage ? 'Товар'
-    : journeyMatch ? selectedJourneyBrand?.name || 'Смартфоны' : 'Главная'
+    : journeyMatch ? 'Каталог' : 'Главная'
   const headerHasSearch = !isFavoritesPage && !isCartPage && !isAccountPage && !authScreen
     && !isCheckoutPage && !orderMatch && !mockPaymentMatch
 
@@ -1338,10 +1277,11 @@ function App() {
       {!isAccountPage && !authScreen && <button className="ghost-button header-account" onClick={() => navigate('/account')}><Icon name="user" /><span>Личный кабинет</span></button>}
       {!isCartPage && <button className="cart-button" onClick={() => navigate('/cart')}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>}
     </div>
-    {!isCatalogPage && <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Категории товаров"><Icon name="menu" /><span>Каталог</span></button></div>}
+    {!isCatalogPage && <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Открыть каталог"><Icon name="menu" /><span>Каталог</span></button></div>}
   </header>}
+  {!isAdminPage && <BrandNavigation products={catalogProducts} onSelectModel={openBrandModel} />}
   {!isAdminPage && !isCatalogPage && !isCartPage && !isFavoritesPage && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
-  <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => jumpToStoreSection(ALL_CATALOG)}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
+  <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => navigate('/catalog')}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
   {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={isCatalogPage ? 'active' : ''} onClick={() => navigate('/catalog')}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={isFavoritesPage ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={isCartPage ? 'active' : ''} onClick={() => navigate('/cart')}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
 
   </div>

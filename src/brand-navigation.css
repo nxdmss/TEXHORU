@@ -1,0 +1,162 @@
+/* A quiet model rail replaces category tiles and nested storefront folders. */
+.storefront .brand-navigation {
+  position: relative;
+  z-index: 18;
+  width: 100%;
+  min-height: 52px;
+  border-bottom: 1px solid var(--tx-line);
+  background: rgba(255,255,255,.96);
+}
+
+.storefront .brand-navigation__rail {
+  display: flex;
+  align-items: center;
+  gap: clamp(5px, 1.25vw, 18px);
+  width: min(var(--storefront-frame), calc(100% - (var(--storefront-gutter) * 2)));
+  height: 52px;
+  margin: 0 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.storefront .brand-navigation__rail::-webkit-scrollbar { display: none; }
+.storefront .brand-navigation__rail > button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #65656c;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.storefront .brand-navigation__rail > button:is(:hover,.is-active,:focus-visible) {
+  border-color: #d6d6db;
+  background: #fafafa;
+  color: var(--tx-ink);
+}
+
+.storefront .brand-navigation__panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  padding: 18px var(--storefront-gutter) 22px;
+  border-bottom: 1px solid var(--tx-line);
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 22px 40px rgba(18,18,24,.08);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.storefront .brand-navigation__models {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  width: min(var(--storefront-frame), 100%);
+  margin: 0 auto;
+}
+.storefront .brand-navigation__models > button {
+  min-width: 0;
+  padding: 9px 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+.storefront .brand-navigation__models > button:hover {
+  border-color: #dcdce1;
+  background: #f7f7f9;
+  transform: translateY(-2px);
+}
+.storefront .brand-navigation__visual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 118px;
+  margin-bottom: 9px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #f6f6f8;
+}
+.storefront .brand-navigation__visual .product-shot { inset: 8px; }
+.storefront .brand-navigation__visual .category-menu__illustration { width: 62px; height: 62px; color: #ef0038; stroke-width: 1.25; }
+.storefront .brand-navigation__models strong { display: block; overflow: hidden; font-size: 11px; font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The old catalog route intentionally stays clear; model navigation lives above it. */
+.storefront .catalog-empty-page { min-height: clamp(460px, 65vh, 780px); }
+
+/* A slightly softer system-wide geometry without turning the shop into bubbles. */
+.storefront :is(.storefront-carousel__viewport,.product-media,.product-studio__visual,.product-studio__summary,
+  .product-story__panel,.cart-line,.checkout-form,.checkout-summary,.customer-panel,.customer-order,.order-track__panel) {
+  border-radius: 6px !important;
+}
+
+/* The desktop hero is intentionally wider and calmer than the uploaded 1920×720 source. */
+@media (min-width: 1100px) {
+  .storefront .storefront-page-grid[data-device="desktop"] .storefront-carousel__viewport { aspect-ratio: 16 / 5 !important; }
+}
+
+@media (max-width: 900px) {
+  .storefront .brand-navigation__models { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .storefront .brand-navigation__models > button:nth-child(n+5) { display: none; }
+}
+
+/* At tablet width the storefront header intentionally uses two rows.  A late
+   legacy height rule used to collapse those rows to 74px and leave the model
+   rail underneath the catalog/search controls. */
+@media (min-width: 700px) and (max-width: 800px) {
+  .storefront .header.header--storefront {
+    grid-template-columns: auto minmax(0, 1fr) !important;
+    grid-template-rows: 44px 44px !important;
+    height: 122px !important;
+    min-height: 122px !important;
+    gap: 10px 12px !important;
+    padding-block: 12px !important;
+    overflow: visible;
+  }
+  .storefront .header.header--storefront > .brand {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+  .storefront .header.header--storefront .header-actions {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+  .storefront .header.header--storefront .header-tools {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+  }
+  .storefront .header.header--storefront .header-search-inline {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+  }
+}
+
+@media (max-width: 699px) {
+  .storefront .brand-navigation { min-height: 44px; }
+  .storefront .brand-navigation__rail {
+    width: 100%;
+    height: 44px;
+    padding: 0 14px;
+    gap: 4px;
+  }
+  .storefront .brand-navigation__rail > button { min-height: 30px; padding-inline: 9px; font-size: 11px; }
+  .storefront .brand-navigation__panel { padding: 12px 14px 16px; }
+  .storefront .brand-navigation__models { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .storefront .brand-navigation__models > button { display: block !important; padding: 7px; }
+  .storefront .brand-navigation__models > button:nth-child(n+5) { display: none !important; }
+  .storefront .brand-navigation__visual { height: 104px; }
+  .storefront .brand-navigation__models strong { font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storefront .brand-navigation__rail > button,
+  .storefront .brand-navigation__models > button { transition: none; }
+}
