@@ -3,8 +3,7 @@ import { featuredPhoneImage } from './catalog-navigation'
 
 const money = new Intl.NumberFormat('ru-RU')
 export const formatMoney = (value: number) => money.format(value) + ' ₽'
-export const productImage = (product: Pick<Product, 'name' | 'image'>) => /iphone\s*\d+/i.test(product.name)
-  ? featuredPhoneImage(product.name, product.image) : product.image
+export const productImage = (product: Pick<Product, 'name' | 'image'>) => featuredPhoneImage(product.name, product.image)
 export const cartLimit = (product: Product) => product.stock === 'Под заказ' ? Number.MAX_SAFE_INTEGER
   : Math.max(0, Math.floor(product.stockQty ?? Number.MAX_SAFE_INTEGER))
 

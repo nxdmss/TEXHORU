@@ -1,0 +1,22 @@
+{
+  "scope": "First 10 active products returned by /api/catalog/home on 2026-11-15",
+  "policy": "Exact model and colour only; uploaded administrator images always take priority.",
+  "officialReferences": [
+    "https://support.apple.com/en-us/108044",
+    "https://www.honor.com/global/phones/honor-600/",
+    "https://www.honor.com/global/phones/honor-x9d/"
+  ],
+  "generatedCutouts": [
+    "public/products/apple/iphone-11-black.webp",
+    "public/products/apple/iphone-11-pro-max-graphite.webp",
+    "public/products/apple/iphone-16-ultramarine.webp",
+    "public/products/honor/honor-600-black.webp",
+    "public/products/honor/honor-x9d-graphite.webp"
+  ],
+  "reusedExistingCutouts": [
+    "public/products/apple/iphone-15-black.png",
+    "public/products/apple/iphone-15-blue.png",
+    "public/products/apple/iphone-16-black.png",
+    "public/products/apple/iphone-16-white.png"
+  ]
+}

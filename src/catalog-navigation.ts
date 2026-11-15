@@ -58,32 +58,47 @@ export function featuredProducts<T extends { id: number; name: string; category:
   return result
 }
 
-/** Locally hosted Apple product images. Match model AND colour; preserve uploaded photos. */
+/** Locally hosted product images. Match model AND colour; preserve uploaded photos. */
 const iphonePhotoColors: Record<string, readonly string[]> = {
+  '11': ['black'],
+  '11-pro-max': ['graphite'],
   '12': ['blue'],
   '13': ['black', 'white', 'blue'],
   '14': ['black', 'white'],
   '15': ['black', 'pink', 'blue'],
-  '16': ['black', 'white', 'green', 'pink'],
+  '16': ['black', 'white', 'green', 'pink', 'ultramarine'],
   '16e': ['black'],
   '17': ['black', 'white', 'blue', 'green'],
   'air': ['black'],
   '17-pro': ['white', 'blue', 'orange'],
   '17-pro-max': ['white', 'blue', 'orange'],
 }
+const pilotWebpPhotos = new Set(['11-black', '11-pro-max-graphite', '16-ultramarine'])
 export function featuredPhoneImage(name: string, image?: string) {
   if (image && !/\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(image)) return image
   const fallback = image || '/products/phone.svg'
   if (/чехол|накладк|стекл|кабел|пленк|плёнк|защитн|линз|\b(?:case|cover|glass|protector)\b/i.test(name)) return fallback
-  const match = name.match(/\biphone\s*(1[2-7])\s*(pro\s*max|pro|plus|mini|air|e)?\b/i)
+
+  if (/\bhonor\s*600\b(?!\s*pro)/i.test(name) && /ч[её]рн|black|графит|graphite/i.test(name)) {
+    return '/products/honor/honor-600-black.webp'
+  }
+  if (/\bhonor\s*x9d\b/i.test(name) && /ч[её]рн|black|графит|graphite/i.test(name)) {
+    return '/products/honor/honor-x9d-graphite.webp'
+  }
+
+  const match = name.match(/\biphone\s*(1[1-7])\s*(pro\s*max|pro|plus|mini|air|e)?\b/i)
   const variant = (match?.[2] || '').toLowerCase().replace(/\s+/g, '-')
   const model = /\biphone\s+air\b/i.test(name) || match?.[1] === '17' && variant === 'air' ? 'air'
     : match ? match[1] + (variant === 'e' ? 'e' : variant ? '-' + variant : '') : ''
   const colour = /оранж|orange/i.test(name) ? 'orange'
     : /ч[её]рн|black|midnight/i.test(name) ? 'black'
+    : /графит|graphite/i.test(name) ? 'graphite'
     : /бел|white|silver|starlight|серебр/i.test(name) ? 'white'
     : /розов|pink/i.test(name) ? 'pink'
     : /зел[её]н|green|teal|sage/i.test(name) ? 'green'
+    : /ультрамарин|ultramarine/i.test(name) ? 'ultramarine'
     : /син|голуб|blue/i.test(name) ? 'blue' : ''
-  return iphonePhotoColors[model]?.includes(colour) ? `/products/apple/iphone-${model}-${colour}.png` : fallback
+  if (!iphonePhotoColors[model]?.includes(colour)) return fallback
+  const key = `${model}-${colour}`
+  return `/products/apple/iphone-${key}.${pilotWebpPhotos.has(key) ? 'webp' : 'png'}`
 }
