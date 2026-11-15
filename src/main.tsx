@@ -22,6 +22,7 @@ import './desktop-polish.css'
 import './admin-desktop.css'
 import './site-finish.css'
 import './brand-navigation.css'
+import './transparent-products.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

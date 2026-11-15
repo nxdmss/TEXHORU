@@ -1,0 +1,37 @@
+/* Product photography always sits directly on the page canvas. Keep this file
+   last in the cascade so device-specific and legacy layouts cannot restore a
+   grey image tile. */
+.storefront :is(
+  .product-media,
+  .product-page__visual,
+  .product-studio__visual,
+  .cart-line__image,
+  .checkout-item__image,
+  .category-menu__visual,
+  .brand-navigation__visual,
+  .home-collection-image
+),
+.cart-drawer .cart-line__image,
+.admin-control :is(.admin-product-tile__image, .admin-live-card__media) {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.storefront :is(
+  .product-media,
+  .product-page__visual,
+  .product-studio__visual,
+  .cart-line__image,
+  .checkout-item__image,
+  .category-menu__visual,
+  .brand-navigation__visual,
+  .home-collection-image
+) :is(img, .product-shot),
+.cart-drawer .cart-line__image :is(img, .product-shot),
+.admin-control :is(.admin-product-tile__image, .admin-live-card__media) :is(img, .product-shot) {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}

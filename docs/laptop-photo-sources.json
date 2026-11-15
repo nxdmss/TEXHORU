@@ -3,12 +3,12 @@
   "policy": "Branded laptops use official manufacturer storefront images. Every card must show an open laptop from the front or a three-quarter merchandising angle; side, rear, closed-lid and similar-model substitutions are forbidden.",
   "files": [
     {
-      "file": "acer-al15-31p-c1cs.jpg",
+      "file": "acer-al15-31p-c1cs.png",
       "model": "Acer Aspire AL15-31P-C1CS / NX.KZ7ER.003",
       "sourcePage": "https://www.acer.com/us-en/laptops/aspire/aspire-lite",
       "sourceImage": "https://images.acer.com/is/image/acer/aspire-lite-series-ksp1:KSP-with-Specs-XL",
-      "transform": "Cropped to the open Aspire Lite laptop without changing the product render.",
-      "sha256": "06b5592da1fd0d98d6f96eb6c1973e5abc99df731ef3624f9e62c0f86e9f7eff"
+      "transform": "Cropped and isolated on transparency without changing the product render.",
+      "sha256": "9e6689ff329ebe33fdc37b1296ca5f59e859a453a8257aa0e193d3a1fc2266cd"
     },
     {
       "file": "macbook-neo-mhff4x-indigo.png",
@@ -46,11 +46,12 @@
       "sha256": "5b5a071a82c63eeae1fd796b8a195e0f3323da69585172e9b8176a7bebc077f9"
     },
     {
-      "file": "infinix-xbook-15-71005000609.webp",
+      "file": "infinix-xbook-15-71005000609.png",
       "model": "Infinix XBOOK 15 YL512 / 71005000609",
       "sourcePage": "https://www.infinixmobility.com/xbook-15",
       "sourceImage": "https://d3o31au25zfcly.cloudfront.net/newfileadmin/usp/xbook-15/global/xbook-15/sec2/pc/2.webp",
-      "sha256": "50e1f956d0575eb1902aba04fc6d5a0caf97c4e59573590a6a71a016daf87ff8"
+      "transform": "Isolated on transparency without changing the product render.",
+      "sha256": "71684e0f12144ef53e457bddae8a6d84e5e367109deb04fc5bf361a8192dba8a"
     }
   ]
 }

@@ -75,16 +75,16 @@ const iphonePhotoColors: Record<string, readonly string[]> = {
 }
 const pilotWebpPhotos = new Set(['11-black', '11-pro-max-graphite', '16-ultramarine'])
 const catalogLaptopPhotos: Array<[RegExp, string]> = [
-  [/\bacer\s+aspire\s+al15-31p-c1cs\b/i, '/products/laptops/acer-al15-31p-c1cs.jpg'],
+  [/\bacer\s+aspire\s+al15-31p-c1cs\b/i, '/products/laptops/acer-al15-31p-c1cs.png'],
   [/\bmacbook\s+neo\b.*\bmhff4x?\b/i, '/products/laptops/macbook-neo-mhff4x-indigo.png'],
   [/\bmacbook\s+neo\b.*\bmhfc4(?:ll)?\b/i, '/products/laptops/macbook-neo-mhfc4-silver.png'],
   [/\basus\s+vivobook\s+15\s+x1504ma-bq224\b/i, '/products/laptops/asus-x1504ma-bq224.png'],
   [/\basus\s+vivobook\s+go\s+l1504fa-bq1969\b/i, '/products/laptops/asus-l1504fa-bq1969.png'],
   [/\bhuawei\s+matebook\s+d\s*16\b.*\b53014qkw\b/i, '/products/laptops/huawei-matebook-d16-53014qkw.png'],
-  [/\binfinix\s+xbook\s+15\b.*\b71005000609\b/i, '/products/laptops/infinix-xbook-15-71005000609.webp'],
+  [/\binfinix\s+xbook\s+15\b.*\b71005000609\b/i, '/products/laptops/infinix-xbook-15-71005000609.png'],
 ]
 const catalogPhonePhotos: Array<[RegExp, string]> = [
-  [/\bhonor\s*x9d\b.*(?:бежев|beige)/i, '/products/honor/honor-x9d-beige.webp'],
+  [/\bhonor\s*x9d\b.*(?:бежев|beige)/i, '/products/honor/honor-x9d-beige.png'],
   [/\bhonor\s*x9d\b.*(?:мятн|mint)/i, '/products/honor/honor-x9d-mint.webp'],
   [/\bhonor\s*600\s*pro\b.*(?:золот|gold)/i, '/products/honor/honor-600-pro-gold.webp'],
   [/\bhonor\s*x7e\b.*(?:голуб|blue)/i, '/products/honor/honor-x7e-blue.webp'],
