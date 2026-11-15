@@ -1,55 +1,56 @@
 {
   "verifiedAt": "2026-11-15",
-  "policy": "Each local asset is tied to the exact model/article shown in the source listing. Similar-model substitutions are forbidden.",
+  "policy": "Branded laptops use official manufacturer storefront images. Every card must show an open laptop from the front or a three-quarter merchandising angle; side, rear, closed-lid and similar-model substitutions are forbidden.",
   "files": [
     {
       "file": "acer-al15-31p-c1cs.jpg",
       "model": "Acer Aspire AL15-31P-C1CS / NX.KZ7ER.003",
-      "sourcePage": "https://megamarket.ru/catalog/details/noutbuk-acer-aspire-al15-31p-c1cs-serebristyy-nxkz7er003-100072804865/otzyvy/",
-      "sourceImage": "https://main-cdn.sbermegamarket.ru/big2/hlr-system/-10/453/150/681/227/113/5/100072804865b1.jpg",
-      "sha256": "d01c3c344944a657091474dba7973ae6961b425df5d3b7072b7fa43a7f8f0c00"
+      "sourcePage": "https://www.acer.com/us-en/laptops/aspire/aspire-lite",
+      "sourceImage": "https://images.acer.com/is/image/acer/aspire-lite-series-ksp1:KSP-with-Specs-XL",
+      "transform": "Cropped to the open Aspire Lite laptop without changing the product render.",
+      "sha256": "06b5592da1fd0d98d6f96eb6c1973e5abc99df731ef3624f9e62c0f86e9f7eff"
     },
     {
-      "file": "macbook-neo-mhff4x-indigo.jpg",
+      "file": "macbook-neo-mhff4x-indigo.png",
       "model": "Apple MacBook Neo 13 MHFF4X Indigo 8/256 GB",
-      "sourcePage": "https://market.yandex.ru/card/noutbuk-apple-macbook-neo-facetime-hd-1080p-60-gts-8256gb-indigo-mhff4/6074499893",
-      "sourceImage": "https://images.biggeek.ru/1/870/f2ce/37083-485Neo_blue@2x.jpg",
-      "sha256": "256e36e1be8d4e709417cc797d14a90717ce2a3a77f44099efe172c26aa3e467"
+      "sourcePage": "https://www.apple.com/shop/buy-mac/macbook-neo",
+      "sourceImage": "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macbook-neo-indigo-cto-hero-202603?wid=2400&hei=1800&fmt=png-alpha",
+      "sha256": "78bb9e504ebd230594c3411b038cecdf49104f4c7bd9301192536197acf83f37"
     },
     {
       "file": "macbook-neo-mhfc4-silver.png",
       "model": "Apple MacBook Neo 13 MHFC4 Silver 8/512 GB",
-      "sourcePage": "https://justalk.ru/product/macbook-neo-512-silver/",
-      "sourceImage": "https://justalk.ru/pictures/tovar/big/neo-silver_03_1.png",
-      "sha256": "bf742286efeeb602e80bea744070a20e6f76fb07496ad14411d61acec22e604a"
+      "sourcePage": "https://www.apple.com/shop/buy-mac/macbook-neo",
+      "sourceImage": "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macbook-neo-silver-cto-hero-202603?wid=2400&hei=1800&fmt=png-alpha",
+      "sha256": "62606c973627b2caf75d1c3e8f906aa89fb11d757d1aa6dbef6a68d4c5a93619"
     },
     {
-      "file": "asus-x1504ma-bq224.jpg",
+      "file": "asus-x1504ma-bq224.png",
       "model": "ASUS Vivobook 15 X1504MA-BQ224 / 90NB17I2-M01370",
-      "sourcePage": "https://m.onlinetrade.ru/catalogue/noutbuki-c9/asus/noutbuk_asus_vivobook_15_x1504ma_bq224_90nb17i2_m01370_win11p_intel_core_5_320_1500mhz_15.6_1920x1080_8gb_512gb_ssd_intel_graphics_wi_fi_bluetooth_windows_11_pro_silver_90nb17i2_m01370_w11p-5464894.html",
-      "sourceImage": "https://static.onlinetrade.ru/img/items/m/noutbuk_asus_vivobook_15_x1504ma_bq224_90nb17i2_m01370_win11p_intel_core_5_320_1500mhz_15.6_1920x1080_8gb_512gb_ssd_intel_graphics_wi_fi_bluetooth_windows_11_pro_silver_3896238_3.jpg",
-      "sha256": "0958817726568aa607c08bf8acbdbced87a929efa85cc092a26c344209ad62ce"
+      "sourcePage": "https://www.asus.com/laptops/for-home/vivobook/asus-vivobook-15-x1504/",
+      "sourceImage": "https://dlcdnwebimgs.asus.com/gain/69f86903-0756-4db3-976e-ebe1a26c357d/",
+      "sha256": "14a21af89bbee6bbe8674a6633ad2cfcc4498719e4de1a87fac48a5ed651430a"
     },
     {
-      "file": "asus-l1504fa-bq1969.jpg",
+      "file": "asus-l1504fa-bq1969.png",
       "model": "ASUS Vivobook Go L1504FA-BQ1969 / 90NBZR2-M035Y0",
-      "sourcePage": "https://m.onlinetrade.ru/catalogue/noutbuki-c9/asus/noutbuk_asus_vivobook_go_l1504fa_15.6_ips_amd_ryzen_5_7520u_2.8ggts_4_yadernyy_16gb_ddr5_512gb_ssd_amd_radeon_610m_bez_os_chernyy_90nbzr2_m035y0-5490388.html",
-      "sourceImage": "https://static.onlinetrade.ru/img/items/m/noutbuk_asus_vivobook_go_l1504fa_amd_ryzen_5_7520u_16gb_ssd512gb_uma_15.6_ips_fhd_1920x1080_60hz_noos_black_1.63kg_3912351_4.jpg",
-      "sha256": "b152a53aa1c808339385e65ca6f0be1951d21f8ce6a8b65b05206ad7b7997895"
+      "sourcePage": "https://www.asus.com/ca-en/laptops/for-home/vivobook/vivobook-go-15-l1504f/",
+      "sourceImage": "https://dlcdnwebimgs.asus.com/gain/11f25332-2a1e-4e50-b861-7620db7f718f/",
+      "sha256": "b67bf5e1e08a49061fd2b3c60fc5af129e5fece29e015617b4cf01c74713d624"
     },
     {
-      "file": "huawei-matebook-d16-53014qkw.jpg",
+      "file": "huawei-matebook-d16-53014qkw.png",
       "model": "HUAWEI MateBook D 16 MCLG-X / 53014QKW",
-      "sourcePage": "https://market.yandex.ru/card/noutbuk-huawei-matebook-d16-53014qkw/6169602270",
-      "sourceImage": "https://avatars.mds.yandex.net/get-mpic/18761200/2a0000019c6e7d994fcc40468ab26249242c/orig",
-      "sha256": "d02e4d3cd3ea0e70fbed6df7b23131cc41f1028acc9821e0bb27602353b21df7"
+      "sourcePage": "https://consumer.huawei.com/uz/laptops/matebook-d-16/",
+      "sourceImage": "https://consumer.huawei.com/dam/content/dam/huawei-cbg-site/common/mkt/pdp/pc/matebook-d-16/img/kv/huawei-matebook-d-16-key-vision.png",
+      "sha256": "5b5a071a82c63eeae1fd796b8a195e0f3323da69585172e9b8176a7bebc077f9"
     },
     {
       "file": "infinix-xbook-15-71005000609.webp",
       "model": "Infinix XBOOK 15 YL512 / 71005000609",
-      "sourcePage": "https://shop.by/noutbuki/infinix_xbook_15_yl512_71005000609/",
-      "sourceImage": "https://shop.by/images/infinix_xbook_15_yl512_71005000609_4.webp",
-      "sha256": "f68b2448ba995fb8c70d731ad201dd138036bea5c46ff9088510414237b6854c"
+      "sourcePage": "https://www.infinixmobility.com/xbook-15",
+      "sourceImage": "https://d3o31au25zfcly.cloudfront.net/newfileadmin/usp/xbook-15/global/xbook-15/sec2/pc/2.webp",
+      "sha256": "50e1f956d0575eb1902aba04fc6d5a0caf97c4e59573590a6a71a016daf87ff8"
     }
   ]
 }

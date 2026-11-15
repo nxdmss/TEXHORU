@@ -76,11 +76,11 @@ const iphonePhotoColors: Record<string, readonly string[]> = {
 const pilotWebpPhotos = new Set(['11-black', '11-pro-max-graphite', '16-ultramarine'])
 const catalogLaptopPhotos: Array<[RegExp, string]> = [
   [/\bacer\s+aspire\s+al15-31p-c1cs\b/i, '/products/laptops/acer-al15-31p-c1cs.jpg'],
-  [/\bmacbook\s+neo\b.*\bmhff4x?\b/i, '/products/laptops/macbook-neo-mhff4x-indigo.jpg'],
+  [/\bmacbook\s+neo\b.*\bmhff4x?\b/i, '/products/laptops/macbook-neo-mhff4x-indigo.png'],
   [/\bmacbook\s+neo\b.*\bmhfc4(?:ll)?\b/i, '/products/laptops/macbook-neo-mhfc4-silver.png'],
-  [/\basus\s+vivobook\s+15\s+x1504ma-bq224\b/i, '/products/laptops/asus-x1504ma-bq224.jpg'],
-  [/\basus\s+vivobook\s+go\s+l1504fa-bq1969\b/i, '/products/laptops/asus-l1504fa-bq1969.jpg'],
-  [/\bhuawei\s+matebook\s+d\s*16\b.*\b53014qkw\b/i, '/products/laptops/huawei-matebook-d16-53014qkw.jpg'],
+  [/\basus\s+vivobook\s+15\s+x1504ma-bq224\b/i, '/products/laptops/asus-x1504ma-bq224.png'],
+  [/\basus\s+vivobook\s+go\s+l1504fa-bq1969\b/i, '/products/laptops/asus-l1504fa-bq1969.png'],
+  [/\bhuawei\s+matebook\s+d\s*16\b.*\b53014qkw\b/i, '/products/laptops/huawei-matebook-d16-53014qkw.png'],
   [/\binfinix\s+xbook\s+15\b.*\b71005000609\b/i, '/products/laptops/infinix-xbook-15-71005000609.webp'],
 ]
 const catalogPhonePhotos: Array<[RegExp, string]> = [
