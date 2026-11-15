@@ -130,6 +130,46 @@ test('pilot photos cover the first ten live storefront products with exact model
   }
 })
 
+test('every remaining live smartphone has a dedicated model and colour image', () => {
+  const phones = [
+    ['Смартфон HONOR X9d 8/256Gb RU, Бежевый', '/products/honor/honor-x9d-beige.webp'],
+    ['Смартфон HONOR X9d 8/256Gb RU, Мятный', '/products/honor/honor-x9d-mint.webp'],
+    ['Смартфон Honor 600 Pro 12+512 ГБ золотой', '/products/honor/honor-600-pro-gold.webp'],
+    ['Смартфон Honor X7e 6+256 ГБ голубой', '/products/honor/honor-x7e-blue.webp'],
+    ['Смартфон HONOR X5eS 4/64 ГБ черный', '/products/honor/honor-x5es-black.webp'],
+    ['Смартфон Honor 600 5G 8/256Gb оранжевый', '/products/honor/honor-600-orange.webp'],
+    ['Смартфон Huawei Nova 15 Max 256Gb 8Gb розовый', '/products/huawei/huawei-nova-15-max-pink.webp'],
+    ['Смартфон Samsung Galaxy S25 Ultra 12/256 Гб Titanium Black', '/products/samsung/samsung-s25-ultra-titanium-black.webp'],
+    ['Смартфон Samsung Galaxy S25 12/256 Гб Темно-синий', '/products/samsung/samsung-s25-dark-blue.webp'],
+    ['Смартфон Samsung Galaxy S25 12/256 Гб Серый', '/products/samsung/samsung-s25-gray.webp'],
+    ['Смартфон Samsung Galaxy A17 6/128 Гб черный', '/products/samsung/samsung-a17-black.webp'],
+    ['Смартфон Samsung Galaxy S26 Ultra 12 Гб/256 Гб черный', '/products/samsung/samsung-s26-ultra-black.webp'],
+    ['Смартфон Samsung Galaxy S26 12/512 Гб черный', '/products/samsung/samsung-s26-black.webp'],
+    ['Смартфон Samsung Galaxy S26 12/256 Гб черный', '/products/samsung/samsung-s26-black.webp'],
+    ['Смартфон Samsung Galaxy S26 Ultra 12 Гб/512 Гб черный', '/products/samsung/samsung-s26-ultra-black.webp'],
+    ['Смартфон POCO F8 Pro 12/512 Гб черный', '/products/poco/poco-f8-pro-black.webp'],
+    ['Смартфон POCO M8 5G 8/256 ГБ, зеленый', '/products/poco/poco-m8-5g-green.webp'],
+    ['Смартфон POCO X8 Pro Max 12/256 ГБ, черный', '/products/poco/poco-x8-pro-max-black.webp'],
+    ['Смартфон Xiaomi 15T Pro 12/256 ГБ черный', '/products/xiaomi/xiaomi-15t-pro-black.webp'],
+    ['Смартфон Xiaomi 17T 12/512Gb черный', '/products/xiaomi/xiaomi-17t-black.webp'],
+    ['Смартфон POCO X8 Pro 12/512 ГБ, белый', '/products/poco/poco-x8-pro-white.webp'],
+    ['Смартфон POCO F8 Ultra 12/256 Гб черный', '/products/poco/poco-f8-ultra-black.webp'],
+    ['Смартфон Xiaomi 17T Pro 12/256Gb черный', '/products/xiaomi/xiaomi-17t-pro-black.webp'],
+    ['Смартфон Realme 16 Pro 12 Гб/512 Гб графитовый', '/products/realme/realme-16-pro-graphite.webp'],
+    ['Смартфон Realme C100x 4/256GB Синий', '/products/realme/realme-c100x-blue.webp'],
+    ['Смартфон Realme C100x 4/128GB Синий', '/products/realme/realme-c100x-blue.webp'],
+    ['Смартфон Realme C100x 4/128GB Белый', '/products/realme/realme-c100x-white.webp'],
+    ['Смартфон Tecno CAMON 50 Ultra 256 ГБ черный', '/products/tecno/tecno-camon-50-ultra-black.webp'],
+    ['Смартфон Google Pixel 11 Pro 12/256Gb CA, Obsidian (черный)', '/products/google/google-pixel-11-pro-obsidian.webp'],
+  ]
+  for (const [name, photo] of phones) {
+    assert.equal(featuredPhoneImage(name, '/products/phone.svg'), photo, name)
+    const bytes = readFileSync(new URL('../public' + photo, import.meta.url))
+    assert.equal(bytes.subarray(0, 4).toString(), 'RIFF')
+    assert(bytes.length > 20_000)
+  }
+})
+
 test('category menu skips common 1C wrapper folders while preserving native paths and counts', () => {
   const roots = categoryTree(['МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Apple', 'МОБИЛЬНАЯ СВЯЗЬ / Смартфоны / Xiaomi', 'МОБИЛЬНАЯ СВЯЗЬ / Аксессуары / Кабели'])
   const menu = categoryMenuRoot(roots)
