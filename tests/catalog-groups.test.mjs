@@ -130,6 +130,27 @@ test('pilot photos cover the first ten live storefront products with exact model
   }
 })
 
+test('all live laptops use an exact model photo instead of the phone placeholder', () => {
+  const laptops = [
+    ['Ноутбук 15.6" FHD Acer Aspire AL15-31P-C1CS silver (Cel N4500/8Gb/256Gb SSD/VGA int/noOS)', '/products/laptops/acer-al15-31p-c1cs.jpg'],
+    ['Ноутбук Apple MacBook Neo 13" 8/256GB (MHFF4X) Indigo', '/products/laptops/macbook-neo-mhff4x-indigo.jpg'],
+    ['Ноутбук Apple MacBook Neo 13" 8/512GB (MHFC4ll) Silver', '/products/laptops/macbook-neo-mhfc4-silver.png'],
+    ['Ноутбук Asus Vivobook 15 X1504MA-BQ224 Core 5 320 8Gb SSD512Gb Intel Graphics 15.6" 90NB17I2-M01370', '/products/laptops/asus-x1504ma-bq224.jpg'],
+    ['Ноутбук ASUS Vivobook Go L1504FA-BQ1969 AMD Ryzen 5 7520U/16/512Gb/ 90NBZR2-M035Y0', '/products/laptops/asus-l1504fa-bq1969.jpg'],
+    ['Ноутбук Huawei MateBook D 16 MCLG-X Core i5 13420H 16Gb SSD1Tb Intel UHD Graphics 16" 53014QKW', '/products/laptops/huawei-matebook-d16-53014qkw.jpg'],
+    ['Ноутбук Infinix Xbook 15 [71005000609] YL512 15.6" FHD IPS Core i5-1334U 16/512GB Win11Home Silver', '/products/laptops/infinix-xbook-15-71005000609.webp'],
+  ]
+  const sources = JSON.parse(readFileSync(new URL('../docs/laptop-photo-sources.json', import.meta.url), 'utf8'))
+  for (const [name, photo] of laptops) {
+    assert.equal(featuredPhoneImage(name, '/products/phone.svg'), photo, name)
+    const bytes = readFileSync(new URL('../public' + photo, import.meta.url))
+    assert(bytes.length > 10_000)
+    const provenance = sources.files.find(row => photo.endsWith(row.file))
+    assert(provenance?.sourcePage.startsWith('https://'))
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), provenance.sha256)
+  }
+})
+
 test('every remaining live smartphone has a dedicated model and colour image', () => {
   const phones = [
     ['Смартфон HONOR X9d 8/256Gb RU, Бежевый', '/products/honor/honor-x9d-beige.webp'],

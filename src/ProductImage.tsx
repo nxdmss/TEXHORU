@@ -93,6 +93,7 @@ export function ProductImage({ name, image, alt = name, loading = 'lazy' }: {
   const original = productImage({ name, image: image || '/products/phone.svg' })
   const [failed, setFailed] = useState('')
   const src = failed === original ? '/products/phone.svg' : original
+  const missing = src === '/products/phone.svg' && !/(?:смартфон|iphone|телефон)/i.test(name)
   const [loaded, setLoaded] = useState<{ src: string; bounds: Bounds } | null>(null)
   const frame = useRef<HTMLSpanElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -113,9 +114,9 @@ export function ProductImage({ name, image, alt = name, loading = 'lazy' }: {
       '--shot-top': (size.height - bounds.height * scale) / 2 - bounds.y * scale + 'px',
     } as CSSProperties
   }
-  return <span className="product-shot" ref={frame} style={style} data-normalized={Boolean(bounds)}>
-    <img src={src} alt={alt} loading={loading} decoding="async"
+  return <span className={missing ? 'product-shot product-shot--missing' : 'product-shot'} ref={frame} style={style} data-normalized={Boolean(bounds)}>
+    {missing ? <span aria-label={`Фотография ${name} уточняется`}>ФОТО<br />УТОЧНЯЕТСЯ</span> : <img src={src} alt={alt} loading={loading} decoding="async"
       onLoad={e => setLoaded({ src, bounds: imageBounds(e.currentTarget) })}
-      onError={() => { if (src !== '/products/phone.svg') setFailed(original) }} />
+      onError={() => { if (src !== '/products/phone.svg') setFailed(original) }} />}
   </span>
 }

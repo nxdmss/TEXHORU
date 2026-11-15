@@ -13,6 +13,14 @@
   object-fit: contain !important; transform: none !important; filter: none !important;
   background: transparent !important; transition: none !important;
 }
+.product-shot.product-shot--missing {
+  display: grid;
+  place-items: center;
+  color: #a2a2a7;
+  font: 600 clamp(9px, .8vw, 12px)/1.45 var(--font-mono);
+  letter-spacing: .08em;
+  text-align: center;
+}
 .storefront .product-media { padding: 0 !important; }
 .cart-line__image, .checkout-item__image { position: relative; }
 .checkout-item__image { display: block; width: 55px; height: 65px; }
