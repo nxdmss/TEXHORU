@@ -4,6 +4,35 @@ import { productImage } from './store-utils'
 type Bounds = { x: number; y: number; width: number; height: number; naturalWidth: number; naturalHeight: number }
 const boundsCache = new Map<string, Bounds>()
 
+type Rgba = { r: number; g: number; b: number; a: number }
+
+function pixelAt(data: Uint8ClampedArray, width: number, x: number, y: number): Rgba {
+  const offset = (y * width + x) * 4
+  return { r: data[offset], g: data[offset + 1], b: data[offset + 2], a: data[offset + 3] }
+}
+
+function colourDistance(left: Rgba, right: Rgba) {
+  return Math.hypot(left.r - right.r, left.g - right.g, left.b - right.b)
+}
+
+// Retailer photographs often arrive on an opaque white canvas. Detect that
+// canvas from all four corners so the visible device can be measured exactly
+// like the transparent Apple cut-outs.
+function opaqueCanvasColour(data: Uint8ClampedArray, width: number, height: number): Rgba | null {
+  const corners = [
+    pixelAt(data, width, 0, 0), pixelAt(data, width, width - 1, 0),
+    pixelAt(data, width, 0, height - 1), pixelAt(data, width, width - 1, height - 1),
+  ]
+  if (corners.some(pixel => pixel.a < 245 || Math.min(pixel.r, pixel.g, pixel.b) < 225)) return null
+  const average = corners.reduce((sum, pixel) => ({
+    r: sum.r + pixel.r / corners.length,
+    g: sum.g + pixel.g / corners.length,
+    b: sum.b + pixel.b / corners.length,
+    a: sum.a + pixel.a / corners.length,
+  }), { r: 0, g: 0, b: 0, a: 0 })
+  return corners.every(pixel => colourDistance(pixel, average) < 18) ? average : null
+}
+
 // Read transparent margins once per URL. Originals stay untouched, including transparency.
 function imageBounds(image: HTMLImageElement): Bounds {
   const key = image.currentSrc || image.src
@@ -20,9 +49,11 @@ function imageBounds(image: HTMLImageElement): Bounds {
     if (ctx) {
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
       const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const canvasColour = opaqueCanvasColour(data, canvas.width, canvas.height)
       let left = canvas.width, right = -1, top = canvas.height, bottom = -1
       for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
-        if (data[(y * canvas.width + x) * 4 + 3] < 24) continue
+        const pixel = pixelAt(data, canvas.width, x, y)
+        if (pixel.a < 24 || (canvasColour && colourDistance(pixel, canvasColour) < 22)) continue
         left = Math.min(left, x); right = Math.max(right, x)
         top = Math.min(top, y); bottom = Math.max(bottom, y)
       }
