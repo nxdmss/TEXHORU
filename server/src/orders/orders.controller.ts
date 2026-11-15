@@ -11,5 +11,6 @@ export class OrdersController {
   @Get('account/orders') @Header('Cache-Control', 'no-store') @UseGuards(CustomerGuard) mine(@Req() req: { user: AuthPayload }) { return this.orders.customerList(req.user.sub) }
   @Get('orders/track/:token') track(@Param('token') token: string) { return this.orders.track(token) }
   @Get('admin/orders') @UseGuards(AuthGuard, AdminGuard) list() { return this.orders.adminList() }
+  @Get('admin/business-readiness') @Header('Cache-Control', 'no-store') @UseGuards(AuthGuard, AdminGuard) readiness() { return this.orders.businessReadiness() }
   @Patch('admin/orders/:id/status') @UseGuards(AuthGuard, AdminGuard) status(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto, @Req() req: { user?: AuthPayload }) { return this.orders.updateStatus(id, dto.status, req.user?.sub) }
 }

@@ -15,7 +15,7 @@ import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { rankCatalogProducts } from './catalog-search'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
+import { api, type ApiCategory, type ApiProduct, type BusinessReadiness, type PromoBanner, type TrackedOrder } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, storefrontBlocksFor, type StorefrontBlock, type StorefrontDevice, type StorefrontLayout } from './page-layout'
 import { TexhoruBrand } from './TexhoruBrand'
 import { PROMO_STANDARDS } from './promo-presets'
@@ -113,7 +113,7 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
     <button className="back-link" onClick={onBack}><Icon name="back" /> Вернуться к покупкам</button>
     <div className="checkout-layout">
       <form className="checkout-form" onSubmit={submit}>
-        <p className="eyebrow">TEXHORU / Оформление</p><h1>Ваш заказ</h1><p className="checkout-intro">Оставьте контакты и выберите способ получения.</p>
+        <p className="eyebrow">TEXHORU / Оформление</p><h1>Ваш заказ</h1><p className="checkout-intro">Оставьте контакты. Товары будут временно зарезервированы, а менеджер подтвердит наличие.</p>
         <div className="form-grid">
           <label><span>Имя</span><input name="name" autoComplete="name" minLength={2} required value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Как к вам обращаться" /></label>
           <label><span>Телефон</span><input type="tel" name="tel" autoComplete="tel" minLength={6} required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} placeholder="+7 999 000-00-00" /></label>
@@ -153,7 +153,7 @@ function OrderStatusPage({ trackingToken, onHome }: { trackingToken: string; onH
     <button className="back-link" onClick={onHome}><Icon name="back" /> В магазин</button>
     {!order && !error && <div className="admin-loading">Загружаем заказ…</div>}
     {error && <div className="form-error">{error}</div>}
-    {order && <div className="order-track__layout"><div className="order-track__main"><p className="eyebrow">Заказ принят</p><h1>№ {order.number}</h1><div className="order-track__status"><span>Статус</span><strong>{statusLabels[order.status] ?? order.status}</strong></div><div className="order-track__items">{order.items.map((item) => <div key={`${item.name}-${item.quantity}`}><span>{item.name} × {item.quantity}</span><strong>{money.format(item.price * item.quantity)} ₽</strong></div>)}</div><div className="order-track__total"><span>Итого</span><strong>{money.format(order.total)} ₽</strong></div></div><aside className="order-track__side"><div><span>Оплата</span><strong>{paymentLabels[order.paymentStatus] ?? order.paymentStatus}</strong></div><div><span>Получение</span><strong>{order.deliveryMethod === 'PICKUP' ? 'Самовывоз' : 'Доставка'}</strong></div>{order.paymentMethod === 'ONLINE' && order.paymentStatus !== 'PAID' && order.status !== 'CANCELLED' && <button className="checkout-submit" onClick={pay} disabled={paying}>{paying ? 'Открываем…' : 'Оплатить онлайн'}</button>}<small>Страница обновляет статус автоматически.</small></aside></div>}
+    {order && <div className="order-track__layout"><div className="order-track__main"><p className="eyebrow">Заказ принят</p><h1>№ {order.number}</h1><div className="order-track__status"><span>Статус</span><strong>{statusLabels[order.status] ?? order.status}</strong></div>{order.stockVerification === 'AWAITING_MANAGER' && <div className="checkout-note">Товары временно зарезервированы. Менеджер проверяет фактическое наличие.</div>}<div className="order-track__items">{order.items.map((item) => <div key={`${item.name}-${item.quantity}`}><span>{item.name} × {item.quantity}</span><strong>{money.format(item.price * item.quantity)} ₽</strong></div>)}</div><div className="order-track__total"><span>Итого</span><strong>{money.format(order.total)} ₽</strong></div></div><aside className="order-track__side"><div><span>Оплата</span><strong>{paymentLabels[order.paymentStatus] ?? order.paymentStatus}</strong></div><div><span>Получение</span><strong>{order.deliveryMethod === 'PICKUP' ? 'Самовывоз' : 'Доставка'}</strong></div><div><span>Наличие</span><strong>{order.stockVerification === 'VERIFIED' ? 'Подтверждено' : order.stockVerification === 'RELEASED' ? 'Резерв снят' : 'Проверяется'}</strong></div>{order.paymentMethod === 'ONLINE' && order.paymentStatus !== 'PAID' && order.status !== 'CANCELLED' && <button className="checkout-submit" onClick={pay} disabled={paying}>{paying ? 'Открываем…' : 'Оплатить онлайн'}</button>}<small>Страница обновляет статус автоматически.</small></aside></div>}
   </section>
 }
 
@@ -456,6 +456,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [orders, setOrders] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [audit, setAudit] = useState<any[]>([])
+  const [readiness, setReadiness] = useState<BusinessReadiness | null>(null)
   const [promos, setPromos] = useState<PromoBanner[]>([])
   const [apiCategories, setApiCategories] = useState<ApiCategory[]>([])
   const [promoEditorOpen, setPromoEditorOpen] = useState(false)
@@ -486,8 +487,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const load = async () => {
     setLoading(true); setError('')
     try {
-      const [p, o, n, c, promosData, auditData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.adminCategories(), api.adminPromos(), api.auditLogs()])
-      setProducts(p); setOrders(o); setNotifications(n); setApiCategories(c); setPromos(promosData); setAudit(auditData)
+      const [p, o, n, c, promosData, auditData, readinessData] = await Promise.all([api.adminProducts(), api.adminOrders(), api.adminNotifications(), api.adminCategories(), api.adminPromos(), api.auditLogs(), api.businessReadiness()])
+      setProducts(p); setOrders(o); setNotifications(n); setApiCategories(c); setPromos(promosData); setAudit(auditData); setReadiness(readinessData)
       setProductDraft((value) => value.categoryId ? value : { ...value, categoryId: c[0]?.id ?? '' })
     } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось загрузить админку') } finally { setLoading(false) }
   }
@@ -771,6 +772,15 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
     {loading && <div className="admin-loading">Загрузка…</div>}
     {tab === 'overview' && <>
+      {readiness && <section className="admin-launch-readiness" aria-label="Готовность магазина">
+        <div className="admin-launch-readiness__head"><div><span className={readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'is-warning' : 'is-safe'} /><p><strong>{readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'Проверьте исходящий обмен с 1С' : 'Безопасный предпродакшен'}</strong><small>{readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'Один из каналов записи включён' : 'Покупатели и заказы работают · оплата и запись в 1С выключены'}</small></p></div><b>{readiness.catalog.available} товаров доступно</b></div>
+        <div className="admin-launch-readiness__grid">
+          <article><span>1С</span><strong>{readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'Есть исходящий обмен' : 'Только чтение'}</strong><small>{readiness.oneC.mode}</small></article>
+          <article><span>Письма</span><strong>{readiness.orders.emailConfigured ? 'Подключены' : 'Нужен SMTP'}</strong><small>{readiness.orders.messages.PENDING || 0} ожидают отправки</small></article>
+          <article><span>Резервы</span><strong>{readiness.orders.pendingReservations}</strong><small>автоотмена через {Math.round(readiness.orders.reservationMinutes / 60)} ч.</small></article>
+          <article><span>Карточки</span><strong>{readiness.catalog.missingImage + readiness.catalog.missingDescription}</strong><small>нужно дополнить фото или текстом</small></article>
+        </div>
+      </section>}
       <div className="admin-overview-heading">
         <span className="admin-section-kicker">Быстрый старт</span><h2>Что делаем сегодня?</h2>
       </div>
@@ -903,7 +913,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </div>}
     </div>}
     {tab === 'prices' && <PriceApprovalDashboard products={products} initialSetup={priceSetup} onInventoryRefresh={load} />}
-    {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.paymentMethod === 'ONLINE' ? 'онлайн' : 'при получении'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status}>{status}</option>)}</select></span></div>)}</div>}
+    {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.oneCSyncedAt ? 'подтверждён 1С' : item.stockVerifiedAt ? 'наличие подтверждено' : 'временный резерв сайта'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status} value={status}>{statusLabels[status] ?? status}</option>)}</select></span></div>)}</div>}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
     {tab === 'sync' && <section className="admin-sync"><RemoteCatalogPanel /></section>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}

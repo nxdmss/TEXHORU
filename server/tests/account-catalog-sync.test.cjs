@@ -43,11 +43,13 @@ test('customer lifecycle, access boundaries, and resumable bounded catalog excha
   const { AppModule } = require('../dist/app.module')
   const { AccountMailService } = require('../dist/auth/account-mail.service')
   const { PrismaService } = require('../dist/prisma/prisma.service')
+  const { OrderOperationsService } = require('../dist/orders/order-operations.service')
   const { accountEmail } = require('../dist/auth/auth-email')
-  const delivered = []
+  const delivered = [], deliveredOrderMail = []
   let failMail = false
   const module = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(AccountMailService).useValue({
     configured: () => true, assertConfigured() {}, send: async (email, name, token, purpose) => { if (failMail) throw new Error('mail unavailable'); delivered.push({ email, name, token, purpose }) },
+    sendContent: async (email, content) => { if (failMail) throw new Error('mail unavailable'); deliveredOrderMail.push({ email, subject: content.subject }) },
   }).compile()
   const app = module.createNestApplication({ logger: false })
   app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }))
@@ -90,15 +92,23 @@ test('customer lifecycle, access boundaries, and resumable bounded catalog excha
     await t.test('orders belong to the authenticated user, never an unverified email match', async () => {
       const input = { idempotencyKey: randomUUID(), customerName: 'Амина', customerPhone: '+79991234567', customerEmail: 'different@example.ru', deliveryMethod: 'PICKUP', deliveryAddress: 'Кизилюрт', paymentMethod: 'ON_RECEIPT', items: [{ productId: product.id, quantity: 1 }] }
       assert.equal((await request('/orders', input, cookie)).status, 201)
+      assert.equal((await request('/orders', { ...input, idempotencyKey: randomUUID(), paymentMethod: 'ONLINE' }, cookie)).status, 400)
       const mine = await request('/account/orders', undefined, cookie, false, 'GET')
       assert.equal(mine.status, 200); assert.equal(mine.body.length, 1)
-      assert.equal((await db.order.findFirstOrThrow()).userId, user.id)
+      const placed = await db.order.findFirstOrThrow({ where: { userId: user.id } })
+      assert.equal(placed.userId, user.id); assert(placed.reservationExpiresAt > new Date())
+      assert.equal(await db.customerMessage.count({ where: { orderId: placed.id, kind: 'ORDER_CREATED', status: 'PENDING' } }), 1)
       const guest = { ...input, idempotencyKey: randomUUID(), customerEmail: email }
       assert.equal((await request('/orders', guest)).status, 201)
       assert.equal((await request('/account/orders', undefined, cookie, false, 'GET')).body.length, 1)
       const another = await db.user.create({ data: { name: 'Other', email: 'other@example.ru', emailVerifiedAt: new Date(), passwordHash: user.passwordHash } })
       const other = await request('/auth/customer-login', { email: another.email, password })
       assert.equal((await request('/account/orders', undefined, other.cookie, false, 'GET')).body.length, 0)
+      await app.get(OrderOperationsService).tick(new Date(Date.now() + 2 * 86400000))
+      assert.equal(await db.order.count({ where: { status: 'CANCELLED', reservationReleasedAt: { not: null } } }), 2)
+      assert.equal((await db.product.findUniqueOrThrow({ where: { id: product.id } })).reservedQty, 0)
+      assert.equal(await db.integrationCommand.count({ where: { kind: 'ORDER_CREATE', status: 'CANCELLED' } }), 2)
+      assert(deliveredOrderMail.some(message => /Заказ №/.test(message.subject)))
     })
     await t.test('expired/reset tokens, repeat requests, and old sessions are rejected', async () => {
       assert.equal((await request('/auth/forgot-password', { email })).status, 201)

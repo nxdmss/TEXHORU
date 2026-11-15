@@ -196,13 +196,17 @@ model Order {
   oneCId                 String?        @unique
   oneCSyncedAt           DateTime?
   reservationReleasedAt DateTime?
+  reservationExpiresAt  DateTime?
+  stockVerifiedAt       DateTime?
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
   items                  OrderItem[]
   payments               Payment[]
+  customerMessages       CustomerMessage[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([status, reservationExpiresAt])
   @@index([oneCSyncedAt])
 }
 
@@ -229,6 +233,29 @@ model Payment {
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
   order      Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// Durable customer communication outbox. Order creation never depends on an
+// SMTP connection; delivery safely resumes after configuration or restart.
+model CustomerMessage {
+  id           String   @id @default(cuid())
+  dedupeKey    String   @unique
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  channel      String   @default("EMAIL")
+  kind         String
+  status       String   @default("PENDING")
+  payload      Json
+  attempts     Int      @default(0)
+  maxAttempts  Int      @default(5)
+  availableAt  DateTime @default(now())
+  lastError    String?
+  sentAt       DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status, availableAt, createdAt])
+  @@index([orderId, createdAt])
 }
 
 model PromoBanner {

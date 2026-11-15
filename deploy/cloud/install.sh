@@ -54,6 +54,8 @@ if [[ ! -e /etc/texhoru/app.env ]]; then
     printf 'ONE_C_API_KEY=%s\n' "$(openssl rand -hex 32)"
     printf 'ADMIN_EMAIL=%s\nADMIN_PASSWORD=%s\n' "$email" "$password"
     printf 'ONE_C_BASE_KIND=TEST\nONE_C_TEST_PRICE_SYNC_ENABLED=true\n'
+    printf 'ONLINE_PAYMENTS_ENABLED=false\nONE_C_ORDER_WRITES_ENABLED=false\nONE_C_ALLOW_WRITE_CONFIGURATION=false\n'
+    printf 'ORDER_RESERVATION_MINUTES=1440\n'
   } > /etc/texhoru/app.env
   unset password
 fi

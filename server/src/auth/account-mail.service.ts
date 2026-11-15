@@ -21,6 +21,10 @@ export class AccountMailService implements OnModuleDestroy {
     // Fragment avoids leaking the one-use token into HTTP logs/referrers.
     url.hash = new URLSearchParams({ action: purpose === 'VERIFY' ? 'verify' : 'reset', token }).toString()
     const content = accountEmail(name, url.toString(), purpose)
+    await this.sendContent(email, content)
+  }
+  async sendContent(email: string, content: { subject: string; text: string; html: string }) {
+    this.assertConfigured()
     const port = Number(this.config.get('SMTP_PORT') || 465)
     this.transport ??= nodemailer.createTransport({
       host: this.config.get<string>('SMTP_HOST'), port, secure: port === 465,
