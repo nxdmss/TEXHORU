@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CategoryIllustration } from './CategoryDrawer'
 import { ProductImage } from './ProductImage'
+import { productImage } from './store-utils'
 import type { Product } from './types'
 
 type BrandFamily = {
@@ -19,6 +20,11 @@ const families: BrandFamily[] = [
   { id: 'honor', label: 'HONOR', match: /\bhonor\b/i, model: name => matched(name, /\b(HONOR\s+(?:X\d+[A-Z]*|\d+)(?:\s+Pro)?)/i, 'HONOR') },
   { id: 'huawei', label: 'HUAWEI', match: /\bhuawei\b/i, model: name => matched(name, /\b(Huawei\s+(?:Nova\s+\d+(?:\s+Max)?|Mate\s+\w+|Pura\s+\w+))/i, 'HUAWEI') },
   { id: 'playstation', label: 'PlayStation', match: /\b(?:playstation|ps\s*[45]|ps[45])\b/i, model: name => /(?:playstation|ps\s*5|ps5)/i.test(name) ? 'PlayStation 5' : 'PlayStation 4' },
+  { id: 'macbook', label: 'MacBook', match: /\bmacbook\b/i, model: name => matched(name, /\b(MacBook\s+(?:Air|Pro)(?:\s+\d{2})?(?:\s+M\d(?:\s+(?:Pro|Max))?)?)/i, 'MacBook') },
+  { id: 'matebook', label: 'MateBook', match: /\bmatebook\b/i, model: name => matched(name, /\b((?:Huawei\s+)?MateBook\s+[A-Z0-9-]+(?:\s+\d{4})?)/i, 'HUAWEI MateBook') },
+  { id: 'vivobook', label: 'ASUS', match: /\b(?:asus|vivobook|zenbook)\b/i, model: name => matched(name, /\b((?:ASUS\s+)?(?:VivoBook|ZenBook)\s+[A-Z0-9-]+)/i, 'ASUS') },
+  { id: 'acer', label: 'Acer', match: /\b(?:acer|aspire)\b/i, model: name => matched(name, /\b((?:Acer\s+)?Aspire\s+[A-Z0-9-]+)/i, 'Acer Aspire') },
+  { id: 'xbook', label: 'Infinix XBOOK', match: /\b(?:infinix\s+)?xbook\b/i, model: name => matched(name, /\b((?:Infinix\s+)?XBOOK\s+[A-Z0-9-]+)/i, 'Infinix XBOOK') },
   { id: 'realme', label: 'realme', match: /\brealme\b/i, model: name => matched(name, /\b(realme\s+[A-Z0-9]+(?:\s+Pro)?)/i, 'realme') },
   { id: 'tecno', label: 'TECNO', match: /\btecno\b/i, model: name => matched(name, /\b(TECNO\s+[A-Z]+\s+\d+(?:\s+Ultra)?)/i, 'TECNO') },
   { id: 'pixel', label: 'Google Pixel', match: /\b(?:google\s+)?pixel\b/i, model: name => matched(name, /\b((?:Google\s+)?Pixel\s+\d+(?:\s+Pro)?)/i, 'Google Pixel') },
@@ -33,7 +39,7 @@ const families: BrandFamily[] = [
 type ModelEntry = { label: string; query: string; product: Product }
 type FamilyEntry = BrandFamily & { models: ModelEntry[] }
 
-const hasPhoto = (product: Product) => Boolean(product.image && !/\/products\/phone(?:-alt)?\.svg(?:[?#]|$)/.test(product.image))
+const hasPhoto = (product: Product) => !/\/products\/phone(?:-alt)?\.svg(?:[?#]|$)/.test(productImage(product))
 
 function familyEntries(products: Product[]): FamilyEntry[] {
   return families.map(family => {

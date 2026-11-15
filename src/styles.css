@@ -4656,62 +4656,6 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
 .promo-editor__crop-stage.is-tablet { aspect-ratio: 16 / 9; }
 .promo-editor__crop-stage.is-mobile { width: 100%; margin-inline: auto; aspect-ratio: 16 / 9; }
 
-.promo-editor__presets {
-  display: grid;
-  gap: 10px;
-  margin-top: 16px;
-  padding-top: 15px;
-  border-top: 1px solid rgba(17,17,17,.12);
-}
-.promo-editor__presets-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 14px;
-}
-.promo-editor__presets-head > div { display: grid; gap: 3px; }
-.promo-editor__presets-head strong { font-size: 13px; }
-.promo-editor__presets-head span { color: #777; font-size: 10px; }
-.promo-editor__presets-head > b {
-  color: #a61f32;
-  font: 700 10px var(--font-mono);
-  white-space: nowrap;
-}
-.promo-editor__presets-grid {
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 8px;
-}
-.promo-editor__presets-grid > button {
-  min-width: 0;
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid rgba(17,17,17,.13);
-  border-radius: 6px;
-  background: #fff;
-  color: #17171b;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease;
-}
-.promo-editor__presets-grid > button:hover,
-.promo-editor__presets-grid > button.is-active {
-  border-color: #a61f32;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(74,20,34,.1);
-}
-.promo-editor__presets-grid img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 5;
-  object-fit: cover;
-  background: #eeeef1;
-}
-.promo-editor__visual:is(.is-tablet,.is-mobile) .promo-editor__presets-grid img { aspect-ratio: 16 / 9; }
-.promo-editor__presets-grid span { display: grid; gap: 2px; padding: 9px 10px 10px; }
-.promo-editor__presets-grid strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.promo-editor__presets-grid small { overflow: hidden; color: #777; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-
 .promo-editor__crop-stage.has-image {
   cursor: grab;
   touch-action: none;
@@ -4864,9 +4808,6 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
   .promo-editor__crop-stage .promo-editor__replace { right: 8px; bottom: 8px; }
   .promo-editor__crop-slider { grid-template-columns: 32px minmax(0,1fr) 32px; }
   .promo-editor__crop-slider .promo-editor__crop-reset { grid-column: 1 / -1; }
-  .promo-editor__presets-grid { display: flex; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x mandatory; }
-  .promo-editor__presets-grid > button { flex: 0 0 min(78vw, 310px); scroll-snap-align: start; }
-  .promo-editor__presets-grid img { aspect-ratio: 16 / 9; }
 }
 
 /* v77 — competitor price monitor + safe test catalog import */

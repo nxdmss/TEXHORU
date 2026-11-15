@@ -1,12 +1,34 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { AuditService } from '../audit/audit.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { PromoDto, UpdatePromoDto } from './content.dto'
 
 @Injectable()
-export class ContentService {
+export class ContentService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+
+  private categoryLink(category?: string) {
+    return `/catalog?category=${encodeURIComponent(category?.trim() || 'Все')}`
+  }
+
+  private normalizeLink(link: string | undefined, category?: string) {
+    const value = link?.trim() || this.categoryLink(category)
+    if (!value.startsWith('/') && !/^https:\/\//i.test(value)) {
+      throw new BadRequestException('Ссылка баннера должна начинаться с / или https://')
+    }
+    if (/^\/\//.test(value) || /^javascript:/i.test(value)) throw new BadRequestException('Некорректная ссылка баннера')
+    return value
+  }
+
+  async onModuleInit() {
+    // Remove only the bundled mock creatives. Uploaded customer banners are untouched.
+    await this.prisma.promoBanner.deleteMany({ where: { image: { startsWith: '/promos/presets/' } } })
+    const withoutLinks = await this.prisma.promoBanner.findMany({ where: { link: '' }, select: { id: true, category: true } })
+    await Promise.all(withoutLinks.map(item => this.prisma.promoBanner.update({
+      where: { id: item.id }, data: { link: this.categoryLink(item.category) },
+    })))
+  }
 
   publicPromos() {
     return this.prisma.promoBanner.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] })
@@ -17,7 +39,7 @@ export class ContentService {
   }
 
   async create(dto: PromoDto, userId?: string) {
-    const item = await this.prisma.promoBanner.create({ data: { ...dto, blockId: dto.blockId?.trim() || 'home-promos', tone: dto.tone ?? 'light', sortOrder: dto.sortOrder ?? 0, isActive: dto.isActive ?? true } })
+    const item = await this.prisma.promoBanner.create({ data: { ...dto, link: this.normalizeLink(dto.link, dto.category), blockId: dto.blockId?.trim() || 'home-promos', tone: dto.tone ?? 'light', sortOrder: dto.sortOrder ?? 0, isActive: dto.isActive ?? true } })
     await this.audit.log(userId, 'CREATE_PROMO', 'PromoBanner', item.id, { title: item.title })
     return item
   }
@@ -25,7 +47,10 @@ export class ContentService {
   async update(id: string, dto: UpdatePromoDto, userId?: string) {
     const current = await this.prisma.promoBanner.findUnique({ where: { id } })
     if (!current) throw new NotFoundException('Баннер не найден')
-    const data = dto.blockId === undefined ? dto : { ...dto, blockId: dto.blockId.trim() || 'home-promos' }
+    const normalized = dto.link === undefined && dto.category === undefined ? dto : {
+      ...dto, link: this.normalizeLink(dto.link ?? current.link, dto.category ?? current.category),
+    }
+    const data = normalized.blockId === undefined ? normalized : { ...normalized, blockId: normalized.blockId.trim() || 'home-promos' }
     const item = await this.prisma.promoBanner.update({ where: { id }, data })
     await this.audit.log(userId, 'UPDATE_PROMO', 'PromoBanner', item.id, { title: item.title })
     return item

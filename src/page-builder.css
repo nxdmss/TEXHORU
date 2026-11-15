@@ -199,7 +199,6 @@
 .page-builder-promo-dialog__actions button,
 .page-builder-promo-dialog__empty button { min-height: 42px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--pb-ink); color: #fff; font-size: 11px; font-weight: 700; }
 .page-builder-promo-dialog__actions span { color: var(--pb-muted); font-size: 11px; }
-.page-builder-promo-dialog__actions button.is-preset { border: 1px solid #d8d8dd; background: #fff; color: #a61f32; }
 .page-builder-promo-dialog__grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; padding: 18px 26px 26px; }
 .page-builder-promo-dialog__grid > article { overflow: hidden; border: 1px solid #e0e0e5; border-radius: 14px; background: #fff; }
 .page-builder-promo-dialog__grid > article.is-hidden { opacity: .58; }

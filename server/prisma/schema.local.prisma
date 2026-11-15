@@ -240,6 +240,7 @@ model PromoBanner {
   body      String
   ctaLabel  String
   category  String
+  link      String   @default("")
   image     String
   imageTablet String?
   imageMobile String?

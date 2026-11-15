@@ -17,7 +17,7 @@ import { MediaService } from '../media/media.service'
 
 // Small 1C batches should not read 50 catalog pages before matching.
 const FAST_MATCH_MAX_ITEMS = 40
-const CATALOG_ENRICHMENT_REVISION = 'CATALOG_MEDIA_ENRICHMENT_V1'
+const CATALOG_ENRICHMENT_REVISION = 'CATALOG_MEDIA_ENRICHMENT_V2_EXACT_ONLY'
 
 // Temporary demo policy: TEST prices can change by any percentage.
 function allowLargeTestPriceChange() {
@@ -223,10 +223,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // A manager's manually entered specification always wins. Automatic
     // refreshes may replace only an empty or previously source-managed block.
     if (current.length && marker?.managed !== true) return product
+    const compactFacts = specs.slice(0, 4).map(item => item.value).filter(Boolean).join(' · ')
     return tx.product.update({
       where: { id: productId },
       data: {
         specs: jsonValue(specs),
+        ...(!product.shortSpec?.trim() && compactFacts ? { shortSpec: compactFacts.slice(0, 240) } : {}),
+        ...(!product.description?.trim() ? {
+          description: `${product.name}. ${specs.slice(0, 6).map(item => `${item.label}: ${item.value}`).join('. ')}.`,
+        } : {}),
         attributes: jsonValue({ ...attributes, _specSource: {
           managed: true, source: sourceKey, url: sourceUrl, updatedAt: new Date().toISOString(),
         } }),
@@ -259,9 +264,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private async queueCatalogEnrichment() {
     if (!this.media) return
     const completed = await this.prisma.auditLog.findFirst({
-      where: { action: CATALOG_ENRICHMENT_REVISION, entity: 'Catalog' }, select: { id: true },
+      where: { action: CATALOG_ENRICHMENT_REVISION, entity: 'Catalog' }, orderBy: { createdAt: 'desc' }, select: { id: true, entityId: true },
     })
-    if (completed) return
+    if (completed?.entityId) {
+      const previous = await this.prisma.monitorJob.findUnique({ where: { id: completed.entityId }, select: { status: true } })
+      if (previous?.status === 'COMPLETED' || previous?.status === 'QUEUED' || previous?.status === 'RUNNING') return
+    }
     if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) return
     const products = await this.prisma.product.findMany({
       where: { oneCId: { not: null }, status: 'ACTIVE', price: { gt: 0 } },
@@ -270,11 +278,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     if (!products.length) return
     const job = await this.prisma.monitorJob.create({ data: {
       kind: 'MATCH_1C', sourceKey: '05ru', url: null, maxPages: 1, perPage: products.length,
-      pendingUrls: products.map(product => 'product:' + product.id), visitedUrls: ['CATALOG_ENRICHMENT'],
+      pendingUrls: products.map(product => 'product:' + product.id), visitedUrls: ['CATALOG_ENRICHMENT', 'EXACT_PRODUCT_MEDIA_ONLY'],
     } })
     await this.prisma.auditLog.create({ data: {
       action: CATALOG_ENRICHMENT_REVISION, entity: 'Catalog', entityId: job.id,
-      details: { products: products.length, source: '05ru', purpose: 'photos-and-specifications' },
+      details: { products: products.length, source: '05ru', purpose: 'exact-original-photos-and-specifications', exactOnly: true },
     } })
   }
   private source(key: StoreKey = '05ru') {

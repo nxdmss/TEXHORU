@@ -43,6 +43,7 @@ export type PromoBanner = {
   body: string
   ctaLabel: string
   category: string
+  link: string
   image: string
   imageTablet?: string | null
   imageMobile?: string | null

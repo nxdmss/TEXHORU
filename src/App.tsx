@@ -18,7 +18,7 @@ import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, 
 import { api, type ApiCategory, type ApiProduct, type PromoBanner, type TrackedOrder } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, storefrontBlocksFor, type StorefrontBlock, type StorefrontDevice, type StorefrontLayout } from './page-layout'
 import { TexhoruBrand } from './TexhoruBrand'
-import { PROMO_STANDARDS, promoPresetsFor, type PromoPreset } from './promo-presets'
+import { PROMO_STANDARDS } from './promo-presets'
 
 import type { AccountOrder, CartLine, Category, Product } from './types'
 
@@ -264,6 +264,7 @@ type PromoDraft = {
   body: string
   ctaLabel: string
   category: string
+  link: string
   images: Record<StorefrontDevice, PromoImageDraft>
   tone: string
   sortOrder: string
@@ -276,6 +277,7 @@ const blankPromoDraft = (sortOrder = 0, category = 'Смартфоны'): PromoD
   body: '',
   ctaLabel: 'Смотреть',
   category,
+  link: `/catalog?category=${encodeURIComponent(category)}`,
   images: {
     desktop: { image: '', imageX: 50, imageY: 50, imageZoom: 1 },
     tablet: { image: '', imageX: 50, imageY: 50, imageZoom: 1 },
@@ -548,29 +550,11 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const notifyPromoChanged = () => window.dispatchEvent(new Event('texhoru:promos-changed'))
 
   const promoStandards = PROMO_STANDARDS
-  const promoPresets = promoPresetsFor(promoDevice)
   const activePromoImage = promoDraft.images[promoDevice]
   const updatePromoImage = (patch: Partial<PromoImageDraft>) => setPromoDraft((current) => ({
     ...current,
     images: { ...current.images, [promoDevice]: { ...current.images[promoDevice], ...patch } },
   }))
-
-  const applyPromoPreset = (preset: PromoPreset & { image: string }) => {
-    const category = apiCategories.find((item) => item.name.trim().toLocaleLowerCase('ru-RU') === preset.category.toLocaleLowerCase('ru-RU'))?.name
-      || apiCategories.find((item) => item.name.toLocaleLowerCase('ru-RU').includes(preset.caption.toLocaleLowerCase('ru-RU')))?.name
-      || promoDraft.category
-    setPromoDraft((current) => ({
-      ...current,
-      kicker: 'РЕКЛАМА',
-      title: preset.title,
-      body: preset.caption,
-      ctaLabel: 'Смотреть',
-      category,
-      tone: preset.tone,
-      images: { ...current.images, [promoDevice]: { image: preset.image, imageX: 50, imageY: 50, imageZoom: 1 } },
-    }))
-    setPromoImageInfo(`Готовый макет · ${promoStandards[promoDevice].label}`)
-  }
 
   const openCreatePromo = (blockId: string, device: StorefrontDevice) => {
     const categoryName = apiCategories.find((item) => item.isActive !== false)?.name ?? 'Смартфоны'
@@ -594,6 +578,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     setPromoDraft({
       kicker: item.kicker || 'АКЦИЯ', title: item.title || '', body: item.body || '', ctaLabel: item.ctaLabel || 'Смотреть',
       category: item.category || apiCategories.find((category) => category.isActive !== false)?.name || 'Смартфоны',
+      link: item.link || `/catalog?category=${encodeURIComponent(item.category || 'Все')}`,
       images,
       tone: item.tone || 'light', sortOrder: String(item.sortOrder ?? 0), isActive: item.isActive !== false,
     })
@@ -680,6 +665,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       body: promoDraft.body.trim(),
       ctaLabel: promoDraft.ctaLabel.trim() || 'Смотреть',
       category: promoDraft.category,
+      link: promoDraft.link.trim() || `/catalog?category=${encodeURIComponent(promoDraft.category || 'Все')}`,
       image: encodePromoFrame(activePromoImage.image, activePromoImage.imageX, activePromoImage.imageY, activePromoImage.imageZoom),
       tone: promoDraft.tone,
       sortOrder: Number(promoDraft.sortOrder || 0),
@@ -705,28 +691,6 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     if (!confirm(`Удалить слайд «${item.title || 'Без названия'}» только из версии «${deviceLabel}»?`)) return
     try { await api.adminDeletePromo(item.id); await load(); notifyPromoChanged() }
     catch (e) { setError(e instanceof Error ? e.message : 'Не удалось удалить акцию') }
-  }
-
-  const installPromoPresetSet = async (blockId: string, device: StorefrontDevice) => {
-    const blockPromos = promos.filter((item) => item.blockId === blockId && item.device === device)
-    const existingSources = new Set(blockPromos.map((item) => parsePromoFrame(item.image).src))
-    const missing = promoPresetsFor(device).filter((preset) => !existingSources.has(preset.image))
-    if (!missing.length) return
-    const firstSort = blockPromos.length ? Math.max(...blockPromos.map((item) => item.sortOrder ?? 0)) + 10 : 0
-    setLoading(true); setError('')
-    try {
-      await Promise.all(missing.map((preset, index) => {
-        const category = apiCategories.find((item) => item.name.trim().toLocaleLowerCase('ru-RU') === preset.category.toLocaleLowerCase('ru-RU'))?.name
-          || apiCategories.find((item) => item.name.toLocaleLowerCase('ru-RU').includes(preset.caption.toLocaleLowerCase('ru-RU')))?.name
-          || apiCategories.find((item) => item.isActive !== false)?.name || 'Все'
-        return api.adminCreatePromo({
-          blockId, device, kicker: 'РЕКЛАМА', title: preset.title, body: preset.caption, ctaLabel: 'Смотреть', category,
-          image: encodePromoFrame(preset.image, 50, 50, 1), tone: preset.tone, sortOrder: firstSort + index * 10, isActive: true,
-        })
-      }))
-      await load(); notifyPromoChanged()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось добавить фирменные макеты') }
-    finally { setLoading(false) }
   }
 
   const createCategory = async (event: FormEvent) => {
@@ -888,7 +852,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </div>}
 
     {tab === 'content' && <div className="admin-content-editor">
-      <PageBuilder promos={promos} onCreatePromo={openCreatePromo} onInstallPromoPresets={installPromoPresetSet} onEditPromo={openEditPromo} onTogglePromo={togglePromo} onDeletePromo={deletePromo} />
+      <PageBuilder promos={promos} onCreatePromo={openCreatePromo} onEditPromo={openEditPromo} onTogglePromo={togglePromo} onDeletePromo={deletePromo} />
 
       {promoEditorOpen && <div className="promo-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setPromoEditorOpen(false) }}>
         <form className="promo-editor" onSubmit={savePromo}>
@@ -924,17 +888,11 @@ function AdminPage({ onBack }: { onBack: () => void }) {
                 <small>Положение и масштаб сохраняются только для выбранной версии экрана.</small>
               </div>}
               <div className="promo-editor__image-info"><strong>{promoStandards[promoDevice].label}</strong><span>{promoImageInfo}</span></div>
-              <section className="promo-editor__presets" aria-label="Готовые рекламные макеты">
-                <div className="promo-editor__presets-head"><div><strong>Готовые рекламные макеты</strong><span>Каждый нарисован отдельно под этот экран</span></div><b>{promoStandards[promoDevice].shortLabel}</b></div>
-                <div className="promo-editor__presets-grid">{promoPresets.map((preset) => <button type="button" key={preset.id}
-                  className={activePromoImage.image === preset.image ? 'is-active' : ''} onClick={() => applyPromoPreset(preset)}>
-                  <img src={preset.image} alt="" /><span><strong>{preset.title}</strong><small>{preset.caption}</small></span>
-                </button>)}</div>
-              </section>
             </div>
             <div className="promo-editor__fields">
               <label><span>Название в админке</span><input value={promoDraft.title} onChange={(e) => setPromoDraft({ ...promoDraft, title: e.target.value })} placeholder="Например: Осенняя акция" /></label>
-              <div className="promo-editor__row"><label><span>Категория</span><select value={promoDraft.category} onChange={(e) => setPromoDraft({ ...promoDraft, category: e.target.value })}>{apiCategories.filter((item) => item.isActive !== false).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label><label><span>Порядок</span><input type="number" min="0" value={promoDraft.sortOrder} onChange={(e) => setPromoDraft({ ...promoDraft, sortOrder: e.target.value })} /></label></div>
+              <div className="promo-editor__row"><label><span>Категория</span><select value={promoDraft.category} onChange={(e) => { const category = e.target.value; setPromoDraft({ ...promoDraft, category, link: `/catalog?category=${encodeURIComponent(category)}` }) }}>{apiCategories.filter((item) => item.isActive !== false).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label><label><span>Порядок</span><input type="number" min="0" value={promoDraft.sortOrder} onChange={(e) => setPromoDraft({ ...promoDraft, sortOrder: e.target.value })} /></label></div>
+              <label><span>Куда ведёт баннер</span><input value={promoDraft.link} onChange={(e) => setPromoDraft({ ...promoDraft, link: e.target.value })} placeholder="/product/123 или /catalog?search=iPhone" /><small>Внутренняя ссылка начинается с /, внешняя — с https://</small></label>
               <label className="promo-editor__switch"><input type="checkbox" checked={promoDraft.isActive} onChange={(e) => setPromoDraft({ ...promoDraft, isActive: e.target.checked })} /><span><strong>Показывать на сайте</strong><small>Количество активных карточек и есть количество слайдов.</small></span></label>
               <div className="promo-editor__tip"><strong>Независимая лента</strong><span>Добавление, порядок, скрытие или удаление этого слайда никак не изменит рекламу на других устройствах.</span></div>
             </div>
@@ -1180,10 +1138,27 @@ function App() {
     window.requestAnimationFrame(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  const openPromo = (promo: PromoBanner) => {
+    const target = promo.link?.trim()
+    if (!target) { jumpToCatalog((promo.category || 'Все') as Category); return }
+    if (/^https:\/\//i.test(target)) { window.location.assign(target); return }
+    const url = new URL(target, window.location.origin)
+    const product = url.pathname.match(/^\/products?\/(\d+)\/?$/)
+    if (product) { navigate(`/product/${product[1]}`); return }
+    if (url.pathname === '/catalog') {
+      const search = url.searchParams.get('search') || url.searchParams.get('q')
+      if (search) { openBrandModel(search); return }
+      const targetCategory = url.searchParams.get('category')
+      jumpToCatalog((targetCategory || promo.category || 'Все') as Category)
+      return
+    }
+    navigate(url.pathname + url.search + url.hash)
+  }
+
   const renderPromoBlock = (block: StorefrontBlock) => {
     const items = promosLoaded ? promos.filter((item) => item.blockId === block.id && item.device === storefrontDevice && item.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder) : []
     if (!items.length) return null
-    return <StorefrontPromoCarousel items={items} onOpen={(promo) => jumpToCatalog((promo.category || 'Все') as Category)} />
+    return <StorefrontPromoCarousel items={items} onOpen={openPromo} />
   }
 
   const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '') + (favoritesOnly ? ' catalog--favorites' : '')} id={anchor ? 'catalog' : undefined}>
