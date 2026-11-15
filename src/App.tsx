@@ -1236,7 +1236,65 @@ function App() {
     ? <div className="storefront-page-grid" data-device={storefrontDevice}>{visibleHomeBlocks.map(renderFeaturedBlock)}</div>
     : renderCatalogBlock(undefined, true)
 
-  const renderProductPage = (product: Product) => { const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6); const favorite = favoriteIds.includes(product.id); return <section className="product-page" key={product.id}><button className="back-link" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /> Вернуться в каталог</button><div className="product-page__layout"><div className="product-page__visual">{product.badge && <span className="badge">{product.badge}</span>}<ProductImage name={product.name} image={product.image} loading="eager" /></div><div className="product-page__summary"><p className="eyebrow">{product.brand} / {product.category}</p><h1>{product.name}</h1><p className="product-page__short">{product.shortSpec}</p><p className="product-page__description">{product.description}</p><div className="product-page__stock">● {product.stock}{product.stockQty !== undefined ? ` · ${product.stockQty} шт.` : ''}</div><div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div><div className="product-page__actions"><button className="product-page__buy" disabled={!cartLimit(product)} onClick={() => addToCart(product)}><Icon name="cart" /> Добавить в корзину</button><button type="button" className={'product-page__favorite' + (favorite ? ' is-active' : '')} aria-pressed={favorite} onClick={() => toggleFavorite(product)}><Icon name="heart" />{favorite ? 'В избранном' : 'В избранное'}</button></div><div className="product-page__service"><div><span>Доставка</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div></div></div><div className="product-details"><div className="product-details__title"><p className="eyebrow">Характеристики</p><h2>Главное о товаре</h2></div><dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl></div>{related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}</section> }
+  const renderProductPage = (product: Product) => {
+    const related = catalogProducts.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 6)
+    const favorite = favoriteIds.includes(product.id)
+    const cartQuantity = cart.find(line => line.product.id === product.id)?.quantity || 0
+    const available = Boolean(cartLimit(product))
+    return <section className="product-page product-studio" key={product.id}>
+      <button className="back-link product-studio__back" onClick={() => navigate(isSmartphone(product) ? lastPhonePath.current : '/')}><Icon name="back" /><span>Каталог</span></button>
+
+      <div className="product-page__layout product-studio__hero">
+        <div className="product-page__visual product-studio__visual">
+          {product.badge && <span className="badge">{product.badge}</span>}
+          <ProductImage name={product.name} image={product.image} loading="eager" />
+          <div className="product-studio__visual-meta"><span>{product.brand}</span>{product.sku && <span>Арт. {product.sku}</span>}</div>
+        </div>
+
+        <aside className="product-page__summary product-studio__summary">
+          <div className="product-studio__identity"><p className="eyebrow">{product.brand}</p><span>{product.category.split(' / ').at(-1)}</span></div>
+          <h1>{product.name}</h1>
+          <p className="product-page__short">{product.shortSpec}</p>
+
+          <div className="product-studio__purchase">
+            <div className="product-page__price"><strong>{money.format(product.price)} ₽</strong>{product.oldPrice != null && product.oldPrice > product.price && <del>{money.format(product.oldPrice)} ₽</del>}</div>
+            <div className="product-page__stock" data-stock={product.stock === 'Под заказ' ? 'preorder' : available ? 'in' : 'out'}><i aria-hidden="true" />{product.stock}</div>
+          </div>
+
+          <div className="product-page__actions">
+            <button className="product-page__buy" disabled={!available} onClick={() => cartQuantity ? navigate('/cart') : addToCart(product)}><Icon name={cartQuantity ? 'arrow' : 'cart'} />{cartQuantity ? `В корзине · ${cartQuantity}` : 'Добавить в корзину'}</button>
+            <button type="button" className={'product-page__favorite' + (favorite ? ' is-active' : '')} aria-pressed={favorite} onClick={() => toggleFavorite(product)}><Icon name="heart" /><span>{favorite ? 'Сохранено' : 'Избранное'}</span></button>
+          </div>
+          <p className="product-studio__note">Оплата при оформлении · Поможем с выбором и получением</p>
+        </aside>
+      </div>
+
+      <section className="product-story" aria-labelledby={`product-story-${product.id}`}>
+        <header className="product-story__head"><div><p className="eyebrow">Детали</p><h2 id={`product-story-${product.id}`}>Товар по слоям</h2></div><span>Листай →</span></header>
+        <div className="product-story__track" tabIndex={0} aria-label="Описание, характеристики и сервис">
+          <article className="product-story__panel product-story__panel--description">
+            <span className="product-story__index">01 / О модели</span>
+            <h3>{product.shortSpec || product.name}</h3>
+            <p>{product.description || 'Подробное описание появится после обновления каталога.'}</p>
+          </article>
+
+          <article className="product-story__panel product-story__panel--specs" id="product-specifications">
+            <span className="product-story__index">02 / Характеристики</span>
+            <h3>Главное внутри</h3>
+            <dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
+          </article>
+
+          <article className="product-story__panel product-story__panel--service">
+            <span className="product-story__index">03 / Сервис</span>
+            <h3>После выбора</h3>
+            <div className="product-page__service"><div><span>Получение</span><strong>{product.deliveryNote}</strong></div><div><span>Гарантия</span><strong>{product.warranty}</strong></div><div><span>Оплата</span><strong>При оформлении заказа</strong></div></div>
+          </article>
+        </div>
+      </section>
+
+      {related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><div><p className="eyebrow">Похожее</p><h2>Ещё в категории</h2></div></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}
+    </section>
+  }
 
   const tokenFromQuery = new URLSearchParams(window.location.search).get('token') || ''
   let content
