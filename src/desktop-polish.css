@@ -1,33 +1,11 @@
 /* Final storefront alignment pass: keep utility pages quiet, balanced and precise. */
 
-.storefront .favorites-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 28px;
-}
-
-.storefront .favorites-head h2 {
-  margin: 0;
-  font-size: clamp(25px, 2vw, 34px);
-  line-height: 1;
-  letter-spacing: -.04em;
-}
-
-.storefront .favorites-head > span {
-  display: grid;
-  place-items: center;
-  min-width: 36px;
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid rgba(228, 0, 53, .22);
-  border-radius: 999px;
-  background: #fff0f3;
-  box-shadow: 0 0 24px rgba(228, 0, 53, .2);
+.storefront .texhoru-brand__section-count {
+  display: inline;
+  margin-left: 10px;
   color: var(--tx-accent);
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1;
+  font: 700 1em/1 var(--font-sans);
+  letter-spacing: -.04em;
 }
 
 /* The header always uses one immutable sequence:
@@ -285,10 +263,6 @@
 }
 
 @media (max-width: 650px) {
-  .storefront .favorites-head { margin-bottom: 16px; }
-  .storefront .favorites-head h2 { font-size: 27px; }
-  .storefront .favorites-head > span { min-width: 27px; height: 27px; padding-inline: 7px; font-size: 11px; }
-
   .customer-dashboard-head { margin: 24px 0 20px; padding-bottom: 20px; }
   .customer-dashboard { min-height: 0; border-bottom: 0; }
   .customer-sidebar { min-height: 0; padding: 0; border-right: 0; }
@@ -305,4 +279,8 @@
 
 @media (max-width: 699px) {
   .storefront .header-search-spacer { display: none; }
+  .storefront .header.header--storefront .texhoru-brand__section--counted {
+    width: min(52vw, 220px);
+    max-width: min(52vw, 220px);
+  }
 }
