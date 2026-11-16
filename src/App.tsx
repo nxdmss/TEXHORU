@@ -959,6 +959,7 @@ function App() {
   const [storeSection, setStoreSection] = useState('')
   const [storeLimit, setStoreLimit] = useState(24)
   const [sort, setSort] = useState('recommended')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [onlyAvailable, setOnlyAvailable] = useState(false)
   const [brandFilter, setBrandFilter] = useState('')
   const [minPrice, setMinPrice] = useState('')
@@ -1178,7 +1179,10 @@ function App() {
   const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '') + (favoritesOnly ? ' catalog--favorites' : '')} id={anchor ? 'catalog' : undefined}>
       {favoritesOnly ? <h1 className="visually-hidden">Избранное, {filtered.length} товаров</h1> : <div className={'section-head' + (!isFeaturedView ? ' section-head--catalog' : '')}><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
         <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? block?.title || 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Все товары'}</h2>
-      </div>{!isFeaturedView && <div className="catalog-toolbar__controls">
+      </div>{!isFeaturedView && <div className={'catalog-toolbar__controls' + (filtersOpen ? ' is-open' : '')}>
+          <button type="button" className="catalog-filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>
+            <span>Фильтры</span><small>{[onlyAvailable, brandFilter, minPrice || maxPrice, sort !== 'recommended'].filter(Boolean).length || 'Все'}</small><Icon name={filtersOpen ? 'chevronUp' : 'chevronDown'} />
+          </button>
           <label className={'catalog-filter-field catalog-stock-toggle' + (onlyAvailable ? ' is-active' : '')}><span>Наличие</span><span className="catalog-stock-toggle__control"><input type="checkbox" checked={onlyAvailable} onChange={e => setOnlyAvailable(e.target.checked)} /><b>В наличии</b></span></label>
           <label className={'catalog-filter-field' + (brandFilter ? ' is-active' : '')}><span>Бренд</span><select aria-label="Фильтр по бренду" value={brandFilter} onChange={e => setBrandFilter(e.target.value)}><option value="">Все</option>{filterBrands.map(brand => <option key={brand}>{brand}</option>)}</select></label>
           <div className={'catalog-price-filter' + (minPrice || maxPrice ? ' is-active' : '')} role="group" aria-label="Цена"><span>Цена</span><div className="catalog-price-filter__inputs"><input inputMode="numeric" aria-label="Цена от" placeholder="от" value={minPrice} onChange={e => setMinPrice(e.target.value.replace(/\D/g, '').slice(0, 7))} /><input inputMode="numeric" aria-label="Цена до" placeholder="до" value={maxPrice} onChange={e => setMaxPrice(e.target.value.replace(/\D/g, '').slice(0, 7))} /></div></div>
@@ -1194,7 +1198,9 @@ function App() {
           <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
         {!isFeaturedView && (useRemoteCatalog ? remoteCatalog.hasMore : filtered.length > storeLimit) &&
           <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n + 24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
-        {!catalogLoading && !catalogError && !(useRemoteCatalog && (remoteLoading || remoteError)) && filtered.length === 0 && <div className="empty-search">{favoritesOnly ? 'В избранном пока пусто. Нажмите на сердце у нужного товара.' : 'Товары не найдены. Попробуйте другое название или выберите другой раздел.'}</div>}
+        {!catalogLoading && !catalogError && !(useRemoteCatalog && (remoteLoading || remoteError)) && filtered.length === 0 && (favoritesOnly
+          ? <section className="favorites-empty"><span className="favorites-empty__icon"><Icon name="heart" /></span><p className="eyebrow">Избранное</p><h2>Сохраняйте то, что нравится</h2><p>Нажмите на сердце у товара — он останется здесь, и его не придётся искать заново.</p><button type="button" onClick={() => navigate('/catalog')}>Открыть каталог <Icon name="arrow" /></button></section>
+          : <div className="empty-search">Товары не найдены. Попробуйте другое название или выберите другой раздел.</div>)}
       </>}
     </section>
 
@@ -1232,8 +1238,9 @@ function App() {
     setStoreLimit(24)
   }
   const renderCatalogPage = () => <div className="catalog-page-v2">
-    <CatalogExplorer roots={categoryRoots} selectedPath={selectedBrowsePath || ''} total={catalogTotal}
-      onSelect={selectCatalogPath} onReset={resetCatalogPath} />
+    <label className="catalog-page-search"><Icon name="search" /><input value={query} onChange={event => { setQuery(event.target.value); setStoreSection(''); setCategory('Все') }} placeholder="Название, модель или артикул" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label>
+    {!query.trim() && <CatalogExplorer roots={categoryRoots} selectedPath={selectedBrowsePath || ''} total={catalogTotal}
+      onSelect={selectCatalogPath} onReset={resetCatalogPath} />}
     {renderCatalogBlock(undefined, true)}
   </div>
 
@@ -1331,7 +1338,7 @@ function App() {
     </div>
     {!isCatalogPage && <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Открыть каталог"><Icon name="menu" /><span>Каталог</span></button></div>}
   </header>}
-  {!isAdminPage && <BrandNavigation products={catalogProducts} onSelectModel={openBrandModel} />}
+  {!isAdminPage && (path === '/' || isCatalogPage) && <BrandNavigation products={catalogProducts} onSelectModel={openBrandModel} />}
   {!isAdminPage && !isCatalogPage && !isCartPage && !isFavoritesPage && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => navigate('/catalog')}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
   {!isAdminPage && <PwaInstallPrompt />}
