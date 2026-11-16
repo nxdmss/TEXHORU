@@ -346,8 +346,8 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     width: 100% !important;
     margin: 0 !important;
-    padding: 4px 0 12px !important;
-    gap: 24px 12px !important;
+    padding: 4px 2px 12px !important;
+    gap: 18px 10px !important;
     overflow: visible !important;
   }
   .storefront .catalog-featured .product-card {
@@ -378,12 +378,12 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     width: 100% !important;
     min-height: 0 !important;
     height: auto !important;
-    aspect-ratio: 1 / 1.12 !important;
+    aspect-ratio: 1 / .88 !important;
     border: 0 !important;
     border-radius: 0 !important;
     background: transparent !important;
   }
-  .storefront .catalog-featured .product-media .product-shot { inset: 4px 2px 0 !important; }
+  .storefront .catalog-featured .product-media .product-shot { inset: 3px 5px 0 !important; }
   .storefront .catalog-featured .product-media .product-shot[data-normalized="true"] > img {
     top: auto !important;
     bottom: var(--shot-bottom, 0px) !important;
@@ -395,50 +395,50 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     width: 100% !important;
     min-width: 0 !important;
     min-height: 0 !important;
-    gap: 5px !important;
-    padding: 9px 0 0 !important;
+    gap: 4px !important;
+    padding: 6px 0 0 !important;
   }
-  .storefront .catalog-featured .product-card__brand { font-size: 8px !important; line-height: 1.2 !important; }
-  .storefront .catalog-featured .product-card__title-row { min-height: 34px !important; }
+  .storefront .catalog-featured .product-card__brand { font-size: 7px !important; line-height: 1.2 !important; }
+  .storefront .catalog-featured .product-card__title-row { min-height: 30px !important; }
   .storefront .catalog-featured .product-open h3 {
     min-height: 0 !important;
     max-height: 2.7em !important;
-    font-size: 12px !important;
+    font-size: 10.5px !important;
     line-height: 1.35 !important;
     -webkit-line-clamp: 2 !important;
     line-clamp: 2 !important;
   }
-  .storefront .catalog-featured .product-card__price { min-height: 30px !important; margin: 1px 0 0 !important; padding: 0 38px 0 0 !important; }
-  .storefront .catalog-featured .product-card__price strong { font-size: 18px !important; }
+  .storefront .catalog-featured .product-card__price { min-height: 28px !important; margin: 0 !important; padding: 0 34px 0 0 !important; }
+  .storefront .catalog-featured .product-card__price strong { font-size: 16px !important; }
   .storefront .catalog-featured .product-card__favorite {
     top: 6px !important;
     right: 4px !important;
-    width: 34px !important;
-    height: 34px !important;
+    width: 30px !important;
+    height: 30px !important;
   }
   .storefront .catalog-featured .product-card__footer {
     position: absolute !important;
     right: 0 !important;
     bottom: 0 !important;
-    width: 34px !important;
-    height: 34px !important;
+    width: 30px !important;
+    height: 30px !important;
     margin: 0 !important;
   }
   .storefront .catalog-featured .product-card .product-card__add {
     right: 0 !important;
     bottom: 0 !important;
     display: grid !important;
-    width: 34px !important;
-    min-width: 34px !important;
-    height: 34px !important;
-    min-height: 34px !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
     align-content: center !important;
     align-items: center !important;
     justify-content: center !important;
     justify-items: center !important;
     place-items: center !important;
     border: 1px solid var(--tx-line-strong) !important;
-    border-radius: 9px !important;
+    border-radius: 8px !important;
     background: #fff !important;
   }
   .storefront .catalog-featured .product-card .product-card__add.is-in-cart {
@@ -448,8 +448,8 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   }
   .storefront .catalog-featured .product-card .product-card__add .tx-icon {
     display: block !important;
-    width: 17px !important;
-    height: 17px !important;
+    width: 15px !important;
+    height: 15px !important;
     margin: auto !important;
     position: static !important;
     transform: none !important;
