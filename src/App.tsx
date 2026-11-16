@@ -1071,6 +1071,7 @@ function App() {
     .filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ru')), [catalogGroups, catalogProducts])
   const selectedBrowsePath = selectedCategoryPath(storeSection)
   const browseChildren = childrenAtPath(categoryRoots, selectedBrowsePath || '')
+  const browseDepth = selectedBrowsePath ? categorySegments(selectedBrowsePath).length : 0
   const isFeaturedView = path === '/' && !favoritesOnly && !query.trim() && !storeSection && category === 'Все'
     && !brandFilter && !minPrice && !maxPrice && !onlyAvailable
   const folderOnly = false
@@ -1241,7 +1242,7 @@ function App() {
     <label className="mobile-page-search catalog-page-search"><Icon name="search" /><input value={query} onChange={event => { setQuery(event.target.value); setStoreSection(''); setCategory('Все') }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск">Очистить</button>}</label>
     {!query.trim() && <CatalogExplorer roots={categoryRoots} selectedPath={selectedBrowsePath || ''} total={catalogTotal}
       onSelect={selectCatalogPath} onReset={resetCatalogPath} />}
-    {renderCatalogBlock(undefined, true)}
+    {(query.trim() || (selectedBrowsePath && (browseDepth >= 2 || browseChildren.length === 0))) && renderCatalogBlock(undefined, true)}
   </div>
 
   const renderProductPage = (product: Product) => {

@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react'
 import { Icon } from './Icon'
 import { browseLabel } from './catalog-navigation'
 import { categorySegments, childrenAtPath, type OneCNode } from './onec-category-tree'
@@ -17,8 +16,9 @@ export function CatalogExplorer({ roots, selectedPath, total, onSelect, onReset 
   const parts = categorySegments(selectedPath).filter(part => selectedPath || part !== 'Без категории')
   const children = childrenAtPath(roots, selectedPath)
   const title = parts.at(-1) || 'Каталог'
+  const visibleChildren = parts.length >= 3 ? [] : children
 
-  return <section className="catalog-explorer" aria-labelledby="catalog-explorer-title">
+  return <section className="catalog-explorer catalog-tree" data-depth={parts.length} aria-labelledby="catalog-explorer-title">
     <div className="catalog-explorer__intro">
       <div>
         <p className="eyebrow">TEXHORU · каталог</p>
@@ -36,14 +36,13 @@ export function CatalogExplorer({ roots, selectedPath, total, onSelect, onReset 
       })}
     </nav>}
 
-    {!!children.length && <div className="catalog-explorer__grid">
-      {children.map((node, index) => <button type="button" className="catalog-explorer__card" key={node.path}
-        style={{ '--catalog-index': index } as CSSProperties} onClick={() => onSelect(node.path)}>
-        <span className="catalog-explorer__card-index">{String(index + 1).padStart(2, '0')}</span>
-        <span className="catalog-explorer__card-copy"><strong>{browseLabel(node.title)}</strong><small>{formatCount.format(node.count)} товаров</small></span>
-        <Icon name="arrow" />
+    {!!visibleChildren.length && <nav className="catalog-tree__list" aria-label={`Разделы: ${browseLabel(title)}`}>
+      {visibleChildren.map(node => <button type="button" className="catalog-tree__row" key={node.path} onClick={() => onSelect(node.path)}>
+        <span className="catalog-tree__row-copy"><strong>{browseLabel(node.title)}</strong><small>{formatCount.format(node.count)} товаров</small></span>
+        <span className="catalog-tree__row-action">Открыть <Icon name="arrow" /></span>
       </button>)}
-    </div>}
+    </nav>}
+    {!visibleChildren.length && selectedPath && <div className="catalog-tree__leaf"><span>Выбран раздел</span><strong>{browseLabel(title)}</strong></div>}
   </section>
 }
 

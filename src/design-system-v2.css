@@ -572,3 +572,52 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .favorites-empty > p:not(.eyebrow) { max-width: 330px; margin: 15px 0 24px; font-size: 13px; }
   .favorites-empty > button { min-height: 46px; }
 }
+
+/* Catalog tree: navigation first, products only after a useful branch. */
+.catalog-tree__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  column-gap: clamp(28px, 5vw, 80px);
+  border-top: 1px solid var(--tx-line-strong);
+}
+.catalog-tree__row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  min-height: 112px;
+  gap: 24px;
+  padding: 20px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--tx-line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tx-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: color 150ms ease, padding 150ms ease;
+}
+.catalog-tree__row:hover { padding-left: 8px; color: var(--tx-red); }
+.catalog-tree__row-copy { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
+.catalog-tree__row-copy strong { font-size: clamp(18px, 1.6vw, 25px); font-weight: 600; line-height: 1.12; letter-spacing: -.035em; }
+.catalog-tree__row-copy small { color: var(--tx-muted); font-family: var(--font-mono) !important; font-size: 10px; }
+.catalog-tree__row-action { display: inline-flex; align-items: center; gap: 12px; color: var(--tx-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; }
+.catalog-tree__row-action svg { width: 18px; height: 18px; }
+.catalog-tree__row:hover .catalog-tree__row-action { color: var(--tx-red); }
+.catalog-tree__leaf { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding: 22px 2px; border-block: 1px solid var(--tx-line-strong); }
+.catalog-tree__leaf span { color: var(--tx-muted); font-size: 11px; }
+.catalog-tree__leaf strong { font-size: 16px; font-weight: 600; }
+
+@media (max-width: 800px) {
+  .catalog-tree .catalog-explorer__intro { margin-bottom: 18px; }
+  .catalog-tree .catalog-explorer__intro h1 { font-size: 40px; }
+  .catalog-tree__list { grid-template-columns: minmax(0,1fr); column-gap: 0; }
+  .catalog-tree__row { min-height: 82px; gap: 14px; padding: 13px 0; }
+  .catalog-tree__row:hover { padding-left: 0; }
+  .catalog-tree__row-copy { gap: 6px; }
+  .catalog-tree__row-copy strong { font-size: 17px; line-height: 1.18; }
+  .catalog-tree__row-copy small { font-size: 9px; }
+  .catalog-tree__row-action { font-size: 0; gap: 0; }
+  .catalog-tree__row-action svg { width: 19px; height: 19px; color: var(--tx-red); }
+  .catalog-tree__leaf { padding: 16px 0; }
+  .catalog-page-v2 > .catalog { margin-top: 30px !important; }
+}
