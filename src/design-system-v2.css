@@ -342,33 +342,27 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     line-height: 1.4 !important;
   }
   .storefront .catalog-featured .product-grid {
-    display: flex !important;
-    width: calc(100% + 14px) !important;
-    margin: 0 -14px 0 0 !important;
-    padding: 2px 14px 12px 0 !important;
-    gap: 12px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    scroll-snap-type: x mandatory;
-    scroll-padding-left: 0;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 4px 0 12px !important;
+    gap: 24px 12px !important;
+    overflow: visible !important;
   }
-  .storefront .catalog-featured .product-grid::-webkit-scrollbar { display: none; }
   .storefront .catalog-featured .product-card {
-    display: block !important;
-    flex: 0 0 min(78vw, 306px) !important;
+    display: flex !important;
+    flex-direction: column !important;
     min-width: 0 !important;
     min-height: 0 !important;
-    height: 390px !important;
-    padding: 0 14px 14px !important;
-    scroll-snap-align: start;
-    border: 1px solid var(--tx-line) !important;
-    border-radius: 18px !important;
+    height: auto !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
   }
-  .storefront .catalog-featured .product-card:first-child { border-top: 1px solid var(--tx-line) !important; }
+  .storefront .catalog-featured .product-card:first-child { border-top: 0 !important; }
   .storefront .catalog-featured .product-open {
     display: flex !important;
     flex-direction: column !important;
@@ -376,36 +370,36 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     grid-row: auto !important;
     width: 100% !important;
     min-height: 0 !important;
-    height: 100% !important;
+    height: auto !important;
     gap: 0 !important;
   }
   .storefront .catalog-featured .product-media {
-    flex: 0 0 256px !important;
+    flex: none !important;
     width: 100% !important;
     min-height: 0 !important;
-    height: 256px !important;
-    aspect-ratio: auto !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1.12 !important;
     border: 0 !important;
     border-radius: 0 !important;
     background: transparent !important;
   }
-  .storefront .catalog-featured .product-media .product-shot { inset: 8px 3px 0 !important; }
+  .storefront .catalog-featured .product-media .product-shot { inset: 4px 2px 0 !important; }
   .storefront .catalog-featured .product-media .product-shot[data-normalized="true"] > img {
     top: auto !important;
     bottom: var(--shot-bottom, 0px) !important;
   }
   .storefront .catalog-featured .product-card__copy {
     display: flex !important;
-    flex: 1 1 auto !important;
+    flex: none !important;
     flex-direction: column !important;
     width: 100% !important;
     min-width: 0 !important;
     min-height: 0 !important;
     gap: 5px !important;
-    padding: 8px 48px 0 2px !important;
+    padding: 9px 0 0 !important;
   }
   .storefront .catalog-featured .product-card__brand { font-size: 8px !important; line-height: 1.2 !important; }
-  .storefront .catalog-featured .product-card__title-row { min-height: 0 !important; }
+  .storefront .catalog-featured .product-card__title-row { min-height: 34px !important; }
   .storefront .catalog-featured .product-open h3 {
     min-height: 0 !important;
     max-height: 2.7em !important;
@@ -414,37 +408,37 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     -webkit-line-clamp: 2 !important;
     line-clamp: 2 !important;
   }
-  .storefront .catalog-featured .product-card__price { min-height: 28px !important; margin: auto 0 0 !important; padding: 0 !important; }
+  .storefront .catalog-featured .product-card__price { min-height: 30px !important; margin: 1px 0 0 !important; padding: 0 38px 0 0 !important; }
   .storefront .catalog-featured .product-card__price strong { font-size: 18px !important; }
   .storefront .catalog-featured .product-card__favorite {
-    top: 12px !important;
-    right: 12px !important;
+    top: 6px !important;
+    right: 4px !important;
     width: 34px !important;
     height: 34px !important;
   }
   .storefront .catalog-featured .product-card__footer {
     position: absolute !important;
-    right: 14px !important;
-    bottom: 14px !important;
-    width: 38px !important;
-    height: 38px !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 34px !important;
+    height: 34px !important;
     margin: 0 !important;
   }
   .storefront .catalog-featured .product-card .product-card__add {
     right: 0 !important;
     bottom: 0 !important;
     display: grid !important;
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    min-height: 38px !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
     align-content: center !important;
     align-items: center !important;
     justify-content: center !important;
     justify-items: center !important;
     place-items: center !important;
     border: 1px solid var(--tx-line-strong) !important;
-    border-radius: 10px !important;
+    border-radius: 9px !important;
     background: #fff !important;
   }
   .storefront .catalog-featured .product-card .product-card__add.is-in-cart {
@@ -454,8 +448,8 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   }
   .storefront .catalog-featured .product-card .product-card__add .tx-icon {
     display: block !important;
-    width: 18px !important;
-    height: 18px !important;
+    width: 17px !important;
+    height: 17px !important;
     margin: auto !important;
     position: static !important;
     transform: none !important;
