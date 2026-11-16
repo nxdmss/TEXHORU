@@ -563,6 +563,103 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .catalog-page-v2 .catalog:not(.catalog-featured) .product-card__footer { display: contents !important; }
   .catalog-page-v2 .catalog:not(.catalog-featured) .product-card__add { right: -3px !important; bottom: -3px !important; }
 
+  /* The same catalog treatment is used when a category or search is opened
+     from the home page. It must not fall back to the legacy boxed layout. */
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) {
+    width: calc(100% - 28px) !important;
+    margin: 20px auto 0 !important;
+    padding: 0 0 40px !important;
+    background: transparent !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .section-head--catalog {
+    display: grid !important;
+    grid-template-columns: minmax(0,1fr) auto !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin: 0 0 18px !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .section-head--catalog .eyebrow { display: none; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .section-head--catalog h2 {
+    overflow: visible;
+    font-size: 28px !important;
+    line-height: 1.05;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls {
+    display: contents !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls > :not(.catalog-filter-toggle) { display: none !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls.is-open {
+    grid-column: 1 / -1;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+    width: 100%;
+    margin-top: 4px !important;
+    padding: 12px !important;
+    border: 1px solid var(--tx-line) !important;
+    border-radius: var(--tx-radius-sm) !important;
+    background: var(--tx-surface) !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls.is-open .catalog-filter-toggle { grid-column: 1 / -1; justify-self: end; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls.is-open > :not(.catalog-filter-toggle) { display: grid !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls.is-open .catalog-price-filter { grid-column: 1 / -1; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .catalog-toolbar__controls.is-open .catalog-reset { display: block !important; }
+
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2,minmax(0,1fr)) !important;
+    gap: 22px 12px !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-open {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    gap: 0 !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-media {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: 1 / 1.08 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-media .product-shot { background: transparent !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__copy { width: 100% !important; padding: 10px 36px 0 0 !important; gap: 5px !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__brand { display: block !important; font-size: 8px !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__title-row { min-height: 36px !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-open h3 { min-height: 0 !important; max-height: 2.7em !important; font-size: 11px !important; line-height: 1.35 !important; -webkit-line-clamp: 2 !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__price { min-height: 28px !important; margin: 1px 0 0 !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__price strong { font-size: 17px !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__favorite { top: 8px !important; right: 8px !important; width: 34px; height: 34px; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__footer { display: contents !important; }
+  .storefront main > .catalog:not(.catalog-featured):not(.catalog--favorites) .product-card__add { right: -3px !important; bottom: -3px !important; }
+
   .storefront .catalog--favorites { width: calc(100% - 28px) !important; padding: 0 !important; background: transparent !important; }
   .storefront .catalog--favorites .product-grid:empty { display: none !important; }
   .favorites-empty { min-height: calc(100dvh - 250px); padding: 36px 12px 110px; }
