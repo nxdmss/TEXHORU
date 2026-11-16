@@ -300,6 +300,55 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .pwa-install__action { min-height: 34px; padding-inline: 10px; font-size: 10px; }
 }
 
+/* Home on a phone is one continuous canvas: no white block behind the product
+   section and no legacy editorial spacer between its title and first item. */
+@media (max-width: 480px) {
+  .storefront .storefront-layout__block--products,
+  .storefront .catalog-featured {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .storefront .catalog.catalog-featured {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 4px 0 26px !important;
+  }
+  .storefront .catalog-featured .section-head {
+    display: block !important;
+    min-height: 0 !important;
+    margin: 0 0 6px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  .storefront .catalog-featured .section-head h2 {
+    margin: 0 !important;
+    font-size: 32px !important;
+    line-height: 1.05 !important;
+    letter-spacing: -.055em !important;
+  }
+  .storefront .catalog-featured .catalog-toolbar--featured {
+    min-height: 0 !important;
+    margin: 0 0 8px !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  .storefront .catalog-featured .catalog-result-count {
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+  }
+  .storefront .catalog-featured .product-card {
+    min-height: 238px !important;
+    padding-block: 5px !important;
+  }
+  .storefront .catalog-featured .product-card:first-child { border-top: 0 !important; }
+  .storefront .catalog-featured .product-open { min-height: 228px !important; }
+  .storefront .catalog-featured .product-media { min-height: 228px !important; }
+}
+
 @media (max-width: 390px) {
   .storefront .header.header--storefront .header-actions :is(.header-favorites,.header-account,.cart-button) { width: 34px; min-width: 34px; }
   .storefront .header.header--storefront .texhoru-brand__line,
