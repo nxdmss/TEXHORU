@@ -43,6 +43,36 @@ export function categoryTree(categoryNames: string[]): OneCNode[] {
   order(roots)
   return roots
 }
+
+/** Build the same navigation tree from aggregated API groups without expanding
+ * thousands of products into a temporary array. */
+export function categoryTreeFromCounts(groups: Array<{ path: string; count: number }>): OneCNode[] {
+  const roots: OneCNode[] = []
+  const seen = new Map<string, OneCNode>()
+  for (const group of groups) {
+    const amount = Math.max(0, Number(group.count) || 0)
+    let parent: OneCNode | undefined
+    let prefix = ''
+    for (const title of categorySegments(group.path)) {
+      prefix = prefix ? `${prefix} / ${title}` : title
+      let node = seen.get(prefix)
+      if (!node) {
+        node = { title, path: prefix, count: 0, children: [] }
+        if (parent) parent.children.push(node)
+        else roots.push(node)
+        seen.set(prefix, node)
+      }
+      node.count += amount
+      parent = node
+    }
+  }
+  const order = (nodes: OneCNode[]) => {
+    nodes.sort((a, b) => Number(topPriority.test(b.title)) - Number(topPriority.test(a.title)) || a.title.localeCompare(b.title, 'ru'))
+    nodes.forEach(node => order(node.children))
+  }
+  order(roots)
+  return roots
+}
 export function childrenAtPath(roots: OneCNode[], path: string): OneCNode[] {
   if (!path) return roots
   let nodes = roots

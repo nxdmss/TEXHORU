@@ -1,0 +1,20 @@
+{
+  "name": "TEXHORU — техника и электроника",
+  "short_name": "TEXHORU",
+  "description": "Каталог техники TEXHORU",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f7f5",
+  "theme_color": "#a61f32",
+  "categories": ["shopping", "business"],
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Каталог", "short_name": "Каталог", "url": "/catalog", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] },
+    { "name": "Корзина", "short_name": "Корзина", "url": "/cart", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] }
+  ]
+}

@@ -23,6 +23,13 @@ import './admin-desktop.css'
 import './site-finish.css'
 import './brand-navigation.css'
 import './transparent-products.css'
+import './design-system-v2.css'
+
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => undefined)
+  })
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
