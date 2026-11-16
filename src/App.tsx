@@ -54,6 +54,64 @@ function OrderCard({ order }: { order: AccountOrder }) {
   </article>
 }
 
+// A catalog card stays on the current page while its photo flies to the visible cart.
+function animateProductToCart(card: HTMLElement | null) {
+  if (!card || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const media = card.querySelector<HTMLElement>('.product-media')
+  const image = media?.querySelector<HTMLImageElement>('img')
+  if (!media || !image?.complete || !image.naturalWidth) return
+
+  // On phones the bottom dock is the destination; on desktop it is the header.
+  const target = [
+    document.querySelector<HTMLElement>('.mobile-dock [data-cart-target]'),
+    document.querySelector<HTMLElement>('.header-actions [data-cart-target]'),
+  ].find(element => element && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
+  if (!target) return
+
+  const from = media.getBoundingClientRect()
+  const to = target.getBoundingClientRect()
+  if (!from.width || !from.height || !to.width || !to.height) return
+
+  const flyer = image.cloneNode(false) as HTMLImageElement
+  flyer.loading = 'eager'
+  flyer.alt = ''
+  flyer.setAttribute('aria-hidden', 'true')
+  Object.assign(flyer.style, {
+    position: 'fixed',
+    left: from.left + 'px',
+    top: from.top + 'px',
+    width: from.width + 'px',
+    height: from.height + 'px',
+    objectFit: 'contain',
+    objectPosition: 'center',
+    pointerEvents: 'none',
+    zIndex: '9999',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    background: 'transparent',
+    filter: 'drop-shadow(0 12px 18px rgba(0,0,0,.16))',
+    transformOrigin: 'center',
+  })
+  document.body.appendChild(flyer)
+
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2)
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2)
+  const lift = Math.min(140, Math.max(55, Math.abs(dy) * .22))
+  const flight = flyer.animate([
+    { transform: 'translate3d(0,0,0) scale(1)', opacity: 1, offset: 0 },
+    { transform: `translate3d(${dx * .52}px,${dy * .52 - lift}px,0) scale(.55)`, opacity: .92, offset: .55 },
+    { transform: `translate3d(${dx}px,${dy}px,0) scale(.06)`, opacity: 0, offset: 1 },
+  ], { duration: 680, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' })
+  flight.addEventListener('finish', () => flyer.remove(), { once: true })
+  flight.addEventListener('cancel', () => flyer.remove(), { once: true })
+  target.animate([
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.17)', offset: .45 },
+    { transform: 'scale(1)' },
+  ], { delay: 500, duration: 300, easing: 'ease-out' })
+}
+
 function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen, favorite, onFavorite }: {
   product: Product; onOpen: (product: Product) => void; onAdd: (product: Product) => void;
   cartQuantity: number; onCartOpen: () => void; favorite?: boolean; onFavorite?: (product: Product) => void;
@@ -76,7 +134,11 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen, favorit
     <div className="product-card__footer">
       <span className="product-card__stock" data-stock={product.stock === 'Под заказ' ? 'preorder' : cartLimit(product) ? 'in' : 'out'}><i aria-hidden="true" />{product.stock === 'Под заказ' ? 'Под заказ' : cartLimit(product) ? 'В наличии' : 'Нет в наличии'}</span>
       <button className={'product-card__add' + (cartQuantity ? ' is-in-cart' : '')} disabled={!cartLimit(product)}
-        onClick={() => cartQuantity ? onCartOpen() : onAdd(product)} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
+        onClick={event => {
+          if (cartQuantity) { onCartOpen(); return }
+          animateProductToCart(event.currentTarget.closest<HTMLElement>('.product-card'))
+          onAdd(product)
+        }} aria-label={cartQuantity ? `Открыть корзину: ${product.name}` : `Добавить ${product.name} в корзину`}>
         <span>{cartQuantity ? `В корзине · ${cartQuantity}` : 'В корзину'}</span><Icon name={cartQuantity ? 'arrow' : 'plus'} />
       </button>
     </div>
@@ -1107,14 +1169,14 @@ function App() {
     return () => { active = false; clearTimeout(timer) }
   }, [useRemoteCatalog, isFeaturedView, path, query, category, selectedBrowsePath, sort, onlyAvailable, brandFilter, minPrice, maxPrice, storeLimit])
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, openCart = true) => {
     if (!cartLimit(product)) return
     setCart(current => {
       const existing = current.find(item => item.product.id === product.id)
       return existing ? current.map(item => item.product.id === product.id
         ? { ...item, quantity: Math.min(cartLimit(product), item.quantity + 1) } : item) : [...current, { product, quantity: 1 }]
     })
-    navigate('/cart')
+    if (openCart) navigate('/cart')
   }
   const toggleFavorite = (product: Product) => setFavoriteIds(current => current.includes(product.id)
     ? current.filter(id => id !== product.id) : [...current, product.id].slice(-100))
@@ -1196,7 +1258,7 @@ function App() {
         {(catalogLoading || (useRemoteCatalog && remoteLoading && !remoteCatalog.items.length)) && <div className="catalog-loading" role="status">Загружаем товары…</div>}
         {(catalogError || remoteError) && <div className="empty-search" role="alert">{catalogError || remoteError}<button className="catalog-more" onClick={() => window.location.reload()}>Повторить</button></div>}
         <div className="product-grid">{filtered.slice(0,isFeaturedView ? 10 : storeLimit).map(product =>
-          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
+          <ProductCard key={product.id} product={product} onOpen={openProduct} onAdd={product => addToCart(product, false)} cartQuantity={cart.find(line => line.product.id === product.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(product.id)} onFavorite={toggleFavorite}/>)}</div>
         {!isFeaturedView && (useRemoteCatalog ? remoteCatalog.hasMore : filtered.length > storeLimit) &&
           <button className="catalog-more" disabled={remoteLoading} onClick={() => setStoreLimit(n => n + 24)}>{remoteLoading ? 'Загружаем…' : 'Показать ещё 24'}</button>}
         {!catalogLoading && !catalogError && !(useRemoteCatalog && (remoteLoading || remoteError)) && filtered.length === 0 && (favoritesOnly
@@ -1302,7 +1364,7 @@ function App() {
         </div>
       </section>
 
-      {related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><h2>Похожее</h2></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={addToCart} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}
+      {related.length > 0 && <div className="related-block"><div className="section-head section-head--compact"><h2>Похожее</h2></div><div className="product-grid product-grid--related">{related.map((item) => <ProductCard key={item.id} product={item} onOpen={openProduct} onAdd={product => addToCart(product, false)} cartQuantity={cart.find(line => line.product.id === item.id)?.quantity || 0} onCartOpen={() => navigate('/cart')} favorite={favoriteIds.includes(item.id)} onFavorite={toggleFavorite} />)}</div></div>}
     </section>
   }
 
@@ -1335,7 +1397,7 @@ function App() {
     <div className="header-actions">
       {!isFavoritesPage && <button className={'ghost-button header-favorites' + (favoritesOnly ? ' is-active' : '')} onClick={showFavorites} aria-pressed={favoritesOnly}><Icon name="heart" /><span>Избранное</span></button>}
       {!isAccountPage && !authScreen && <button className="ghost-button header-account" onClick={() => navigate('/account')}><Icon name="user" /><span>Личный кабинет</span></button>}
-      {!isCartPage && <button className="cart-button" onClick={() => navigate('/cart')}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>}
+      {!isCartPage && <button className="cart-button" data-cart-target onClick={() => navigate('/cart')}><Icon name="cart" /><span className="header-cart-label">Корзина</span><span>{cartCount}</span></button>}
     </div>
     {!isCatalogPage && <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Открыть каталог"><Icon name="menu" /><span>Каталог</span></button></div>}
   </header>}
@@ -1343,7 +1405,7 @@ function App() {
   {!isAdminPage && !isCatalogPage && !isCartPage && !isFavoritesPage && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => navigate('/catalog')}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
   {!isAdminPage && <PwaInstallPrompt />}
-  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={isCatalogPage ? 'active' : ''} onClick={() => navigate('/catalog')}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={isFavoritesPage ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={isCartPage ? 'active' : ''} onClick={() => navigate('/cart')}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
+  {!isAdminPage && <nav className="mobile-dock" aria-label="Основная навигация"><button type="button" className={path === '/' && !favoritesOnly ? 'active' : ''} onClick={goHome}><Icon name="box" /><span>Главная</span></button><button type="button" className={isCatalogPage ? 'active' : ''} onClick={() => navigate('/catalog')}><Icon name="menu" /><span>Каталог</span></button><button type="button" className={isFavoritesPage ? 'active' : ''} onClick={showFavorites}><Icon name="heart" /><span>Избранное</span>{favoriteIds.length > 0 && <b>{favoriteIds.length}</b>}</button><button type="button" className={isCartPage ? 'active' : ''} data-cart-target onClick={() => navigate('/cart')}><Icon name="cart" /><span>Корзина</span>{cartCount > 0 && <b>{cartCount}</b>}</button></nav>}
 
   </div>
 }
