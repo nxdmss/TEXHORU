@@ -452,17 +452,19 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .catalog-explorer__card {
     flex: 0 0 178px;
     grid-template-columns: minmax(0,1fr) auto;
-    min-height: 96px;
-    padding: 14px;
+    min-height: 88px;
+    padding: 12px 13px;
     scroll-snap-align: start;
     border-color: var(--tx-line);
     border-radius: var(--tx-radius-sm);
+    background: transparent;
+    box-shadow: none;
   }
   .catalog-explorer__card-copy { gap: 7px; }
   .catalog-explorer__card-copy strong { font-size: 13px; line-height: 1.2; }
   .catalog-explorer__card > svg { align-self: end; width: 16px; height: 16px; }
 
-  .catalog-page-v2 > .catalog { margin-top: 36px !important; padding: 0 0 40px !important; background: transparent !important; }
+  .catalog-page-v2 > .catalog { margin-top: 26px !important; padding: 0 0 40px !important; background: transparent !important; }
   .catalog-page-v2 .catalog .section-head--catalog {
     display: grid !important;
     grid-template-columns: minmax(0,1fr) auto !important;
@@ -474,9 +476,16 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   }
   .catalog-page-v2 .catalog .section-head--catalog > div:first-child { min-width: 0; }
   .catalog-page-v2 .catalog .section-head--catalog .eyebrow { display: none; }
-  .catalog-page-v2 .catalog .section-head--catalog h2 { overflow: hidden; font-size: 28px !important; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
-  .catalog-page-v2 .catalog-toolbar__controls {
+  .catalog-page-v2 .catalog .section-head--catalog h2 { overflow: visible; font-size: 28px !important; line-height: 1.05; text-overflow: clip; white-space: normal; }
+  .storefront .catalog-page-v2 .catalog .section-head--catalog > .catalog-toolbar__controls {
     display: contents !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
   .catalog-filter-toggle {
     display: inline-grid;
@@ -496,7 +505,7 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .catalog-filter-toggle small { color: var(--tx-red); font-size: 9px; }
   .catalog-filter-toggle svg { width: 15px; height: 15px; }
   .catalog-page-v2 .catalog-toolbar__controls > :not(.catalog-filter-toggle) { display: none !important; }
-  .catalog-page-v2 .catalog-toolbar__controls.is-open {
+  .storefront .catalog-page-v2 .catalog .section-head--catalog > .catalog-toolbar__controls.is-open {
     grid-column: 1 / -1;
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
@@ -515,7 +524,7 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
 
   /* Product cards in the catalog are vertical retail cards. The horizontal
      editorial row remains exclusive to the home page. */
-  .catalog-page-v2 .catalog:not(.catalog-featured) .product-grid { display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 30px 12px !important; }
+  .catalog-page-v2 .catalog:not(.catalog-featured) .product-grid { display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 22px 12px !important; }
   .catalog-page-v2 .catalog:not(.catalog-featured) .product-card {
     display: flex !important;
     flex-direction: column !important;
@@ -540,9 +549,11 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     min-height: 0 !important;
     aspect-ratio: 1 / 1.08 !important;
     border: 0 !important;
-    border-radius: var(--tx-radius-sm) !important;
-    background: var(--tx-surface) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
+  .catalog-page-v2 .catalog:not(.catalog-featured) .product-media .product-shot { background: transparent !important; }
   .catalog-page-v2 .catalog:not(.catalog-featured) .product-card__copy { width: 100% !important; padding: 10px 36px 0 0 !important; gap: 5px !important; }
   .catalog-page-v2 .catalog:not(.catalog-featured) .product-card__brand { display: block !important; font-size: 8px !important; }
   .catalog-page-v2 .catalog:not(.catalog-featured) .product-card__title-row { min-height: 36px !important; }
