@@ -342,19 +342,36 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     line-height: 1.4 !important;
   }
   .storefront .catalog-featured .product-card {
-    grid-template-rows: clamp(228px, 62vw, 252px) !important;
+    display: block !important;
     min-height: 0 !important;
-    height: clamp(228px, 62vw, 252px) !important;
-    padding: 0 !important;
+    height: clamp(204px, 55vw, 220px) !important;
+    padding: 10px 0 0 !important;
+    border-bottom: 1px solid var(--tx-line) !important;
   }
   .storefront .catalog-featured .product-card:first-child { border-top: 0 !important; }
   .storefront .catalog-featured .product-open {
+    display: grid !important;
+    grid-template-columns: minmax(0, 43%) minmax(0, 57%) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    grid-column: auto !important;
+    grid-row: auto !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    width: 100% !important;
     min-height: 0 !important;
     height: 100% !important;
   }
   .storefront .catalog-featured .product-media {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    align-self: stretch !important;
+    width: 100% !important;
     min-height: 0 !important;
     height: 100% !important;
+    aspect-ratio: auto !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
   }
   .storefront .catalog-featured .product-media .product-shot {
     inset: 0 !important;
@@ -363,29 +380,66 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     top: auto !important;
     bottom: var(--shot-bottom, 0px) !important;
   }
+  .storefront .catalog-featured .product-card__copy {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    align-self: stretch !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 100% !important;
+    gap: 6px !important;
+    padding: 10px 44px 5px 0 !important;
+  }
+  .storefront .catalog-featured .product-card__brand {
+    font-size: 8px !important;
+    line-height: 1.2 !important;
+  }
+  .storefront .catalog-featured .product-card__title-row { min-height: 0 !important; }
+  .storefront .catalog-featured .product-open h3 {
+    min-height: 0 !important;
+    max-height: 3.9em !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+    -webkit-line-clamp: 3 !important;
+    line-clamp: 3 !important;
+  }
+  .storefront .catalog-featured .product-card__price {
+    min-height: 28px !important;
+    margin: auto 0 0 !important;
+    padding: 0 !important;
+  }
+  .storefront .catalog-featured .product-card__price strong { font-size: 18px !important; }
+  .storefront .catalog-featured .product-card__favorite {
+    top: 14px !important;
+    right: 0 !important;
+    width: 34px !important;
+    height: 34px !important;
+  }
   .storefront .catalog-featured .product-card__footer {
     position: absolute !important;
     right: 0 !important;
     bottom: 0 !important;
-    width: 36px !important;
-    height: 36px !important;
+    width: 38px !important;
+    height: 38px !important;
     margin: 0 !important;
   }
   .storefront .catalog-featured .product-card .product-card__add {
     right: 0 !important;
     bottom: 0 !important;
     display: grid !important;
-    width: 36px !important;
-    min-width: 36px !important;
-    height: 36px !important;
-    min-height: 36px !important;
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
     align-content: center !important;
     align-items: center !important;
     justify-content: center !important;
     justify-items: center !important;
     place-items: center !important;
     border: 1px solid var(--tx-line-strong) !important;
-    border-radius: 9px !important;
+    border-radius: 10px !important;
     background: #fff !important;
   }
   .storefront .catalog-featured .product-card .product-card__add.is-in-cart {
