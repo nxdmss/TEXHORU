@@ -1179,7 +1179,7 @@ function App() {
 
   const renderCatalogBlock = (block?: StorefrontBlock, anchor = true) => <section className={'catalog' + (isFeaturedView ? ' catalog-featured' : '') + (favoritesOnly ? ' catalog--favorites' : '')} id={anchor ? 'catalog' : undefined}>
       {favoritesOnly ? <h1 className="visually-hidden">Избранное, {filtered.length} товаров</h1> : <div className={'section-head' + (!isFeaturedView ? ' section-head--catalog' : '')}><div><p className="eyebrow">{isFeaturedView ? 'Выбор TEXHORU' : 'Каталог'}</p>
-        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? block?.title || 'Популярные товары' : selectedBrowsePath ? selectedBrowsePath.split(' / ').at(-1) : 'Все товары'}</h2>
+        <h2>{query.trim() ? 'Результаты поиска' : isFeaturedView ? block?.title || 'Популярные товары' : selectedBrowsePath ? browseLabel(selectedBrowsePath.split(' / ').at(-1) || '') : 'Все товары'}</h2>
       </div>{!isFeaturedView && <div className={'catalog-toolbar__controls' + (filtersOpen ? ' is-open' : '')}>
           <button type="button" className="catalog-filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>
             <span>Фильтры</span><small>{[onlyAvailable, brandFilter, minPrice || maxPrice, sort !== 'recommended'].filter(Boolean).length || 'Все'}</small><Icon name={filtersOpen ? 'chevronUp' : 'chevronDown'} />
