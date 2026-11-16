@@ -84,10 +84,10 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
 .storefront .cart-button > span:last-child { border-radius: 999px; background: var(--tx-red-bright); }
 
 /* Brand rail: acts as a visual navigation line without decorative dividers. */
-.storefront .brand-navigation { z-index: 25; min-height: 54px; background: var(--tx-surface); box-shadow: 0 1px 0 var(--tx-line); }
-.storefront .brand-navigation__rail { width: min(var(--storefront-frame), calc(100% - var(--storefront-gutter) * 2)); height: 54px; gap: 2px; }
+.storefront .brand-navigation { z-index: 25; min-height: 54px; border: 0; background: transparent; box-shadow: none; }
+.storefront .brand-navigation__rail { width: min(var(--storefront-frame), calc(100% - var(--storefront-gutter) * 2)); height: 54px; gap: 2px; background: transparent; }
 .storefront .brand-navigation__rail > button { min-height: 38px; padding: 7px clamp(11px, 1.2vw, 20px); border: 0; border-radius: var(--tx-radius-xs); font-family: var(--font-mono) !important; font-size: 12px; font-weight: 600; }
-.storefront .brand-navigation__rail > button:is(:hover,.is-active,:focus-visible) { border: 0; background: var(--tx-red-soft); color: var(--tx-red); transform: none; }
+.storefront .brand-navigation__rail > button:is(:hover,.is-active,:focus-visible) { border: 0; background: transparent; color: var(--tx-red); transform: none; }
 .storefront .brand-navigation__panel { padding-block: 14px 20px; border: 0; background: rgba(255,255,255,.98); box-shadow: var(--tx-shadow-float); }
 .storefront .brand-navigation__models > button { border-radius: var(--tx-radius-sm); }
 .storefront .brand-navigation__visual { border-radius: var(--tx-radius-xs); background: var(--tx-canvas); }
@@ -245,9 +245,10 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .storefront .header.header--no-search { grid-template-rows: 44px !important; min-height: calc(68px + env(safe-area-inset-top)) !important; }
   .storefront .header.header--no-search .header-search-spacer { display: none; }
   .storefront .header.header--no-search .header-actions { grid-column: 2 !important; }
-  .storefront .brand-navigation { min-height: 48px; }
-  .storefront .brand-navigation__rail { width: 100%; height: 48px; padding: 0 10px; }
+  .storefront .brand-navigation { min-height: 48px; border: 0 !important; background: transparent !important; box-shadow: none !important; }
+  .storefront .brand-navigation__rail { width: 100%; height: 48px; padding: 0 10px; background: transparent !important; }
   .storefront .brand-navigation__rail > button { font-size: 11px; }
+  .storefront .brand-navigation__rail > button:is(:hover,.is-active,:focus-visible) { background: transparent !important; color: var(--tx-red) !important; }
   .catalog-page-v2 { width: calc(100% - 28px); padding: 28px 0 42px; }
   .catalog-explorer__intro { align-items: flex-start; margin-bottom: 20px; }
   .catalog-explorer__intro h1 { font-size: clamp(38px, 12vw, 58px); }
@@ -341,12 +342,32 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
     line-height: 1.4 !important;
   }
   .storefront .catalog-featured .product-card {
-    min-height: 238px !important;
-    padding-block: 5px !important;
+    grid-template-rows: clamp(228px, 62vw, 252px) !important;
+    min-height: 0 !important;
+    height: clamp(228px, 62vw, 252px) !important;
+    padding: 0 !important;
   }
   .storefront .catalog-featured .product-card:first-child { border-top: 0 !important; }
-  .storefront .catalog-featured .product-open { min-height: 228px !important; }
-  .storefront .catalog-featured .product-media { min-height: 228px !important; }
+  .storefront .catalog-featured .product-open {
+    min-height: 0 !important;
+    height: 100% !important;
+  }
+  .storefront .catalog-featured .product-media {
+    min-height: 0 !important;
+    height: 100% !important;
+  }
+  .storefront .catalog-featured .product-card__footer {
+    position: absolute !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 42px !important;
+    height: 42px !important;
+    margin: 0 !important;
+  }
+  .storefront .catalog-featured .product-card .product-card__add {
+    right: 0 !important;
+    bottom: 0 !important;
+  }
 }
 
 @media (max-width: 390px) {
