@@ -359,6 +359,10 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .storefront .catalog-featured .product-media .product-shot {
     inset: 0 !important;
   }
+  .storefront .catalog-featured .product-media .product-shot[data-normalized="true"] > img {
+    top: auto !important;
+    bottom: var(--shot-bottom, 0px) !important;
+  }
   .storefront .catalog-featured .product-card__footer {
     position: absolute !important;
     right: 0 !important;

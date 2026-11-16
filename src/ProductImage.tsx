@@ -112,6 +112,7 @@ export function ProductImage({ name, image, alt = name, loading = 'lazy' }: {
       '--shot-width': bounds.naturalWidth * scale + 'px', '--shot-height': bounds.naturalHeight * scale + 'px',
       '--shot-left': (size.width - bounds.width * scale) / 2 - bounds.x * scale + 'px',
       '--shot-top': (size.height - bounds.height * scale) / 2 - bounds.y * scale + 'px',
+      '--shot-bottom': (bounds.y + bounds.height - bounds.naturalHeight) * scale + 'px',
     } as CSSProperties
   }
   return <span className={missing ? 'product-shot product-shot--missing' : 'product-shot'} ref={frame} style={style} data-normalized={Boolean(bounds)}>
