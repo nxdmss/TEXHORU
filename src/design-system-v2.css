@@ -86,7 +86,7 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
 /* Brand rail: acts as a visual navigation line without decorative dividers. */
 .storefront .brand-navigation { z-index: 25; min-height: 54px; border: 0; background: transparent; box-shadow: none; }
 .storefront .brand-navigation__rail { width: min(var(--storefront-frame), calc(100% - var(--storefront-gutter) * 2)); height: 54px; gap: 2px; background: transparent; }
-.storefront .brand-navigation__rail > button { min-height: 38px; padding: 7px clamp(11px, 1.2vw, 20px); border: 0; border-radius: var(--tx-radius-xs); font-family: var(--font-mono) !important; font-size: 12px; font-weight: 600; }
+.storefront .brand-navigation__rail > button { min-height: 38px; padding: 7px clamp(11px, 1.2vw, 20px); border: 0; border-radius: var(--tx-radius-xs); font-family: var(--font-mono) !important; font-size: 13px; font-weight: 700; letter-spacing: .005em; }
 .storefront .brand-navigation__rail > button:is(:hover,.is-active,:focus-visible) { border: 0; background: transparent; color: var(--tx-red); transform: none; }
 .storefront .brand-navigation__panel { padding-block: 14px 20px; border: 0; background: rgba(255,255,255,.98); box-shadow: var(--tx-shadow-float); }
 .storefront .brand-navigation__models > button { border-radius: var(--tx-radius-sm); }
@@ -247,7 +247,7 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .storefront .header.header--no-search .header-actions { grid-column: 2 !important; }
   .storefront .brand-navigation { min-height: 48px; border: 0 !important; background: transparent !important; box-shadow: none !important; }
   .storefront .brand-navigation__rail { width: 100%; height: 48px; padding: 0 10px; background: transparent !important; }
-  .storefront .brand-navigation__rail > button { font-size: 11px; }
+  .storefront .brand-navigation__rail > button { font-size: 12px; font-weight: 700; }
   .storefront .brand-navigation__rail > button:is(:hover,.is-active,:focus-visible) { background: transparent !important; color: var(--tx-red) !important; }
   .catalog-page-v2 { width: calc(100% - 28px); padding: 28px 0 42px; }
   .catalog-explorer__intro { align-items: flex-start; margin-bottom: 20px; }
