@@ -42,7 +42,6 @@ export function CatalogExplorer({ roots, selectedPath, total, onSelect, onReset 
         <span className="catalog-tree__row-action">Открыть <Icon name="arrow" /></span>
       </button>)}
     </nav>}
-    {!visibleChildren.length && selectedPath && <div className="catalog-tree__leaf"><span>Выбран раздел</span><strong>{browseLabel(title)}</strong></div>}
   </section>
 }
 
