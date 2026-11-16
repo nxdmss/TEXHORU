@@ -1081,3 +1081,30 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   }
   .storefront .catalog.catalog-featured .product-card__price strong { font-size: 16px !important; }
 }
+
+
+/* Compact catalog actions: keep the plus/arrow, never paint a red button behind them. */
+.storefront .product-card .product-card__add,
+.storefront .catalog-featured .product-card .product-card__add,
+.storefront .catalog-featured .product-card .product-card__add.is-in-cart {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  color: var(--tx-red-bright) !important;
+}
+.storefront .product-card .product-card__add:hover:not(:disabled),
+.storefront .product-card .product-card__add:active:not(:disabled) {
+  border: 0 !important;
+  background: transparent !important;
+}
+.storefront .catalog-featured .product-card .product-card__add::after { content: none !important; }
+.storefront .catalog-featured .product-card .product-card__add > .tx-icon {
+  display: block !important;
+  color: currentColor !important;
+  width: 23px !important;
+  height: 23px !important;
+  stroke-width: 2.4;
+}
