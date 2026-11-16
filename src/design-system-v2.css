@@ -995,3 +995,89 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   }
   .storefront .product-story { margin-top: 44px !important; }
 }
+
+/* Keep banner controls inside the banner instead of positioning them against
+   a distant page ancestor. */
+.storefront .storefront-carousel__layout { position: relative !important; }
+
+/* Final mobile contract for the home assortment. This deliberately sits last
+   so older editorial-list rules cannot turn the grid back into one column. */
+@media (max-width: 699px) {
+  .storefront .storefront-carousel__layout > .carousel-hit {
+    top: 50% !important;
+    width: 32px !important;
+    height: 46px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: translateY(-50%) !important;
+  }
+  .storefront .storefront-carousel__layout > .carousel-hit--left { left: 4px !important; }
+  .storefront .storefront-carousel__layout > .carousel-hit--right { right: 4px !important; }
+
+  .storefront .catalog.catalog-featured .product-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-auto-flow: row !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 4px 2px 12px !important;
+    gap: 18px 10px !important;
+    overflow: visible !important;
+  }
+  .storefront .catalog.catalog-featured .product-grid > .product-card {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .storefront .catalog.catalog-featured .product-open {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+  }
+  .storefront .catalog.catalog-featured .product-media {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: 1 / .88 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  .storefront .catalog.catalog-featured .product-card__copy {
+    width: 100% !important;
+    min-width: 0 !important;
+    gap: 4px !important;
+    padding: 6px 0 0 !important;
+  }
+  .storefront .catalog.catalog-featured .product-card__title-row { min-height: 30px !important; }
+  .storefront .catalog.catalog-featured .product-open h3 {
+    min-height: 0 !important;
+    max-height: 2.7em !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+    -webkit-line-clamp: 2 !important;
+    line-clamp: 2 !important;
+  }
+  .storefront .catalog.catalog-featured .product-card__price {
+    min-height: 28px !important;
+    margin: 0 !important;
+    padding: 0 34px 0 0 !important;
+  }
+  .storefront .catalog.catalog-featured .product-card__price strong { font-size: 16px !important; }
+}
