@@ -1238,7 +1238,7 @@ function App() {
     setStoreLimit(24)
   }
   const renderCatalogPage = () => <div className="catalog-page-v2">
-    <label className="catalog-page-search"><Icon name="search" /><input value={query} onChange={event => { setQuery(event.target.value); setStoreSection(''); setCategory('Все') }} placeholder="Название, модель или артикул" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск"><Icon name="close" /></button>}</label>
+    <label className="mobile-page-search catalog-page-search"><Icon name="search" /><input value={query} onChange={event => { setQuery(event.target.value); setStoreSection(''); setCategory('Все') }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Очистить поиск">Очистить</button>}</label>
     {!query.trim() && <CatalogExplorer roots={categoryRoots} selectedPath={selectedBrowsePath || ''} total={catalogTotal}
       onSelect={selectCatalogPath} onReset={resetCatalogPath} />}
     {renderCatalogBlock(undefined, true)}
@@ -1338,7 +1338,7 @@ function App() {
     </div>
     {!isCatalogPage && <div className="header-tools"><button className="header-tool header-menu-button" onClick={() => navigate('/catalog')} aria-label="Открыть каталог"><Icon name="menu" /><span>Каталог</span></button></div>}
   </header>}
-  {!isAdminPage && (path === '/' || isCatalogPage) && <BrandNavigation products={catalogProducts} onSelectModel={openBrandModel} />}
+  {!isAdminPage && path === '/' && <BrandNavigation products={catalogProducts} onSelectModel={openBrandModel} />}
   {!isAdminPage && !isCatalogPage && !isCartPage && !isFavoritesPage && <label className="mobile-page-search"><Icon name="search" /><input value={query} onChange={event => { if (journeyMatch) navigate('/'); setFavoritesOnly(false); setQuery(event.target.value); setCategory('Все'); setStoreSection('') }} onKeyDown={event => { if (event.key === 'Enter') jumpToCatalog('Все', true) }} placeholder="Найти товар" aria-label="Поиск по каталогу" />{query && <button type="button" onClick={() => setQuery('')}>Очистить</button>}</label>}
   <main id="main-content" tabIndex={-1}>{content}</main>{!isAdminPage && <footer className="footer footer--minimal"><button className="brand brand-button" onClick={goHome} aria-label="TEXHORU — на главную"><TexhoruBrand /></button><span className="footer-location">Кизилюрт · Дагестан</span><nav aria-label="Ссылки магазина"><button onClick={() => navigate('/catalog')}>Каталог</button><button onClick={() => navigate('/account')}>Личный кабинет</button><button className="footer-admin" onClick={() => navigate('/admin')}>Управление</button></nav></footer>}
   {!isAdminPage && <PwaInstallPrompt />}

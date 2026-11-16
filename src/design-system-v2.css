@@ -411,25 +411,24 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
 .favorites-empty > button svg { width: 17px; height: 17px; }
 
 @media (max-width: 800px) {
-  .catalog-page-v2 { padding-top: 18px; }
-  .catalog-page-search {
-    display: grid;
-    grid-template-columns: 22px minmax(0,1fr) 36px;
+  .catalog-page-v2 { padding-top: 0; }
+  .storefront .catalog-page-v2 .catalog-page-search.mobile-page-search {
+    display: flex;
     align-items: center;
     width: 100%;
-    height: 54px;
-    margin: 0 0 28px;
-    padding: 0 8px 0 15px;
-    border: 1px solid var(--tx-line-strong);
-    border-radius: var(--tx-radius-sm);
-    background: var(--tx-surface);
+    height: 42px;
+    margin: -10px 0 24px;
+    padding: 0 12px;
+    gap: 9px;
+    border: 1px solid rgba(22,22,25,.07);
+    border-radius: 12px;
+    background: #f1f1f3;
     color: var(--tx-muted);
   }
-  .catalog-page-search:focus-within { border-color: var(--tx-graphite); box-shadow: 0 0 0 3px rgba(32,33,38,.05); }
-  .catalog-page-search > svg { width: 19px; height: 19px; }
-  .catalog-page-search input { width: 100%; height: 100%; padding: 0 11px; border: 0; outline: 0; background: transparent; color: var(--tx-ink); font-size: 16px !important; }
-  .catalog-page-search button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; background: transparent; color: var(--tx-muted); }
-  .catalog-page-search button svg { width: 17px; height: 17px; }
+  .storefront .catalog-page-v2 .catalog-page-search.mobile-page-search:focus-within { border-color: rgba(22,22,25,.18); box-shadow: none; }
+  .storefront .catalog-page-v2 .catalog-page-search.mobile-page-search > svg { width: 17px; height: 17px; flex: 0 0 auto; }
+  .storefront .catalog-page-v2 .catalog-page-search.mobile-page-search input { flex: 1; width: auto; height: 100%; padding: 0; }
+  .storefront .catalog-page-v2 .catalog-page-search.mobile-page-search button { display: block; width: auto; height: auto; padding: 5px 0; color: var(--tx-accent); font-size: 9px; font-weight: 700; }
 
   .catalog-explorer__intro { align-items: end; margin-bottom: 16px; }
   .catalog-explorer__intro .eyebrow { display: none; }
