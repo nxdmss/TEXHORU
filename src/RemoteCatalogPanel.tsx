@@ -183,20 +183,10 @@ export function RemoteCatalogPanel() {
   const totalPages = Math.max(1, Math.ceil((pageData?.total || 0) / (pageData?.pageSize || 100)))
 
   return <section className="onec-mirror" aria-label="Номенклатура основной базы 1С">
-    <header className="onec-mirror__header">
-      <div>
-        <p className="eyebrow">Основная база · УТ 10.3</p>
-        <h2>Номенклатура 1С</h2>
-        <p>Единый каталог 1С: папки, поиск, данные товаров и выбор загрузки на сайт.</p>
-      </div>
-      <div className="onec-mirror__live">
-        <span className={online ? 'is-online' : ''} />
-        <div><strong>{online ? 'Онлайн-связь с агентом 1С' : agent ? 'Агент сейчас не на связи' : 'Ожидаем агента'}</strong>
-          <small>{agent ? 'Последний сигнал: ' + shortDate(agent.lastSeenAt) : 'После запуска агент появится здесь автоматически'}</small></div>
-      </div>
-    </header>
-
-    {foundation && <section className="onec-safety" aria-label="Безопасность обмена с 1С">
+    <details className="onec-connection-details">
+      <summary><span className={'onec-connection-dot' + (online ? ' is-online' : '')}/><strong>{online ? 'Онлайн-связь с агентом 1С' : agent ? 'Агент не на связи' : 'Ожидаем агента'}</strong><small>{foundation?.settings.mode === 'READ_ONLY' ? 'Только чтение' : 'Режим обмена'}</small><Icon name="chevronDown"/></summary>
+      <div className="onec-connection-body"><small>Основная база · УТ 10.3</small><p>{agent ? 'Последний сигнал: ' + shortDate(agent.lastSeenAt) : 'После запуска агент появится здесь автоматически'}</p>
+{foundation && <section className="onec-safety" aria-label="Безопасность обмена с 1С">
       <div><span className={foundation.settings.mode === 'READ_ONLY' ? 'is-safe' : 'is-warning'} />
         <p><strong>{foundation.settings.mode === 'READ_ONLY' ? '1С защищена от изменений' : 'Исходящий обмен требует внимания'}</strong>
           <small>{foundation.settings.mode === 'READ_ONLY' ? 'Только чтение каталога, цен и остатков' : `Режим: ${foundation.settings.mode}`}</small></p></div>
@@ -204,6 +194,8 @@ export function RemoteCatalogPanel() {
       <span>Запись заказов <b>{foundation.serverKillSwitches.orderWrites && foundation.settings.allowOrderWrites ? 'разрешена' : 'выключена'}</b></span>
       <span>Ожидают решения <b>{foundation.commandCounts.WAITING_APPROVAL || 0}</b></span>
     </section>}
+      </div>
+    </details>
 
     {status && !status.configured ? <div className="onec-mirror__setup">
       <strong>На сервере не выбрана основная база 1С</strong>
@@ -211,7 +203,7 @@ export function RemoteCatalogPanel() {
     </div> : <>
       <div className="onec-mirror__toolbar">
         <div className="onec-search"><Icon name="search" /><input aria-label="Поиск по номенклатуре"
-          placeholder="Найти по коду, артикулу или названию…" value={search} onChange={event => setSearch(event.target.value)} /></div>
+          placeholder="Название, код, артикул" value={search} onChange={event => setSearch(event.target.value)} /></div>
         <div className="onec-mirror__toolbar-stats">
           <span><b>{mirrorCount.toLocaleString('ru-RU')}</b> позиций из 1С</span>
         </div>
@@ -231,7 +223,7 @@ export function RemoteCatalogPanel() {
             {path.map(group => <span key={group.oneCId}><Icon name="chevronRight" /><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
             {query && <span><Icon name="chevronRight" /><b>Поиск: {query}</b></span>}
           </nav>
-          <div className="onec-filters"><label>Область поиска<select value={scope} onChange={e => {setScope(e.target.value); setPage(0)}}><option value="branch">Текущая ветка</option><option value="all">Вся номенклатура</option></select></label><label>Наличие / состояние<select value={stock} onChange={e => {setStock(e.target.value); setPage(0)}}><option value="">Все позиции</option><option value="in">Положительный остаток в зеркале</option><option value="deleted">Пометка удаления</option></select></label><label>Сортировка<select value={sort} onChange={e => {setSort(e.target.value); setPage(0)}}><option value="name">По названию</option><option value="code">По коду</option><option value="price">По розничной цене ↑</option><option value="stock">По остатку ↓</option></select></label><button type="button" onClick={() => {setSearch(''); setQuery(''); setStock(''); setSort('name'); setScope('branch'); setPage(0)}}>Сбросить</button><span>{(pageData?.total || 0).toLocaleString('ru-RU')} товаров</span></div>
+          <details className="onec-filter-panel"><summary>Фильтры и сортировка{(stock || sort !== 'name' || scope !== 'branch') && <small> · изменены</small>}<Icon name="chevronDown"/></summary><div className="onec-filters"><label>Область поиска<select value={scope} onChange={e => {setScope(e.target.value); setPage(0)}}><option value="branch">Текущая ветка</option><option value="all">Вся номенклатура</option></select></label><label>Наличие / состояние<select value={stock} onChange={e => {setStock(e.target.value); setPage(0)}}><option value="">Все позиции</option><option value="in">Есть остаток</option><option value="deleted">Пометка удаления</option></select></label><label>Сортировка<select value={sort} onChange={e => {setSort(e.target.value); setPage(0)}}><option value="name">По названию</option><option value="code">По коду</option><option value="price">Цена ↑</option><option value="stock">Остаток ↓</option></select></label><button type="button" onClick={() => {setSearch(''); setQuery(''); setStock(''); setSort('name'); setScope('branch'); setPage(0)}}>Сбросить</button><span>{(pageData?.total || 0).toLocaleString('ru-RU')} товаров</span></div></details>
           {selectedItemIds.size > 0 && <div className="onec-selection">Выбрано: {selectedItemIds.size}<button onClick={() => setSelectedItemIds(new Set())}>Снять выбор</button></div>}
           {selected && <section className={'onec-group-actions' + (selected.fullyImportedAt ? ' is-complete' : '')}>
             <div><strong>{selected.name}</strong><span>{selected.fullyImportedAt ? 'Группа уже загружена на сайт' : 'Какие товары добавить на сайт?'}</span></div>
