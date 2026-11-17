@@ -56,6 +56,7 @@ try {
   await panel.getByText('Apple iPhone 16 0', { exact: true }).waitFor()
   for (const heading of ['Товар / описание', 'Код / артикул', 'Цена', 'Остаток', 'Статус']) await panel.getByText(heading, { exact: true }).waitFor()
   assert.equal(await panel.locator('.onec-table__row.is-item').count(), 100)
+  await panel.getByText('Фильтры и сортировка', { exact: true }).click()
   await panel.getByLabel('Наличие / состояние').selectOption('in')
   await panel.getByText('124 товаров', { exact: true }).waitFor()
   await panel.getByLabel('Наличие / состояние').selectOption('')

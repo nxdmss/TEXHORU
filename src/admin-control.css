@@ -313,10 +313,6 @@
   .admin-control .pu-item-reason { flex-basis:100%; }
   .admin-control .pu-root :is(select,input,textarea),.admin-control .admin-editor :is(select,input,textarea),.admin-control .promo-editor :is(select,input,textarea),.admin-control .onec-mirror :is(select,input:not([type=checkbox])) { font-size:16px; }
   .admin-control .onec-mirror { gap:11px; }
-  .admin-control .onec-mirror__header { gap:9px; }
-  .admin-control .onec-mirror__header h2 { font-size:22px; }
-  .admin-control .onec-mirror__header p { font-size:12px; }
-  .admin-control .onec-mirror__live { padding:0; font-size:12px; }
   .admin-control .onec-safety { padding:10px; gap:10px; }
   .admin-control .onec-mirror__toolbar { padding:8px; gap:7px; }
   .admin-control .onec-search { min-width:0; flex:1 1 100%; width:100%; }
