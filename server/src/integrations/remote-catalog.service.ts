@@ -92,7 +92,7 @@ export class RemoteCatalogService {
       ...(query ? { AND: query.split(/\s+/).filter(Boolean).map(word => ({ searchText: { contains: word } })) } : {}),
       ...(stock === 'in' ? { stockQty: { gt: 0 }, deletionMark: false } : stock === 'deleted' ? { deletionMark: true } : {}),
     }
-    const orderBy: Prisma.OneCNomenclatureItemOrderByWithRelationInput[] = sort === 'price' ? [{ retailPrice: 'asc' }, { name: 'asc' }, { oneCId: 'asc' }] : sort === 'stock' ? [{ stockQty: 'desc' }, { name: 'asc' }, { oneCId: 'asc' }] : sort === 'code' ? [{ code: 'asc' }, { oneCId: 'asc' }] : [{ name: 'asc' }, { oneCId: 'asc' }]
+    const orderBy: Prisma.OneCNomenclatureItemOrderByWithRelationInput[] = sort === 'price' ? [{ retailPrice: 'asc' }, { name: 'asc' }, { oneCId: 'asc' }] : sort === 'stock' ? [{ stockQty: 'desc' }, { name: 'asc' }, { oneCId: 'asc' }] : sort === 'name' ? [{ name: 'asc' }, { oneCId: 'asc' }] : [{ code: 'asc' }, { name: 'asc' }, { oneCId: 'asc' }]
     const [items, total, children, groupRow] = await Promise.all([
       this.db.oneCNomenclatureItem.findMany({ where, orderBy, skip: page * 100, take: 100 }),
       this.db.oneCNomenclatureItem.count({ where }),
