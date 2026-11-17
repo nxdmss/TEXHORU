@@ -109,10 +109,18 @@ export function RemoteCatalogPanel() {
     }
   }
 
+  function navigateToGroup(groupId: string) {
+    setSelectedGroup(groupId)
+    setSelectedItemIds(new Set())
+    setDetail(null)
+    setSearch('')
+    setQuery('')
+    setStock('')
+    setPage(0)
+  }
+
   function openGroup(group: OneCRemoteGroup) {
-    setSelectedGroup(group.oneCId)
-    setSelectedItemIds(new Set()); setDetail(null)
-    setSearch(''); setQuery(''); setStock(''); setPage(0)
+    navigateToGroup(group.oneCId)
   }
 
   function toggleItem(id: string) {
@@ -152,7 +160,7 @@ export function RemoteCatalogPanel() {
       const [nextStatus, nextTree, nextPage, nextExcluded] = await Promise.all([
         api.remoteCatalog(), api.remoteCatalogTree(), api.remoteNomenclature('', '', 0), api.remoteExcludedGroups(),
       ])
-      setSelectedGroup(''); setSearch(''); setQuery(''); setStock(''); setSelectedItemIds(new Set()); setDetail(null); setPage(0)
+      navigateToGroup('')
       setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setPageData(nextPage); setExcludedGroups(nextExcluded)
       const protectedText = result.productsArchived ? ` Защищено историей заказов/цен и архивировано: ${result.productsArchived.toLocaleString('ru-RU')}.` : ''
       setNotice(`Группа «${result.name}» исключена. Удалено из зеркала: ${result.removed.toLocaleString('ru-RU')}; карточек сайта: ${result.productsDeleted.toLocaleString('ru-RU')}; категорий: ${result.categoriesDeleted.toLocaleString('ru-RU')}.${protectedText} 1С не изменялась.`)
@@ -219,7 +227,7 @@ export function RemoteCatalogPanel() {
       <div className="onec-mirror__window">
         <main className="onec-list">
           <nav className="onec-breadcrumbs" aria-label="Путь в номенклатуре">
-            <button onClick={() => { setSelectedGroup(''); setSearch(''); setQuery(''); setStock(''); setSelectedItemIds(new Set()); setDetail(null); setPage(0) }}>Номенклатура</button>
+            <button onClick={() => navigateToGroup('')}>Номенклатура</button>
             {path.map(group => <span key={group.oneCId}><Icon name="chevronRight" /><button onClick={() => openGroup(group)}>{group.name}</button></span>)}
             {query && <span><Icon name="chevronRight" /><b>Поиск: {query}</b></span>}
           </nav>
