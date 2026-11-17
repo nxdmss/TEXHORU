@@ -77,28 +77,32 @@ export class RemoteCatalogService {
     ])
     return { groups, itemCount }
   }
-  async nomenclature(group: string, search: string, page: number) {
+  async nomenclature(group: string, search: string, page: number, stock = '', sort = '', scope = 'all') {
     const baseId = this.base()
-    const excluded = [...(await this.exclusionState(baseId)).ids]
+    const state = await this.exclusionState(baseId)
+    const excluded = [...state.ids]
     page = Number.isSafeInteger(page) ? Math.max(0, Math.min(page, 100000)) : 0
     const query = search.trim().slice(0, 150).toLocaleLowerCase('ru-RU')
     if (group && excluded.includes(group)) return { items: [], total: 0, children: [], group: null, page, pageSize: 100, search: query }
-    const where = {
-      baseId,
-      active: true,
-      parentId: { notIn: excluded },
-      ...(query ? { searchText: { contains: query } } : { parentId: group.slice(0, 100) }),
+    const branchIds = group && scope === 'branch' ? this.subtree(state.groups, group) : null
+    const searching = Boolean(query || stock)
+    const where: Prisma.OneCNomenclatureItemWhereInput = {
+      baseId, active: true,
+      parentId: { notIn: excluded, ...(branchIds ? { in: branchIds } : !searching ? { equals: group.slice(0, 100) } : {}) },
+      ...(query ? { AND: query.split(/\s+/).filter(Boolean).map(word => ({ searchText: { contains: word } })) } : {}),
+      ...(stock === 'in' ? { stockQty: { gt: 0 }, deletionMark: false } : stock === 'deleted' ? { deletionMark: true } : {}),
     }
+    const orderBy: Prisma.OneCNomenclatureItemOrderByWithRelationInput[] = sort === 'price' ? [{ retailPrice: 'asc' }, { name: 'asc' }, { oneCId: 'asc' }] : sort === 'stock' ? [{ stockQty: 'desc' }, { name: 'asc' }, { oneCId: 'asc' }] : sort === 'code' ? [{ code: 'asc' }, { oneCId: 'asc' }] : [{ name: 'asc' }, { oneCId: 'asc' }]
     const [items, total, children, groupRow] = await Promise.all([
-      this.db.oneCNomenclatureItem.findMany({ where, orderBy: [{ code: 'asc' }, { name: 'asc' }, { oneCId: 'asc' }], skip: page * 100, take: 100 }),
+      this.db.oneCNomenclatureItem.findMany({ where, orderBy, skip: page * 100, take: 100 }),
       this.db.oneCNomenclatureItem.count({ where }),
-      this.db.oneCRemoteGroup.findMany({ where: { baseId, active: true, oneCId: { notIn: excluded }, ...(query ? { searchName: { contains: query } } : { parentId: group.slice(0, 100) }) }, orderBy: [{ name: 'asc' }, { oneCId: 'asc' }], take: 1000 }),
+      this.db.oneCRemoteGroup.findMany({ where: { baseId, active: true, oneCId: { notIn: excluded }, ...(query ? { searchName: { contains: query }, ...(branchIds ? { parentId: { in: branchIds } } : {}) } : { parentId: group.slice(0, 100) }) }, orderBy: [{ name: 'asc' }, { oneCId: 'asc' }], take: 1000 }),
       group && !excluded.includes(group) ? this.db.oneCRemoteGroup.findUnique({ where: { baseId_oneCId: { baseId, oneCId: group } }, select: { oneCId: true, parentId: true, name: true } }) : Promise.resolve(null),
     ])
-    const imported = new Set((await this.db.product.findMany({
-      where: { oneCId: { in: items.map(item => item.oneCId) }, status: 'ACTIVE' }, select: { oneCId: true },
-    })).map(item => item.oneCId))
-    return { items: items.map(item => ({ ...item, imported: imported.has(item.oneCId) })), total, children, group: groupRow, page, pageSize: 100, search: query }
+    const imported = new Map((await this.db.product.findMany({
+      where: { oneCId: { in: items.map(item => item.oneCId) }, status: 'ACTIVE' }, select: { oneCId: true, description: true, shortSpec: true, brand: true },
+    })).map(item => [item.oneCId, item] as const))
+    return { items: items.map(item => ({ ...item, imported: imported.has(item.oneCId), description: imported.get(item.oneCId)?.description || '', shortSpec: imported.get(item.oneCId)?.shortSpec || '', brand: imported.get(item.oneCId)?.brand || '' })), total, children, group: groupRow, page, pageSize: 100, search: query }
   }
   async excludedGroups() {
     const baseId = this.base()
