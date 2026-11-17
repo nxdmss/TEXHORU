@@ -821,7 +821,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
         <span>{section.label}</span>
         <div>{section.tabs.map(item => <button type="button" aria-current={tab === item ? 'page' : undefined}
-          className={tab === item ? 'active' : ''} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false) }} key={item}><AdminIcon name={item} /><span>{tabNames[item]}</span>{item === 'notifications' && unread > 0 && <small>{unread}</small>}</button>)}</div>
+          className={tab === item ? 'active' : ''} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false); if (window.innerWidth <= 780) window.scrollTo(0,0) }} key={item}><AdminIcon name={item} /><span>{tabNames[item]}</span>{item === 'notifications' && unread > 0 && <small>{unread}</small>}</button>)}</div>
       </div>)}
       <details className="admin-tabs-extra" open={tab === 'audit'}>
         <summary>Ещё</summary>
@@ -983,6 +983,10 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
     </div>
+    <nav className="admin-phone-dock" aria-label="Быстрые разделы управления">
+      {(['overview','products','prices','orders'] as AdminTab[]).map(item => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false); window.scrollTo(0,0) }}><AdminIcon name={item}/><span>{tabNames[item]}</span></button>)}
+      <button type="button" aria-expanded={navigationOpen} aria-controls="admin-navigation" aria-label="Все разделы управления" className={['sync','content','notifications','audit'].includes(tab) ? 'active' : ''} onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'}/><span>Ещё{unread > 0 && <i aria-label={unread + ' новых сообщений'} />}</span></button>
+    </nav>
   </section>
 }
 
