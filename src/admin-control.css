@@ -227,3 +227,131 @@
 @media(max-width:600px) { .admin-control .mp-product-name { flex-basis: 100%; }.admin-control .mp-summary { gap: 7px 13px; } }
 .admin-launch-readiness{display:grid;gap:14px;padding:18px;border:1px solid #deded9;background:#fff;border-radius:16px;margin-bottom:24px}.admin-launch-readiness__head,.admin-launch-readiness__head>div{display:flex;align-items:center;gap:12px}.admin-launch-readiness__head{justify-content:space-between}.admin-launch-readiness__head>div>span{width:10px;height:10px;border-radius:50%;background:#159265;box-shadow:0 0 0 5px #e6f6ef}.admin-launch-readiness__head>div>span.is-warning{background:#d79513;box-shadow:0 0 0 5px #fff4d8}.admin-launch-readiness__head p{display:grid;gap:3px;margin:0}.admin-launch-readiness__head small{color:#777;font-size:11px}.admin-launch-readiness__head>b{font-size:12px}.admin-launch-readiness__grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.admin-launch-readiness__grid article{display:grid;gap:5px;min-width:0;padding:13px;background:#f6f6f3;border-radius:10px}.admin-launch-readiness__grid span,.admin-launch-readiness__grid small{color:#777;font-size:10px}.admin-launch-readiness__grid strong{font-size:14px;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:850px){.admin-launch-readiness__head{align-items:flex-start;flex-direction:column}.admin-launch-readiness__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* Mobile admin: app navigation and compact, touch-friendly workspaces. */
+.admin-phone-dock { display:none; }
+@media(max-width:780px) {
+  .admin-shell.admin-control { display:block; width:100%; max-width:100%; padding:0; overflow-x:clip; }
+  .admin-control .admin-sidebar { position:relative; top:auto; padding:13px 15px; width:100%; height:auto; z-index:30; }
+  .admin-control .admin-brand .texhoru-brand { font-size:23px; }
+  .admin-control .admin-brand .texhoru-brand__subtitle { margin-top:3px; }
+  .admin-control .admin-mobile-toggle { top:11px; right:12px; min-height:44px; }
+  .admin-control .admin-sidebar.is-open .admin-tabs { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; padding-top:18px; }
+  .admin-control .admin-tab-group > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+  .admin-control .admin-tab-group button { min-height:44px; width:100%; white-space:normal; text-align:left; }
+  .admin-control .admin-tabs-extra { padding-top:0; }
+  .admin-control .admin-tabs-extra summary { min-height:40px; padding:12px 8px; }
+  .admin-control .admin-sidebar.is-open { position:sticky; top:0; max-height:calc(100dvh - 88px); overflow-y:auto; }
+  .admin-control .admin-workspace, .admin-control .admin-workspace--builder { padding:16px 12px calc(88px + env(safe-area-inset-bottom,0px)); width:100%; min-width:0; }
+  .admin-control .admin-top { position:static; flex-direction:row; align-items:center; gap:8px; padding:0 0 14px; margin-bottom:16px; }
+  .admin-control .admin-top h1 { font-size:23px; line-height:1.14; overflow-wrap:anywhere; }
+  .admin-control .admin-top .eyebrow { font-size:10px; margin-bottom:4px; }
+  .admin-control .admin-top__actions button { min-height:44px; min-width:44px; justify-content:center; }
+  .admin-control .admin-top__actions .api-state { max-width:100px; white-space:normal; line-height:1.3; }
+  .admin-control .admin-phone-dock { position:fixed; z-index:50; inset:auto 0 0; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:0; background:#fff; border-top:1px solid #dededb; padding:6px 5px calc(5px + env(safe-area-inset-bottom,0px)); box-shadow:0 -6px 24px #1717170b; }
+  .admin-control .admin-phone-dock button { appearance:none; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; border:0; background:transparent; color:#666; min-width:0; min-height:52px; font:600 10px "IBM Plex Sans",sans-serif; padding:5px 1px; border-radius:8px; }
+  .admin-control .admin-phone-dock button[aria-current=page],.admin-control .admin-phone-dock button.active,.admin-control .admin-phone-dock button[aria-expanded=true] { color:var(--tx-accent,#c90023); background:#f8f0f1; }
+  .admin-control .admin-phone-dock svg { width:22px; height:22px; }
+  .admin-control .admin-phone-dock button span { position:relative; }
+  .admin-control .admin-phone-dock i { position:absolute; right:-7px; top:-2px; width:6px; height:6px; background:#c90023; border-radius:50%; }
+  .admin-control:has(.admin-editor-backdrop,.promo-editor-backdrop) .admin-phone-dock { display:none; }
+  .admin-control .admin-launch-readiness { padding:12px; gap:9px; margin-bottom:16px; border-radius:10px; }
+  .admin-control .admin-launch-readiness__grid article { padding:9px; }
+  .admin-control .admin-overview-heading { padding:0 0 10px; }
+  .admin-control .admin-overview-heading h2 { font-size:20px; }
+  .admin-control .admin-quests { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .admin-control .admin-quest { gap:10px; min-height:125px; padding:12px; }
+  .admin-control .admin-quest-primary { grid-column:1/-1; min-height:115px; }
+  .admin-control .admin-quest > strong { font-size:20px; line-height:1.15; }
+  .admin-control .admin-quest-top > svg { width:29px; height:29px; padding:5px; }
+  .admin-control .admin-quest-footer { font-size:10px; }
+  .admin-control .admin-metrics-main { gap:8px; padding-top:12px; }
+  .admin-control .admin-metrics-main article { min-height:88px; padding:12px; }
+  .admin-control .admin-metrics-main strong { font-size:28px; }
+  .admin-control .admin-metrics-main span { max-width:calc(100% - 24px); }
+  .admin-control .admin-metrics-main article > svg { right:10px; bottom:11px; width:19px; }
+  .admin-control .admin-catalog-workspace { min-width:0; padding:12px; }
+  .admin-control .admin-catalog-toolbar { display:grid; gap:10px; }
+  .admin-control .admin-catalog-toolbar__actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; width:100%; }
+  .admin-control .admin-catalog-toolbar__actions .admin-product-search { grid-column:1/-1; width:100%; min-width:0; }
+  .admin-control .admin-catalog-toolbar__actions button { min-height:44px; }
+  .admin-control .admin-product-visibility { flex-wrap:wrap; gap:6px; }
+  .admin-control .admin-product-visibility button { min-height:40px; }
+  .admin-control .admin-folder-cards { grid-template-columns:minmax(0,1fr); gap:7px; }
+  .admin-control .admin-folder-card { min-height:58px; }
+  .admin-control .admin-product-grid { grid-template-columns:minmax(0,1fr) !important; }
+  .admin-control .admin-product-tile__main { grid-template-columns:82px minmax(0,1fr); text-align:left; }
+  .admin-control .admin-product-tile__copy strong { overflow-wrap:anywhere; }
+  .admin-control .admin-product-tile__actions button { min-height:44px; }
+  .admin-control .admin-product-group__head { flex-wrap:wrap; gap:8px; }
+  .admin-control .admin-product-group__head button { min-height:40px; }
+  .admin-control .admin-table { overflow:visible; border:0; background:transparent; display:grid; gap:8px; }
+  .admin-control .admin-row--orders.admin-row--head { display:none; }
+  .admin-control .admin-row--orders:not(.admin-row--head) { grid-template-columns:repeat(2,minmax(0,1fr)); min-width:0; padding:13px; gap:12px; background:#fff; border:1px solid #dededb; border-radius:10px; }
+  .admin-control .admin-row--orders:not(.admin-row--head) > span { display:flex; flex-direction:column; min-width:0; overflow-wrap:anywhere; padding:0; white-space:normal; }
+  .admin-control .admin-row--orders:not(.admin-row--head) > span:nth-child(4) { display:block; }
+  .admin-control .admin-status-select { min-height:44px; width:100%; }
+  .admin-control .pu-heading { padding:14px; gap:10px; }
+  .admin-control .pu-heading h2 { font-size:23px; }
+  .admin-control .pu-main-action { width:100%; }
+  .admin-control .pu-primary { min-height:46px; width:100%; }
+  .admin-control .pu-groups { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+  .admin-control .pu-groups button { min-height:82px; padding:9px 7px; }
+  .admin-control .pu-groups b { font-size:25px; }
+  .admin-control .pu-groups span { white-space:normal; font-size:10px; line-height:1.25; }
+  .admin-control .pu-check-action { display:flex; flex-wrap:wrap; }
+  .admin-control .pu-check-action button,.admin-control .pu-select-actions button { min-height:42px; }
+  .admin-control .pu-selection-tools { display:grid; grid-template-columns:minmax(0,1fr); gap:7px; }
+  .admin-control .pu-selection-tools > * { width:100%; min-height:44px; }
+  .admin-control .pu-product-list label { display:grid; grid-template-columns:24px minmax(0,1fr); align-items:start; gap:6px 9px; }
+  .admin-control .pu-product-list label > input { width:20px; height:20px; }
+  .admin-control .pu-product-list label > span { grid-column:2; }
+  .admin-control .pu-product-list label > b { grid-column:2; padding:0; width:auto; font-size:13px; }
+  .admin-control .pu-result { display:flex; flex-wrap:wrap; gap:7px; }
+  .admin-control .pu-result > div { flex-basis:100%; }
+  .admin-control .pu-item-reason { flex-basis:100%; }
+  .admin-control .pu-root :is(select,input,textarea),.admin-control .admin-editor :is(select,input,textarea),.admin-control .promo-editor :is(select,input,textarea),.admin-control .onec-mirror :is(select,input:not([type=checkbox])) { font-size:16px; }
+  .admin-control .onec-mirror { gap:11px; }
+  .admin-control .onec-mirror__header { gap:9px; }
+  .admin-control .onec-mirror__header h2 { font-size:22px; }
+  .admin-control .onec-mirror__header p { font-size:12px; }
+  .admin-control .onec-mirror__live { padding:0; font-size:12px; }
+  .admin-control .onec-safety { padding:10px; gap:10px; }
+  .admin-control .onec-mirror__toolbar { padding:8px; gap:7px; }
+  .admin-control .onec-search { min-width:0; flex:1 1 100%; width:100%; }
+  .admin-control .onec-mirror__toolbar>button { min-height:44px; }
+  .admin-control .onec-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:10px; gap:8px; }
+  .admin-control .onec-filters label { min-width:0; }
+  .admin-control .onec-filters select { min-width:0; width:100%; font-size:13px; min-height:44px; }
+  .admin-control .onec-filters button { min-height:44px; align-self:end; }
+  .admin-control .onec-filters > span { grid-column:1/-1; padding:0; }
+  .admin-control .onec-breadcrumbs { padding:0 10px; min-height:44px; }
+  .admin-control .onec-group-actions { padding:10px; }
+  .admin-control .onec-group-actions button { min-height:44px; white-space:normal; }
+  .admin-control .onec-table-wrap { overflow:visible; }
+  .admin-control .onec-table { min-width:0; display:grid; gap:0; }
+  .admin-control .onec-table__row.is-head { display:none; }
+  .admin-control .onec-table__row.is-group { display:block; min-height:54px; }
+  .admin-control .onec-table__row.is-group > span { min-height:54px; padding:10px; gap:7px; }
+  .admin-control .onec-table__row.is-group b { white-space:normal; overflow-wrap:anywhere; }
+  .admin-control .onec-table__row.is-group small { flex-shrink:0; }
+  .admin-control .onec-table__row.is-item { grid-template-columns:30px repeat(2,minmax(0,1fr)); padding:10px; gap:7px 8px; min-height:0; align-items:start; }
+  .admin-control .onec-table__row.is-item > span { padding:0; overflow:visible; align-items:flex-start; justify-content:flex-start; }
+  .admin-control .onec-table__row.is-item > span:first-child { grid-column:1; grid-row:1/4; padding-top:4px; align-items:center; }
+  .admin-control .onec-table__row.is-item > span:nth-child(2) { grid-column:2/-1; }
+  .admin-control .onec-table__row.is-item > span:nth-child(3) { grid-column:2; grid-row:2; }
+  .admin-control .onec-table__row.is-item > span:nth-child(4) { grid-column:2; grid-row:3; }
+  .admin-control .onec-table__row.is-item > span:nth-child(5) { grid-column:3; grid-row:3; }
+  .admin-control .onec-table__row.is-item > span:nth-child(6) { grid-column:3; grid-row:2; }
+  .admin-control .onec-table__row.is-item > span:nth-child(4)::before { content:"Цена"; font-size:10px; color:#777; }
+  .admin-control .onec-table__row.is-item > span:nth-child(5)::before { content:"Остаток"; font-size:10px; color:#777; }
+  .admin-control .onec-table__row.is-item :is(b,small) { white-space:normal; overflow-wrap:anywhere; }
+  .admin-control .onec-table__row input[type=checkbox] { width:21px; height:21px; }
+  .admin-control .onec-product-name { font-size:14px; }
+  .admin-control .onec-pagination { gap:6px; padding:8px; }
+  .admin-control .onec-pagination button { min-height:42px; padding:8px; }
+  .admin-control .onec-pagination span { font-size:10px; text-align:center; }
+  .admin-control .onec-jobs { grid-template-columns:minmax(0,1fr); }
+  .admin-control .onec-product-detail { margin:8px; padding:12px; }
+}
