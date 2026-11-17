@@ -830,7 +830,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     </nav>
     <div className="admin-sidebar-bottom"><button onClick={onBack}>Открыть магазин <AdminIcon name="arrow" /></button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти из аккаунта</button></div>
     </aside>
-    <div className={`admin-workspace${tab === 'content' ? ' admin-workspace--builder' : ''}`}>
+    <div className={`admin-workspace${tab === 'content' ? ' admin-workspace--builder' : ''}${tab === 'sync' ? ' admin-workspace--nomenclature' : ''}`}>
     <div className="admin-top"><div><p className="eyebrow">Управление</p><h1>{tab === 'overview' ? 'Рабочий стол' : tabNames[tab]}</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : loading ? 'Синхронизация…' : 'Сайт на связи'}</span><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
     {error && <div className="admin-error">{error}</div>}
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
