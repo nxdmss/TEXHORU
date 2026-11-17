@@ -129,7 +129,7 @@ export function RemoteCatalogPanel() {
 
   async function importSelected() {
     const ids = [...selectedItemIds]
-    if (!ids.length) return
+    if (!ids.length || !window.confirm(`Загрузить на сайт ${ids.length} выбранных позиций?`)) return
     const queued = await command(
       () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: 'FULL', itemIds: ids }),
       `${ids.length.toLocaleString('ru-RU')} выбранных позиций поставлено в очередь. Агент загрузит полные данные только для них.`,
@@ -152,7 +152,7 @@ export function RemoteCatalogPanel() {
       const [nextStatus, nextTree, nextPage, nextExcluded] = await Promise.all([
         api.remoteCatalog(), api.remoteCatalogTree(), api.remoteNomenclature('', '', 0), api.remoteExcludedGroups(),
       ])
-      setSelectedGroup(''); setSearch(''); setQuery(''); setPage(0)
+      setSelectedGroup(''); setSearch(''); setQuery(''); setStock(''); setSelectedItemIds(new Set()); setDetail(null); setPage(0)
       setStatus(nextStatus); setTree(nextTree.groups); setMirrorCount(nextTree.itemCount); setPageData(nextPage); setExcludedGroups(nextExcluded)
       const protectedText = result.productsArchived ? ` Защищено историей заказов/цен и архивировано: ${result.productsArchived.toLocaleString('ru-RU')}.` : ''
       setNotice(`Группа «${result.name}» исключена. Удалено из зеркала: ${result.removed.toLocaleString('ru-RU')}; карточек сайта: ${result.productsDeleted.toLocaleString('ru-RU')}; категорий: ${result.categoriesDeleted.toLocaleString('ru-RU')}.${protectedText} 1С не изменялась.`)
@@ -179,6 +179,7 @@ export function RemoteCatalogPanel() {
   const activeJob = status?.jobs.find(job => ['QUEUED', 'RUNNING', 'PAUSED', 'FAILED'].includes(job.status))
   const groupRows = pageData?.children || []
   const itemRows = pageData?.items || []
+  const groupPath = (id: string) => { const names: string[] = []; const seen = new Set<string>(); while (id && !seen.has(id)) { seen.add(id); const group = byId.get(id); if (!group) break; names.unshift(group.name); id = group.parentId } return names.join(' / ') }
   const totalPages = Math.max(1, Math.ceil((pageData?.total || 0) / (pageData?.pageSize || 100)))
 
   return <section className="onec-mirror" aria-label="Номенклатура основной базы 1С">
@@ -237,6 +238,7 @@ export function RemoteCatalogPanel() {
             {!selected.fullyImportedAt && <><button className="is-primary" disabled={busy} onClick={() => importGroup(selected, true)}>Только в наличии</button><button disabled={busy} onClick={() => importGroup(selected, false)}>Все товары</button></>}
             <button className="is-danger" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить</button>
           </section>}
+          {detail && <section className="onec-product-detail" aria-label="Карточка номенклатуры"><header><div><small>Карточка 1С</small><h3>{detail.name}</h3></div><button onClick={() => setDetail(null)}>Закрыть</button></header><p>{detail.fullName || detail.name}</p><dl><div><dt>Код</dt><dd>{detail.code || '—'}</dd></div><div><dt>Артикул</dt><dd>{detail.article || '—'}</dd></div><div><dt>Бренд</dt><dd>{detail.brand || 'Не указан'}</dd></div><div><dt>Статус</dt><dd>{detail.imported ? 'На сайте' : 'Только список 1С'}</dd></div></dl><h4>Описание на сайте</h4><p>{detail.description || 'Описание пока не загружено или не заполнено.'}</p>{detail.shortSpec && <p>{detail.shortSpec}</p>}</section>}
           {(groupRows.length > 0 || itemRows.length > 0) && <div className="onec-table-wrap">
             <div className="onec-table">
               <div className="onec-table__row is-head">
@@ -247,7 +249,7 @@ export function RemoteCatalogPanel() {
               </button>)}
               {itemRows.map(item => <div className={'onec-table__row is-item' + (item.deletionMark ? ' is-deleted' : '')} key={item.oneCId}>
                 <span><input type="checkbox" aria-label={`Выбрать ${item.name}`} disabled={item.deletionMark} checked={selectedItemIds.has(item.oneCId)} onChange={() => toggleItem(item.oneCId)} /></span>
-                <span><button className="onec-product-name" onClick={() => setDetail(item)}>{item.name}</button>{item.brand && <small>{item.brand}</small>}{(item.shortSpec || item.description || (item.fullName !== item.name && item.fullName)) && <small className="onec-product-description">{item.shortSpec || item.description || item.fullName}</small>}{item.deletionMark && <small>Пометка удаления</small>}</span>
+                <span><button className="onec-product-name" onClick={() => setDetail(item)}>{item.name}</button>{(query || stock) && item.parentId && <small>{groupPath(item.parentId)}</small>}{item.brand && <small>{item.brand}</small>}{(item.shortSpec || item.description || (item.fullName !== item.name && item.fullName)) && <small className="onec-product-description">{item.shortSpec || item.description || item.fullName}</small>}{item.deletionMark && <small>Пометка удаления</small>}</span>
                 <span><b>{item.code || 'Без кода'}</b><small>{item.article || 'Без артикула'}</small></span>
                 <span>{item.imported ? <><b>{item.retailPrice == null ? 'Не задана' : money.format(item.retailPrice) + ' ₽'}</b><small>{item.purchasePrice == null ? 'Закупочная не задана' : 'Закупочная: ' + money.format(item.purchasePrice) + ' ₽'}</small></> : <small>После загрузки</small>}</span>
                 <span>{item.imported ? <><b>{money.format(item.stockQty)}</b><small>{item.unitName || 'шт.'}</small></> : <small>После загрузки</small>}</span>
@@ -255,7 +257,6 @@ export function RemoteCatalogPanel() {
               </div>)}
             </div>
           </div>}
-          {detail && <section className="onec-product-detail" aria-label="Карточка номенклатуры"><header><div><small>Карточка 1С</small><h3>{detail.name}</h3></div><button onClick={() => setDetail(null)}>Закрыть</button></header><p>{detail.fullName || detail.name}</p><dl><div><dt>Код</dt><dd>{detail.code || '—'}</dd></div><div><dt>Артикул</dt><dd>{detail.article || '—'}</dd></div><div><dt>Бренд</dt><dd>{detail.brand || 'Не указан'}</dd></div><div><dt>Статус</dt><dd>{detail.imported ? 'На сайте' : 'Только список 1С'}</dd></div></dl><h4>Описание на сайте</h4><p>{detail.description || 'Описание пока не загружено или не заполнено.'}</p>{detail.shortSpec && <p>{detail.shortSpec}</p>}</section>}
           {!groupRows.length && !itemRows.length && <div className="onec-list__empty">
             <span className="onec-folder is-large" /><strong>{query ? 'Ничего не найдено' : mirrorCount ? 'В этой группе пока нет позиций' : 'Идёт загрузка списка названий'}</strong>
             <p>{mirrorCount ? 'Выберите другую группу или измените запрос.' : 'Агент перенесёт только названия, коды и группы. Полные данные загружаются после вашего выбора.'}</p>
