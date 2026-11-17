@@ -144,6 +144,7 @@ export type OneCExcludedGroup = OneCRemoteGroup
 export type OneCNomenclatureItem = {
   oneCId: string; parentId: string; code: string; article: string; name: string; fullName: string; itemKind: string; unitName: string
   retailPrice: number | null; purchasePrice: number | null; stockQty: number; deletionMark: boolean; imported: boolean; receivedAt: string; updatedAt: string
+  description?: string; shortSpec?: string; brand?: string
 }
 export type OneCNomenclaturePage = {
   items: OneCNomenclatureItem[]; total: number; children: OneCRemoteGroup[]; group: Pick<OneCRemoteGroup, 'oneCId' | 'parentId' | 'name'> | null
@@ -277,7 +278,7 @@ export const api = {
   resetPassword(token: string, password: string) { return request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }) },
   remoteCatalog(parent = '', search = '', page = 0) { return request<RemoteCatalogStatus>('/admin/integrations/1c/remote?' + new URLSearchParams({ parent, search, page: String(page) })) },
   remoteCatalogTree() { return request<{ groups: OneCRemoteGroup[]; itemCount: number }>('/admin/integrations/1c/remote/tree') },
-  remoteNomenclature(group = '', search = '', page = 0) { return request<OneCNomenclaturePage>('/admin/integrations/1c/remote/nomenclature?' + new URLSearchParams({ group, search, page: String(page) })) },
+  remoteNomenclature(group = '', search = '', page = 0, filters: { stock?: string; sort?: string; scope?: string } = {}) { return request<OneCNomenclaturePage>('/admin/integrations/1c/remote/nomenclature?' + new URLSearchParams({ group, search, page: String(page), stock: filters.stock || '', sort: filters.sort || '', scope: filters.scope || 'all' })) },
   remoteExcludedGroups() { return request<OneCExcludedGroup[]>('/admin/integrations/1c/remote/excluded-groups') },
   remoteExcludeGroup(id: string) { return request<{ ok: boolean; name: string; groups: number; removed: number; productsDeleted: number; productsArchived: number; categoriesDeleted: number }>('/admin/integrations/1c/remote/groups/' + encodeURIComponent(id) + '/exclude', { method: 'POST' }) },
   remoteRestoreGroup(id: string) { return request<{ ok: boolean; name: string; groups: number; jobId: string | null }>('/admin/integrations/1c/remote/groups/' + encodeURIComponent(id) + '/restore', { method: 'POST' }) },
