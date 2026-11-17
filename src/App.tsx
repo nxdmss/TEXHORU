@@ -815,7 +815,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const connectProducts = () => { setPriceSetup(true); setTab('prices') }
   return <section className={`admin-shell admin-control${tab === 'content' ? ' admin-control--builder' : ''}`}>
     <aside className={'admin-sidebar' + (navigationOpen ? ' is-open' : '')}>
-    <button className="admin-brand" onClick={() => setTab('overview')} aria-label="TEXHORU — главная управления"><TexhoruBrand subtitle="Управление магазином" /></button>
+    <button className="admin-brand" onClick={() => { setTab('overview'); setNavigationOpen(false); window.scrollTo(0,0) }} aria-label="TEXHORU — главная управления"><TexhoruBrand subtitle="Управление магазином" /></button>
     <button type="button" className="admin-mobile-toggle" aria-expanded={navigationOpen} aria-controls="admin-navigation" onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'} />Разделы</button>
     <nav id="admin-navigation" className="admin-tabs" aria-label="Разделы управления магазином">
       {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
@@ -831,7 +831,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     <div className="admin-sidebar-bottom"><button onClick={onBack}>Открыть магазин <AdminIcon name="arrow" /></button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти из аккаунта</button></div>
     </aside>
     <div className={`admin-workspace${tab === 'content' ? ' admin-workspace--builder' : ''}`}>
-    <div className="admin-top"><div><p className="eyebrow">Управление / {tabNames[tab]}</p><h1>{tab === 'overview' ? 'Рабочий стол' : tabNames[tab]}</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : loading ? 'Синхронизация…' : 'Сайт на связи'}</span><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
+    <div className="admin-top"><div><p className="eyebrow">Управление</p><h1>{tab === 'overview' ? 'Рабочий стол' : tabNames[tab]}</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : loading ? 'Синхронизация…' : 'Сайт на связи'}</span><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
     {error && <div className="admin-error">{error}</div>}
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
     {loading && <div className="admin-loading">Загрузка…</div>}
@@ -984,8 +984,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
     </div>
     <nav className="admin-phone-dock" aria-label="Быстрые разделы управления">
-      {(['overview','products','prices','orders'] as AdminTab[]).map(item => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false); window.scrollTo(0,0) }}><AdminIcon name={item}/><span>{tabNames[item]}</span></button>)}
-      <button type="button" aria-expanded={navigationOpen} aria-controls="admin-navigation" aria-label="Все разделы управления" className={['sync','content','notifications','audit'].includes(tab) ? 'active' : ''} onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'}/><span>Ещё{unread > 0 && <i aria-label={unread + ' новых сообщений'} />}</span></button>
+      {(['overview','products','prices','sync'] as AdminTab[]).map(item => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false); window.scrollTo(0,0) }}><AdminIcon name={item}/><span>{item === 'sync' ? '1С' : tabNames[item]}</span></button>)}
+      <button type="button" aria-expanded={navigationOpen} aria-controls="admin-navigation" aria-label="Все разделы управления" className={['orders','content','notifications','audit'].includes(tab) ? 'active' : ''} onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'}/><span>Ещё{unread > 0 && <i aria-label={unread + ' новых сообщений'} />}</span></button>
     </nav>
   </section>
 }
