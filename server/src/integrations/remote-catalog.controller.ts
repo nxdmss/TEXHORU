@@ -12,7 +12,7 @@ export class RemoteCatalogController {
   @Get('admin/integrations/1c/remote/tree') @UseGuards(AuthGuard, AdminGuard)
   tree() { return this.remote.tree() }
   @Get('admin/integrations/1c/remote/nomenclature') @UseGuards(AuthGuard, AdminGuard)
-  nomenclature(@Query('group') group = '', @Query('search') search = '', @Query('page') page = '0') { return this.remote.nomenclature(group, search, Number(page)) }
+  nomenclature(@Query('group') group = '', @Query('search') search = '', @Query('page') page = '0', @Query('stock') stock = '', @Query('sort') sort = '', @Query('scope') scope = 'all') { return this.remote.nomenclature(group, search, Number(page), stock, sort, scope) }
   @Get('admin/integrations/1c/remote/excluded-groups') @UseGuards(AuthGuard, AdminGuard)
   excludedGroups() { return this.remote.excludedGroups() }
   @Post('admin/integrations/1c/remote/groups/:id/exclude') @UseGuards(AuthGuard, AdminGuard)
