@@ -1108,3 +1108,15 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   height: 23px !important;
   stroke-width: 2.4;
 }
+
+
+/* Mobile nomenclature: no floating title bar over the working list. */
+@media (max-width:780px) {
+  .admin-control .admin-workspace--nomenclature > .admin-top { display:none !important; }
+  .admin-control .admin-workspace--nomenclature { padding-top:8px; }
+  .admin-control .admin-workspace--nomenclature .onec-table__row.is-group > span { min-height:46px; padding:8px 10px; }
+  .admin-control .admin-workspace--nomenclature .onec-table__row.is-group { min-height:46px; }
+  .admin-control .admin-workspace--nomenclature .onec-exchange__summary { padding:10px 12px; }
+  .admin-control .admin-workspace--nomenclature .onec-exchange__summary strong { font-size:13px; line-height:1.35; }
+  .admin-control .admin-workspace--nomenclature .onec-exchange__summary small { font-size:11px; line-height:1.4; }
+}
