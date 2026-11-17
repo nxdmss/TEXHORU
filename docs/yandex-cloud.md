@@ -84,7 +84,7 @@ sudo texhoru credentials
 
 ```powershell
 cd "C:\Users\umarc\OneDrive\Desktop\TEXHORU-NEW"
-.\TEXHORU-STOP-WINDOWS.cmd
+npm run stop
 git pull --ff-only origin main
 node --disable-warning=ExperimentalWarning scripts/export-cloud-catalog.mjs
 scp -i "$env:USERPROFILE\.ssh\texhoru_yandex" -r .\.texhoru\catalog-transfer ubuntu@PUBLIC_IP:~/
@@ -111,7 +111,7 @@ sudo texhoru import-catalog /home/ubuntu/catalog-transfer
 
 ```powershell
 cd "C:\Users\umarc\OneDrive\Desktop\TEXHORU-NEW"
-.\TEXHORU-STOP-WINDOWS.cmd
+npm run stop
 git pull --ff-only origin main
 node scripts/export-cloud-data.mjs
 scp -i "$env:USERPROFILE\.ssh\texhoru_yandex" -r .\.texhoru\cloud-transfer ubuntu@PUBLIC_IP:~/

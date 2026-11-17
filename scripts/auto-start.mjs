@@ -81,7 +81,7 @@ async function main() {
   if (lockAlive()) { console.log('TEXHORU уже запускается. Подожди первое окно.'); return }
   try { unlinkSync(lockFile) } catch {}
   const lock = openSync(lockFile, 'wx'); writeFileSync(lock, JSON.stringify({ pid: process.pid })); closeSync(lock); lockOwned = true
-  if (await health()) throw new Error('На порту 3000 уже работает другая или старая копия. Закрой её окно и снова нажми TEXHORU.exe.')
+  if (await health()) throw new Error('На порту 3000 уже работает другая или старая копия. Закрой её окно и снова выполни npm run dev.')
   writeFileSync(logFile, `TEXHORU automatic start ${new Date().toISOString()}\n`)
   launchToken = randomBytes(32).toString('hex')
   let ready = false, launchFingerprint = ''
@@ -113,7 +113,7 @@ async function main() {
     await sleep(500)
   }
   if (!ready) throw new Error(`Не удалось запустить TEXHORU. Подробности: ${logFile}`)
-  console.log('Готово. Открываю TEXHORU. Для остановки — TEXHORU STOP.exe.')
+  console.log('Готово. Открываю TEXHORU. Для остановки — npm run stop.')
   stopUpdates = watchUpdates(root, async (kind, before, after) => {
     if (closing) return
     if (kind === 'restart') {

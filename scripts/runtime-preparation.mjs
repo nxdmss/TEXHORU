@@ -67,7 +67,7 @@ export async function run(command, args, cwd, env, logFile, signal) {
   } finally { closeSync(fd) }
 }
 export async function prepareRuntime(root, logFile, report = console.log, signal) {
-  if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Нужен Node.js 22 или новее. Запускай TEXHORU.exe: он подготовит Node.js автоматически.')
+  if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Нужен Node.js 22 или новее. Установи Node.js 22 или новее и повтори запуск.')
   const state = join(root, '.texhoru'); mkdirSync(state, { recursive: true })
   const envFile = join(root, 'server', '.env.local')
   if (!existsSync(envFile)) cpSync(join(root, 'server', '.env.example'), envFile)

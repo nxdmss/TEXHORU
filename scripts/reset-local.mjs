@@ -19,7 +19,7 @@ function guardLocked() {
     const pid = JSON.parse(readFileSync(lock, 'utf8')).pid
     if (!Number.isInteger(pid) || pid < 1) return
     process.kill(pid, 0)
-    throw Error('TEXHORU ещё запускается. Сначала закрой TEXHORU.exe или TEXHORU STOP.exe.')
+    throw Error('TEXHORU ещё запускается. Дождись завершения запуска и выполни npm run stop.')
   } catch (error) {
     if (error?.code === 'ESRCH') return
     if (error?.code === 'EPERM') throw Error('TEXHORU может ещё работать. Закрой приложение перед сбросом.')
@@ -30,7 +30,7 @@ function guardLocked() {
 async function main() {
   if (!active) {
     console.log('Чистая установка TEXHORU (локальная тестовая база).')
-    console.log('Сначала закрой TEXHORU.exe и TEXHORU STOP.exe.')
+    console.log('Сначала выполни npm run stop.')
     console.log('Для подтверждения: npm run reset:local -- --confirm RESET-TEXHORU')
     console.log('Сброс сохраняет резервную копию базы, настроек и фотографий.')
     return
@@ -67,7 +67,7 @@ async function main() {
   const prepared = join(state, 'database-prepared.json')
   if (existsSync(prepared)) unlinkSync(prepared)
   console.log('Готово. Локальные данные очищены. Резервная копия: ' + archive)
-  console.log('Запусти TEXHORU.exe: он создаст пустую базу. После этого импортируй реальные группы и товары из 1С.')
+  console.log('Выполни npm run dev: он создаст пустую базу. После этого импортируй реальные группы и товары из 1С.')
 }
 
 main().catch(error => { console.error('Сброс отменён:', error.message); process.exitCode = 1 })

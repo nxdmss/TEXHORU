@@ -19,21 +19,19 @@
 
 **Рабочий сервер:** [Яндекс Cloud](docs/yandex-cloud.md) — установка, HTTPS, обновление, перенос данных и агента.
 
-**Windows:** запусти `TEXHORU.exe` или `TEXHORU-WINDOWS.cmd`. Для остановки — `TEXHORU STOP.exe` или `TEXHORU-STOP-WINDOWS.cmd`.
-
-**macOS:** `TEXHORU.command`; остановка — `TEXHORU STOP.command`.
+**Локальная разработка (Windows, macOS, Linux):** Node.js 22+.
 
 Магазин: http://127.0.0.1:5173 · Админка: http://127.0.0.1:5173/admin
-
-Для разработки нужен Node.js 22+:
 
 ```bash
 npm run dev
 ```
 
-Этот запуск использует тот же механизм подготовки, что и Windows-пускатель. Подробности: [локальный запуск](docs/one-click-start.md), [демонстрация через ngrok](docs/demo-ngrok.md). Журнал запуска: `.texhoru/startup.log`.
+Для остановки из второго терминала: `npm run stop`.
 
-Не запускай `TEXHORU-RESET.cmd` ради обновления: это отдельная операция сброса локальных данных с подтверждением.
+Запуск автоматически подготавливает локальное приложение. Подробности: [локальный запуск](docs/one-click-start.md), [демонстрация через ngrok](docs/demo-ngrok.md). Журнал запуска: `.texhoru/startup.log`.
+
+Не запускай `npm run reset:local` ради обновления: это отдельная операция сброса локальных данных с подтверждением.
 
 ## Структура проекта
 
