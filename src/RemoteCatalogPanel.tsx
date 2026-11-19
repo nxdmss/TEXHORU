@@ -147,7 +147,7 @@ export function RemoteCatalogPanel() {
 
   async function importGroup(group: OneCRemoteGroup, stockOnly: boolean) {
     await command(
-      () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: 'FULL', groupId: group.oneCId, stockOnly }),
+      () => api.remoteCatalogCreate({ kind: 'IMPORT', mode: group.fullyImportedAt ? 'DELTA' : 'FULL', groupId: group.oneCId, stockOnly }),
       `Группа «${group.name}» поставлена в очередь: ${stockOnly ? 'только товары в наличии' : 'все товары'}.`,
     )
   }
@@ -236,6 +236,7 @@ export function RemoteCatalogPanel() {
           {selected && <section className={'onec-group-actions' + (selected.fullyImportedAt ? ' is-complete' : '')}>
             <div><strong>{selected.name}</strong><span>{selected.fullyImportedAt ? 'Группа уже загружена на сайт' : 'Какие товары добавить на сайт?'}</span></div>
             {!selected.fullyImportedAt && <><button className="is-primary" disabled={busy} onClick={() => importGroup(selected, true)}>Только в наличии</button><button disabled={busy} onClick={() => importGroup(selected, false)}>Все товары</button></>}
+            {selected.fullyImportedAt && <button className="is-primary" disabled={busy} onClick={() => importGroup(selected, false)}>Обновить товары и характеристики</button>}
             <button className="is-danger" disabled={busy} onClick={() => excludeGroup(selected)}>Исключить</button>
           </section>}
           {detail && <section className="onec-product-detail" aria-label="Карточка номенклатуры"><header><div><small>Карточка 1С</small><h3>{detail.name}</h3></div><button onClick={() => setDetail(null)}>Закрыть</button></header><p>{detail.fullName || detail.name}</p><dl><div><dt>Код</dt><dd>{detail.code || '—'}</dd></div><div><dt>Артикул</dt><dd>{detail.article || '—'}</dd></div><div><dt>Бренд</dt><dd>{detail.brand || 'Не указан'}</dd></div><div><dt>Статус</dt><dd>{detail.imported ? 'На сайте' : 'Только список 1С'}</dd></div></dl><h4>Описание на сайте</h4><p>{detail.description || 'Описание пока не загружено или не заполнено.'}</p>{detail.shortSpec && <p>{detail.shortSpec}</p>}</section>}

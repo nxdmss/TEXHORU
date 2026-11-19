@@ -271,6 +271,29 @@ function Read-RemotePage($Job) {
         if (-not $stockCode) { $stockCode = ([string](Get-OneCProperty $stockRef @('Код', 'Code') $true)).Trim() }
         $stocks[$stockCode] = [int][Math]::Max(0, $qty)
     }
+    # Read the same UT 10.3 register as the property importer. One query
+    # for the current page, with parameters for the exact selected items.
+    $specsByKey = @{}
+    $propertyParameters = @{}
+    $propertyConditions = @()
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $parameter = 'PropertyItem' + $i
+        $propertyParameters[$parameter] = $rows[$i].Ref
+        $propertyConditions += ('Н.Ссылка = &' + $parameter)
+    }
+    $propertyQuery = 'ВЫБРАТЬ Н.Код КАК Code, Н.Артикул КАК Article, Н.Наименование КАК Name, Н.НаименованиеПолное КАК FullName, Н.Родитель.Код КАК ParentCode, Р.Свойство.Код КАК PropertyCode, Р.Свойство.Наименование КАК PropertyName, ПРЕДСТАВЛЕНИЕ(Р.Значение) КАК PropertyValue ИЗ РегистрСведений.ЗначенияСвойствОбъектов КАК Р ВНУТРЕННЕЕ СОЕДИНЕНИЕ Справочник.Номенклатура КАК Н ПО Р.Объект = Н.Ссылка ГДЕ (' + ($propertyConditions -join ' ИЛИ ') + ') И НЕ Р.Свойство.ПометкаУдаления УПОРЯДОЧИТЬ ПО Н.Код, Р.Свойство.Код'
+    $query = New-OneCQuery $propertyQuery $propertyParameters
+    $selection = Select-OneCQuery $query
+    while (Move-OneCSelection $selection) {
+        $code = ([string](Get-OneCProperty $selection @('Code'))).Trim()
+        $propertyCode = ([string](Get-OneCProperty $selection @('PropertyCode'))).Trim()
+        $label = ([string](Get-OneCProperty $selection @('PropertyName'))).Trim()
+        $value = ([string](Get-OneCProperty $selection @('PropertyValue'))).Trim()
+        if (-not $propertyCode -or -not $label -or -not $value) { continue }
+        $identityKey = Get-NomenclatureKey $code ([string](Get-OneCProperty $selection @('Article'))) ([string](Get-OneCProperty $selection @('Name'))) ([string](Get-OneCProperty $selection @('FullName'))) ([string](Get-OneCProperty $selection @('ParentCode')))
+        if (-not $specsByKey.ContainsKey($identityKey)) { $specsByKey[$identityKey] = @() }
+        $specsByKey[$identityKey] += [ordered]@{ sourceId = (Get-StableOneCId 'PROPERTY' $propertyCode); label = $label; value = $value }
+    }
     $categories = @{}
     foreach ($row in $rows) {
         $identityKey = Get-NomenclatureKey $row.Code $row.Article $row.Name $row.FullName $row.ParentCode
@@ -284,6 +307,8 @@ function Read-RemotePage($Job) {
         elseif ($row.Name -match '(?i)honor') { $brand = 'Honor' }
         elseif ($row.Name -match '(?i)huawei') { $brand = 'Huawei' }
         $product = [ordered]@{ oneCId = $id; sku = '1C-' + $id; slug = '1c-' + $id; name = $row.Name.Trim(); brand = $brand; categoryOneCId = $categoryId; price = [int]$prices[0][$row.Code]; costPrice = $prices[1][$row.Code]; stockQty = [int]$stocks[$row.Code]; isDeleted = $row.Deleted; sourceCode = $row.Code; sourceArticle = $row.Article; sourceFullName = $row.FullName; sourceKind = $row.ItemKind; sourceUnit = $row.UnitName }
+        $product.specs = @()
+        if ($specsByKey.ContainsKey($identityKey)) { $product.specs = @($specsByKey[$identityKey]) }
         if ($row.Deleted) { $product.stockQty = 0 }
         if ($row.Article) { $product.mpn = $row.Article }
         $category = [ordered]@{ oneCId = $categoryId; name = $path; slug = '1c-' + $categoryId }

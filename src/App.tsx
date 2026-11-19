@@ -1323,11 +1323,9 @@ function App() {
         <div className="product-page__visual product-studio__visual">
           {product.badge && <span className="badge">{product.badge}</span>}
           <ProductImage name={product.name} image={product.image} loading="eager" />
-          <div className="product-studio__visual-meta"><span>{product.brand}</span>{product.sku && <span>Арт. {product.sku}</span>}</div>
         </div>
 
         <aside className="product-page__summary product-studio__summary">
-          <div className="product-studio__identity"><p className="eyebrow">{product.brand}</p><span>{product.category.split(' / ').at(-1)}</span></div>
           <h1>{product.name}</h1>
           <p className="product-page__short">{product.shortSpec}</p>
 
@@ -1356,7 +1354,7 @@ function App() {
 
             <article className="product-story__panel product-story__panel--specs" id="product-specifications">
               <span className="product-story__index">Характеристики</span>
-              <dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
+              <dl className="spec-list">{product.specs.map((spec, index) => <div key={spec.sourceId || `${spec.label}-${index}`}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
             </article>
 
             <article className="product-story__panel product-story__panel--service">

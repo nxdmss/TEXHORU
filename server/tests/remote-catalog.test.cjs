@@ -91,7 +91,7 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal(created.status, 201)
       job = (await poll()).body.job
       assert.equal(job.kind, 'IMPORT'); assert.deepEqual(job.selectedCodes, ['0000046151'])
-      batch = { leaseToken: job.leaseToken, batch: 0, cursor: productId, scanned: 1, groups: [], hashes: [{ oneCId: productId, hash: 'a'.repeat(64) }], categories: [{ oneCId: subId, name: 'Телефоны / Apple', slug: '1c-' + subId }], products: [{ oneCId: productId, sku: '1C-' + productId, slug: '1c-' + productId, name: 'Apple iPhone 16 128GB Black', brand: 'Apple', categoryOneCId: subId, price: 50000, costPrice: 48000, stockQty: 5, sourceCode: '0000046151', sourceArticle: 'MYE73RU/A', sourceFullName: 'Смартфон Apple iPhone 16 128GB Black', sourceKind: 'Товар', sourceUnit: 'шт' }] }
+      batch = { leaseToken: job.leaseToken, batch: 0, cursor: productId, scanned: 1, groups: [], hashes: [{ oneCId: productId, hash: 'a'.repeat(64) }], categories: [{ oneCId: subId, name: 'Телефоны / Apple', slug: '1c-' + subId }], products: [{ oneCId: productId, sku: '1C-' + productId, slug: '1c-' + productId, name: 'Apple iPhone 16 128GB Black', brand: 'Apple', categoryOneCId: subId, price: 50000, costPrice: 48000, stockQty: 5, sourceCode: '0000046151', sourceArticle: 'MYE73RU/A', sourceFullName: 'Смартфон Apple iPhone 16 128GB Black', sourceKind: 'Товар', sourceUnit: 'шт', specs: [{ sourceId: 'property-memory', label: 'Память', value: '8/128 ГБ' }, { sourceId: 'property-custom', label: 'Произвольное свойство', value: 'Тест' }] }] }
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', { ...batch, leaseToken: randomUUID() })).status, 409)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', batch)).status, 201)
       assert.equal((await req(remote + '/jobs/' + job.id + '/batch', batch)).status, 201)
@@ -99,6 +99,8 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert.equal(state.nextBatch, 1); assert.equal(state.scanned, 1); assert.equal(state.processed, 1)
       assert.equal(await db.product.count(), 1)
       assert.equal((await db.product.findFirst()).costPrice, 48000)
+      assert.deepEqual((await db.product.findFirst()).specs, batch.products[0].specs)
+      assert.equal((await db.product.findFirst()).attributes._specSource.source, '1C')
       const source = await db.oneCNomenclatureItem.findFirst()
       assert.equal(source.code, '0000046151'); assert.equal(source.article, 'MYE73RU/A'); assert.equal(source.fullName, 'Смартфон Apple iPhone 16 128GB Black')
       const treeResponse = await req(admin + '/tree', undefined, 'staff')
@@ -138,6 +140,14 @@ test('remote catalog: staff-only queue, bounded groups, leases, atomic progress,
       assert((await db.oneCRemoteGroup.findUniqueOrThrow({ where: { baseId_oneCId: { baseId, oneCId: subId } } })).fullyImportedAt)
       assert.equal((await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId: subId }, 'staff')).status, 409)
 
+      const refreshed = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'DELTA', groupId: subId }, 'staff')
+      assert.equal(refreshed.status, 201)
+      const refreshJob = (await poll()).body.job
+      assert.equal(refreshJob.mode, 'DELTA')
+      const changed = { ...batch, leaseToken: refreshJob.leaseToken, hashes: [{ oneCId: productId, hash: 'c'.repeat(64) }], products: [{ ...batch.products[0], specs: [{ sourceId: 'property-custom', label: 'Новая характеристика', value: 'Да' }] }] }
+      assert.equal((await req(remote + '/jobs/' + refreshJob.id + '/batch', changed)).status, 201)
+      assert.deepEqual((await db.product.findFirst()).specs, changed.products[0].specs)
+      assert.equal((await req(remote + '/jobs/' + refreshJob.id + '/finish', { leaseToken: refreshJob.leaseToken })).status, 201)
       const parent = await req(admin + '/jobs', { kind: 'IMPORT', mode: 'FULL', groupId }, 'staff')
       assert.equal(parent.status, 201)
       const parentJob = (await poll()).body.job

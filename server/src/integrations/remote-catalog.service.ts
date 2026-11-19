@@ -210,7 +210,7 @@ export class RemoteCatalogService {
       if (dto.kind === 'IMPORT') {
         if (Boolean(groupId) === Boolean(itemIds.length)) throw new BadRequestException('Выберите товары или одну группу')
         if (stockOnly && !groupId) throw new BadRequestException('Фильтр наличия доступен только для загрузки группы')
-        if (group?.fullyImportedAt) throw new ConflictException('Эта группа уже полностью загружена на сайт')
+        if (group?.fullyImportedAt && dto.mode !== 'DELTA') throw new ConflictException('Эта группа уже полностью загружена на сайт')
         if (itemIds.length) {
           const items = await tx.oneCNomenclatureItem.findMany({ where: { baseId, active: true, oneCId: { in: itemIds } }, select: { oneCId: true, parentId: true, code: true } })
           if (items.length !== itemIds.length) throw new BadRequestException('Часть выбранных товаров больше не найдена в списке 1С')
@@ -224,7 +224,7 @@ export class RemoteCatalogService {
       const groupName = dto.kind === 'GROUPS' ? 'Обновление групп'
         : dto.kind === 'INDEX' ? group?.name ? `Обновление списка: ${group.name}` : 'Обновление списка товаров'
           : group ? `Загрузка группы: ${group.name}${stockOnly ? ' · в наличии' : ''}` : `Загрузка выбранных товаров: ${itemIds.length}`
-      const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, itemIds, stockOnly: dto.kind === 'IMPORT' && stockOnly, mode: dto.kind === 'IMPORT' ? 'FULL' : dto.mode, groupName } })
+      const row = await tx.oneCCatalogJob.create({ data: { id: randomUUID(), baseId, kind: dto.kind, groupId, itemIds, stockOnly: dto.kind === 'IMPORT' && stockOnly, mode: dto.mode, groupName } })
       await tx.auditLog.create({ data: { action: 'ONEC_CATALOG_QUEUE', entity: 'OneCCatalogJob', entityId: row.id, details: { kind: row.kind, groupId, items: itemIds.length, stockOnly: row.stockOnly, mode: row.mode, baseId } } })
       return { id: row.id }
     })
@@ -288,7 +288,7 @@ export class RemoteCatalogService {
         .filter(group => group.excluded && !state.ids.has(group.parentId))
         .map(group => group.oneCId)
       let loadedRoots: string[] = []
-      if (job.kind === 'IMPORT' && job.groupId) {
+      if (job.kind === 'IMPORT' && job.groupId && job.mode !== 'DELTA') {
         const branch = new Set(this.subtree(state.groups, job.groupId))
         const loaded = new Set(state.groups
           .filter(group => group.oneCId !== job.groupId && branch.has(group.oneCId) && group.fullyImportedAt)

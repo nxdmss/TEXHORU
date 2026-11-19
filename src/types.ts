@@ -1,6 +1,7 @@
 export type Category = string
 
 export type ProductSpec = {
+  sourceId?: string
   label: string
   value: string
 }

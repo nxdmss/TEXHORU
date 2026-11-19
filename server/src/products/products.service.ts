@@ -17,18 +17,20 @@ export class ProductsService {
   private readonly publicSelect = {
     id: true, oneCId: true, sku: true, slug: true, name: true, brand: true, description: true, shortSpec: true,
     image: true, price: true, oldPrice: true, stockQty: true, reservedQty: true, stockState: true,
-    status: true, badge: true, warranty: true, deliveryNote: true, specs: true,
+    status: true, badge: true, warranty: true, deliveryNote: true, specs: true, attributes: true,
     category: { select: { id: true, name: true, slug: true, sortOrder: true } },
   } as const
 
   private visibility(): Prisma.ProductWhereInput {
     return { status: 'ACTIVE', category: { isActive: true }, OR: [{ oneCId: null }, { price: { gt: 0 }, stockQty: { gt: this.prisma.product.fields.reservedQty } }] }
   }
-  private present<T extends { stockQty: number; reservedQty: number; stockState: StockState }>(item: T) {
+  private present<T extends { stockQty: number; reservedQty: number; stockState: StockState; attributes?: Prisma.JsonValue }>(item: T) {
     const available = Math.max(0, item.stockQty - item.reservedQty)
     const stockState = item.stockState === StockState.PREORDER ? StockState.PREORDER : available <= 0 ? StockState.OUT_OF_STOCK : available <= 3 ? StockState.LOW : StockState.IN_STOCK
-    const { reservedQty: _, ...safe } = item
-    return { ...safe, stockQty: available, stockState }
+    const { reservedQty: _, attributes, ...safe } = item
+    const marker = attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes._specSource : null
+    const specsFromOneC = !!(marker && typeof marker === 'object' && !Array.isArray(marker) && marker.source === '1C')
+    return { ...safe, stockQty: available, stockState, specsFromOneC }
   }
   // Legacy exchange consumers keep their array response. Storefront uses bounded pages.
   async list() {

@@ -30,7 +30,8 @@ export type ApiProduct = {
   badge?: string | null
   warranty: string
   deliveryNote: string
-  specs: Array<{ label: string; value: string }>
+  specsFromOneC?: boolean
+  specs: Array<{ sourceId?: string; label: string; value: string }>
   category: ApiCategory
 }
 
@@ -232,9 +233,11 @@ const mapProduct = (item: ApiProduct): Product => {
     stock: stockLabel(item.stockState),
     stockQty: item.stockQty,
     image: item.image || '/products/phone.svg',
-    shortSpec: item.shortSpec || sourced?.shortSpec || '',
-    description: item.description || sourced?.description || '',
-    specs: Array.isArray(item.specs) && item.specs.length ? item.specs : sourced?.specs || [],
+    shortSpec: item.shortSpec || (item.specsFromOneC ? (item.specs || []).slice(0, 4).map(spec => spec.value).join(' · ').slice(0, 240) : sourced?.shortSpec) || '',
+    description: item.description || (!item.specsFromOneC ? sourced?.description : '') || '',
+    // A successful 1C snapshot can be empty. Do not resurrect deleted
+    // attributes from a static phone profile.
+    specs: Array.isArray(item.specs) && (item.specsFromOneC || item.specs.length) ? item.specs : sourced?.specs || [],
     warranty: item.warranty,
     deliveryNote: item.deliveryNote,
   }

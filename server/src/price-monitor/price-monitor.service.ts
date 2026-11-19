@@ -222,7 +222,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const current = Array.isArray(product.specs) ? product.specs : []
     // A manager's manually entered specification always wins. Automatic
     // refreshes may replace only an empty or previously source-managed block.
-    if (current.length && marker?.managed !== true) return product
+    if (marker?.source === '1C' || (current.length && marker?.managed !== true)) return product
     const compactFacts = specs.slice(0, 4).map(item => item.value).filter(Boolean).join(' · ')
     return tx.product.update({
       where: { id: productId },

@@ -9,6 +9,12 @@ export class OneCCategoryDto {
   @IsString() @MaxLength(200) slug!: string
 }
 
+export class OneCSpecDto {
+  @IsString() @MaxLength(100) sourceId!: string
+  @IsString() @MaxLength(500) label!: string
+  @IsString() @MaxLength(4000) value!: string
+}
+
 export class OneCProductDto {
   @IsString() @MaxLength(100) oneCId!: string
   @IsString() @MaxLength(200) sku!: string
@@ -24,6 +30,8 @@ export class OneCProductDto {
   @IsOptional() @IsString() @MaxLength(100) mpn?: string
   @IsOptional() @IsInt() @Min(0) costPrice?: number
   @IsOptional() @ValidateNested() @Type(() => IdentityDto) attributes?: IdentityDto
+  // Omitted by legacy senders; an array is a successful property snapshot.
+  @IsOptional() @IsArray() @ArrayMaxSize(1000) @ValidateNested({ each: true }) @Type(() => OneCSpecDto) specs?: OneCSpecDto[]
   // Original UT 10.3 fields used by the read-only nomenclature mirror.
   // Optional keeps the existing EPF/catalog API backwards-compatible.
   @IsOptional() @IsString() @MaxLength(50) sourceCode?: string
