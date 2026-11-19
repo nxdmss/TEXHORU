@@ -172,12 +172,33 @@ export class IntegrationsService {
           const incomingPrice = existing && (existing.priceSyncEnabled || automaticScope)
             ? await OneCPriceSyncService.incomingPrice(tx, existing.id, existing.price, item.price)
             : item.price
+          // 1C properties are a category-independent snapshot. Keep web-only
+          // specifications when an older sender omits the field, or when a
+          // never-synced product has no properties yet.
+          const priorAttributes = existing?.attributes && typeof existing.attributes === 'object' && !Array.isArray(existing.attributes)
+            ? existing.attributes as Record<string, Prisma.InputJsonValue> : {}
+          const priorSource = priorAttributes._specSource
+          const wasOneC = !!(priorSource && typeof priorSource === 'object' && !Array.isArray(priorSource) && 'source' in priorSource && priorSource.source === '1C')
+          const specMap = new Map<string, { sourceId: string; label: string; value: string }>()
+          for (const spec of item.specs || []) {
+            const sourceId = spec.sourceId.trim(), label = spec.label.trim(), value = spec.value.trim()
+            if (sourceId && label && value) specMap.set(sourceId, { sourceId, label, value })
+          }
+          const incomingSpecs = Array.isArray(item.specs) && (specMap.size > 0 || wasOneC) ? [...specMap.values()] : undefined
+          const previousGenerated = wasOneC && priorSource && typeof priorSource === 'object' && 'shortSpec' in priorSource ? priorSource.shortSpec : undefined
+          const compactSpec = incomingSpecs?.slice(0, 4).map(spec => spec.value).join(' · ').slice(0, 240)
+          const updateShortSpec = incomingSpecs !== undefined && (!existing?.shortSpec?.trim() || existing.shortSpec === previousGenerated)
+          const mergedAttributes = item.attributes || incomingSpecs !== undefined
+            ? { ...priorAttributes, ...(item.attributes || {}), ...(incomingSpecs !== undefined ? { _specSource: { managed: false, source: '1C', ...(updateShortSpec ? { shortSpec: compactSpec || '' } : {}) } } : {}) } as Prisma.InputJsonObject
+            : undefined
           const productData = {
             oneCId: item.oneCId,
             // Older 1C export processors send no cost price. A repeat import
             // must not silently wipe the independently verified cost already saved.
             gtin: item.gtin, mpn: item.mpn, costPrice: item.costPrice === undefined ? existing?.costPrice ?? null : item.costPrice,
-            attributes: item.attributes ? { ...item.attributes } : undefined,
+            attributes: mergedAttributes,
+            specs: incomingSpecs,
+            ...(updateShortSpec ? { shortSpec: compactSpec || '' } : {}),
             sku: item.sku,
             slug: item.slug,
             name: item.name,
