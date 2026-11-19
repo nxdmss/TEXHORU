@@ -1356,7 +1356,7 @@ function App() {
 
             <article className="product-story__panel product-story__panel--specs" id="product-specifications">
               <span className="product-story__index">Характеристики</span>
-              <dl className="spec-list">{product.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
+              <dl className="spec-list">{product.specs.map((spec, index) => <div key={spec.sourceId || `${spec.label}-${index}`}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl>
             </article>
 
             <article className="product-story__panel product-story__panel--service">
