@@ -5529,6 +5529,9 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
 .storefront .product-page__visual .product-shot > img {
   mix-blend-mode: multiply;
 }
+.storefront .product-grid--related .product-shot > img {
+  mix-blend-mode: multiply;
+}
 .storefront .product-grid--related .product-card,
 .storefront .product-grid--related .product-media,
 .storefront .product-grid--related .product-card__copy {
