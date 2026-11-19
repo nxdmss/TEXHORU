@@ -1,5 +1,5 @@
-const CACHE = 'texhoru-shell-v1'
-const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg']
+const CACHE = 'texhoru-shell-v2'
+const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/pwa-ru.svg', '/pwa-ru-180.png', '/pwa-ru-192.png', '/pwa-ru-512.png']
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()))

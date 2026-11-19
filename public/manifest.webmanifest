@@ -9,12 +9,54 @@
   "orientation": "any",
   "background_color": "#f7f7f5",
   "theme_color": "#a61f32",
-  "categories": ["shopping", "business"],
+  "categories": [
+    "shopping",
+    "business"
+  ],
   "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    {
+      "src": "/pwa-ru-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-ru-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-ru.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
   ],
   "shortcuts": [
-    { "name": "Каталог", "short_name": "Каталог", "url": "/catalog", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] },
-    { "name": "Корзина", "short_name": "Корзина", "url": "/cart", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] }
+    {
+      "name": "Каталог",
+      "short_name": "Каталог",
+      "url": "/catalog",
+      "icons": [
+        {
+          "src": "/pwa-ru-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Корзина",
+      "short_name": "Корзина",
+      "url": "/cart",
+      "icons": [
+        {
+          "src": "/pwa-ru-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

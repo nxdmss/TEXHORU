@@ -192,8 +192,7 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   box-shadow: var(--tx-shadow-float);
   backdrop-filter: blur(18px);
 }
-.pwa-install__mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--tx-radius-sm); background: var(--tx-red); color: #fff; font-family: var(--font-mono) !important; font-size: 18px; font-weight: 700; }
-.pwa-install__mark span { color: #25262b; font-family: inherit !important; }
+.pwa-install__mark { display: block; width: 44px; height: 44px; border-radius: var(--tx-radius-sm); object-fit: contain; background: transparent; }
 .pwa-install > span:nth-child(2) { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
 .pwa-install strong { font-size: 12px; }
 .pwa-install small { color: var(--tx-muted); font-size: 10px; }

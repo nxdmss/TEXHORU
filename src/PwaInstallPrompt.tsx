@@ -33,7 +33,7 @@ export function PwaInstallPrompt() {
     else dismiss()
   }
   return <aside className="pwa-install" aria-label="Установка приложения TEXHORU">
-    <span className="pwa-install__mark">T<span>RU</span></span>
+    <img className="pwa-install__mark" src="/pwa-ru.svg" alt="" aria-hidden="true" />
     <span><strong>TEXHORU на экране телефона</strong><small>Каталог откроется как приложение</small></span>
     <button type="button" className="pwa-install__action" onClick={install}>Установить</button>
     <button type="button" className="pwa-install__close" onClick={dismiss} aria-label="Не сейчас"><Icon name="close" /></button>
