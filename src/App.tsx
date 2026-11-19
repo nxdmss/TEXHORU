@@ -1323,11 +1323,9 @@ function App() {
         <div className="product-page__visual product-studio__visual">
           {product.badge && <span className="badge">{product.badge}</span>}
           <ProductImage name={product.name} image={product.image} loading="eager" />
-          <div className="product-studio__visual-meta"><span>{product.brand}</span>{product.sku && <span>Арт. {product.sku}</span>}</div>
         </div>
 
         <aside className="product-page__summary product-studio__summary">
-          <div className="product-studio__identity"><p className="eyebrow">{product.brand}</p><span>{product.category.split(' / ').at(-1)}</span></div>
           <h1>{product.name}</h1>
           <p className="product-page__short">{product.shortSpec}</p>
 
