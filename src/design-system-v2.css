@@ -301,14 +301,21 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .pwa-install__action { min-height: 34px; padding-inline: 10px; font-size: 10px; }
 }
 
-/* Home on a phone is one continuous canvas: no white block behind the product
-   section and no legacy editorial spacer between its title and first item. */
+/* Home products sit directly on the page canvas at every viewport width. */
+.storefront .storefront-layout__block--products,
+.storefront .catalog-featured,
+.storefront .catalog-featured .section-head,
+.storefront .catalog-featured .catalog-toolbar--featured,
+.storefront .catalog-featured .product-grid {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.storefront .catalog-featured .product-media {
+  background: transparent !important;
+}
+
+/* Keep the compact product layout on phones. */
 @media (max-width: 480px) {
-  .storefront .storefront-layout__block--products,
-  .storefront .catalog-featured {
-    background: transparent !important;
-    box-shadow: none !important;
-  }
   .storefront .catalog.catalog-featured {
     width: 100% !important;
     margin: 0 !important;
