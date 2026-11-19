@@ -5514,3 +5514,25 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
   transform: none !important;
   box-shadow: none !important;
 }
+
+
+/* Product detail: image and purchase controls float on the warm grey page. */
+.storefront .product-page {
+  background: var(--page) !important;
+}
+.storefront .product-page__visual,
+.storefront .product-page__summary {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.storefront .product-page__visual .product-shot > img {
+  mix-blend-mode: multiply;
+}
+.storefront .product-grid--related .product-card,
+.storefront .product-grid--related .product-media,
+.storefront .product-grid--related .product-card__copy {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}

@@ -51,11 +51,55 @@ function imageBounds(image: HTMLImageElement): Bounds {
       const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
       const canvasColour = opaqueCanvasColour(data, canvas.width, canvas.height)
       let left = canvas.width, right = -1, top = canvas.height, bottom = -1
-      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
-        const pixel = pixelAt(data, canvas.width, x, y)
-        if (pixel.a < 24 || (canvasColour && colourDistance(pixel, canvasColour) < 22)) continue
-        left = Math.min(left, x); right = Math.max(right, x)
-        top = Math.min(top, y); bottom = Math.max(bottom, y)
+      if (canvasColour) {
+        // Supplier photos may contain detached captions, SKUs or watermarks.
+        // Keep only substantial connected objects (e.g. front/back of a phone).
+        const total = canvas.width * canvas.height
+        const foreground = new Uint8Array(total)
+        for (let i = 0; i < total; i++) {
+          const pixel = pixelAt(data, canvas.width, i % canvas.width, Math.floor(i / canvas.width))
+          if (pixel.a >= 24 && colourDistance(pixel, canvasColour) >= 22) foreground[i] = 1
+        }
+        const visited = new Uint8Array(total)
+        const stack = new Int32Array(total)
+        const components: Array<{ area: number; left: number; right: number; top: number; bottom: number }> = []
+        let largestArea = 0
+        for (let start = 0; start < total; start++) {
+          if (!foreground[start] || visited[start]) continue
+          let size = 0, area = 0
+          let cLeft = canvas.width, cRight = -1, cTop = canvas.height, cBottom = -1
+          stack[size++] = start
+          visited[start] = 1
+          while (size) {
+            const index = stack[--size]
+            const x = index % canvas.width, y = Math.floor(index / canvas.width)
+            area++
+            cLeft = Math.min(cLeft, x); cRight = Math.max(cRight, x)
+            cTop = Math.min(cTop, y); cBottom = Math.max(cBottom, y)
+            const neighbours = [x > 0 ? index - 1 : -1, x + 1 < canvas.width ? index + 1 : -1,
+              y > 0 ? index - canvas.width : -1, y + 1 < canvas.height ? index + canvas.width : -1]
+            for (const next of neighbours) if (next >= 0 && foreground[next] && !visited[next]) {
+              visited[next] = 1
+              stack[size++] = next
+            }
+          }
+          components.push({ area, left: cLeft, right: cRight, top: cTop, bottom: cBottom })
+          largestArea = Math.max(largestArea, area)
+        }
+        const mainObjects = components.filter(component => component.area >= Math.max(24, largestArea * .12))
+        for (const component of mainObjects) {
+          left = Math.min(left, component.left); right = Math.max(right, component.right)
+          top = Math.min(top, component.top); bottom = Math.max(bottom, component.bottom)
+        }
+      }
+      // For transparent or non-uniform images, keep the original alpha-bound fallback.
+      if (right < left || bottom < top) {
+        for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+          const pixel = pixelAt(data, canvas.width, x, y)
+          if (pixel.a < 24 || (canvasColour && colourDistance(pixel, canvasColour) < 22)) continue
+          left = Math.min(left, x); right = Math.max(right, x)
+          top = Math.min(top, y); bottom = Math.max(bottom, y)
+        }
       }
       if (right >= left && bottom >= top) {
         const sx = naturalWidth / canvas.width, sy = naturalHeight / canvas.height
