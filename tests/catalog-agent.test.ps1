@@ -42,8 +42,14 @@ function New-OneCQuery([string]$Text, [hashtable]$Parameters) {
     } elseif ($Text -match 'КоличествоОстаток') {
         $qty = if ($script:fixtureFraction) { 1.5 } else { 5 }
         $rows = @([pscustomobject]@{ Ref = $item; Code = '0000046151'; Qty = $qty })
+    } elseif ($Text -match 'ЗначенияСвойствОбъектов') {
+        $rows = @(
+            [pscustomobject]@{ Code = '0000046151'; PropertyCode = '00000001'; PropertyName = 'Память'; PropertyValue = '8/128 ГБ' },
+            [pscustomobject]@{ Code = '0000046151'; PropertyCode = '00000002'; PropertyName = 'Произвольное свойство'; PropertyValue = 'Тест' },
+            [pscustomobject]@{ Code = '0000046151'; PropertyCode = '00000003'; PropertyName = 'Пустое'; PropertyValue = '' }
+        )
     } else { throw 'Unexpected query' }
-    $selection = [pscustomobject]@{ Rows = $rows; Index = -1; Ref = $null; Code = ''; Article = ''; Name = ''; FullName = ''; ItemKind = ''; Unit = $null; Parent = $null; ParentCode = ''; Deleted = $false; Price = 0; Variants = 0; Qty = 0 }
+    $selection = [pscustomobject]@{ Rows = $rows; Index = -1; Ref = $null; Code = ''; Article = ''; Name = ''; FullName = ''; ItemKind = ''; Unit = $null; Parent = $null; ParentCode = ''; Deleted = $false; Price = 0; Variants = 0; Qty = 0; PropertyCode = ''; PropertyName = ''; PropertyValue = '' }
     $selection | Add-Member ScriptMethod Следующий {
         $this.Index++
         if ($this.Index -ge $this.Rows.Count) { return $false }
@@ -68,7 +74,10 @@ Assert-True ($full.products[0].sourceCode -eq '0000046151' -and $full.products[0
 Assert-True ($full.cursor -eq '0000046151') 'Catalog code cursor lost'
 Assert-True ($full.products[0].oneCId -match '^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$' -and $full.products[0].oneCId -eq (Get-StableOneCId 'NOMENCLATURE' '0000046151')) 'Stable catalog-code identifier is invalid'
 Assert-True ($full.products[0].oneCId -ne $full.products[0].categoryOneCId) 'Product and group identifiers collided'
-Assert-True ($script:queryCount -eq 4) 'Queries are not batched'
+Assert-True ($script:queryCount -eq 5) 'Queries are not batched'
+Assert-True ($full.products[0].specs.Count -eq 2) 'Filled arbitrary properties were not exported or empty value leaked'
+Assert-True ($full.products[0].specs[1].label -eq 'Произвольное свойство' -and $full.products[0].specs[1].value -eq 'Тест') 'Unknown property lost'
+Assert-True ($full.products[0].specs[0].sourceId -eq (Get-StableOneCId 'PROPERTY' '00000001')) 'Unstable property ID'
 Assert-True ($script:priceQueries.Count -eq 2 -and $script:priceQueries[0].Text -match 'СрезПоследних\(, ТипЦен = &PriceType\)' -and -not $script:priceQueries[0].Parameters.ContainsKey('Now')) 'Latest price slice must not pass an incompatible .NET DateTime to legacy UT 10.3'
 $json = $full | ConvertTo-Json -Depth 15 -Compress
 $parsed = $json | ConvertFrom-Json
