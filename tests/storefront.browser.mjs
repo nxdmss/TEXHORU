@@ -183,6 +183,24 @@ try {
     assert(await page.locator('.app-shell').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'checkout overflows at ' + width)
     await screenshot(page, 'store-checkout-' + width)
     await page.goto(url + '/product/' + products[0].id)
+    await page.locator('.product-studio__visual img').waitFor()
+    const surfaces = await page.locator('.product-studio').evaluate(el => {
+      const bg = node => getComputedStyle(node).backgroundColor
+      return {
+        canvas: bg(el.closest('.storefront')),
+        page: bg(el), main: bg(el.parentElement),
+        hero: bg(el.querySelector('.product-studio__hero')),
+        visual: bg(el.querySelector('.product-studio__visual')),
+        summary: bg(el.querySelector('.product-studio__summary')),
+        panel: bg(el.querySelector('.product-story__panel--description')),
+      }
+    })
+    assert.equal(surfaces.canvas, 'rgb(247, 247, 245)', 'shop canvas is grey at ' + width)
+    for (const key of ['page', 'main', 'hero', 'visual', 'summary']) {
+      assert.equal(surfaces[key], 'rgba(0, 0, 0, 0)', key + ' must not paint a white rectangle at ' + width)
+    }
+    assert.equal(surfaces.panel, 'rgb(23, 23, 26)', 'details plate is unchanged at ' + width)
+
     await page.getByRole('heading', { name: names[0], exact: true }).waitFor()
     assert(await page.locator('.app-shell').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'product overflows at ' + width)
     await screenshot(page, 'store-product-' + width)

@@ -1129,8 +1129,25 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
 
 
 /* Product page: no white image or purchase cards. Keep only the device on the grey canvas. */
-.storefront .product-studio {
-  background: var(--page, #f6f6f2) !important;
+/* --page resolves to WHITE inside .storefront (legacy --tx-paper).
+   Never use it for the product page: inherit the actual grey shop canvas. */
+.storefront.app-shell main:has(> .product-page.product-studio),
+.storefront.app-shell main > .product-page.product-studio {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+.storefront.app-shell main > .product-page.product-studio > .product-studio__hero,
+.storefront.app-shell main > .product-page.product-studio > .related-block,
+.storefront.app-shell main > .product-page.product-studio > .product-story,
+.storefront.app-shell main > .product-page.product-studio .product-story__head {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+.storefront.app-shell:has(main > .product-page.product-studio) {
+  background: var(--tx-canvas, #f7f7f5) !important;
 }
 .storefront .product-studio__visual,
 .storefront .product-studio__summary {

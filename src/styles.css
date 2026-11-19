@@ -5518,7 +5518,7 @@ html, body, .app-shell { background: var(--page); color: var(--ink); }
 
 /* Product detail: image and purchase controls float on the warm grey page. */
 .storefront .product-page {
-  background: var(--page) !important;
+  background: transparent !important;
 }
 .storefront .product-page__visual,
 .storefront .product-page__summary {
