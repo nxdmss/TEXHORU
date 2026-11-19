@@ -1126,3 +1126,38 @@ body { margin: 0; background: var(--tx-canvas); color: var(--tx-ink); font-weigh
   .admin-control .admin-workspace--nomenclature .onec-exchange__summary strong { font-size:13px; line-height:1.35; }
   .admin-control .admin-workspace--nomenclature .onec-exchange__summary small { font-size:11px; line-height:1.4; }
 }
+
+
+/* Product page: no white image or purchase cards. Keep only the device on the grey canvas. */
+.storefront .product-studio {
+  background: var(--page, #f6f6f2) !important;
+}
+.storefront .product-studio__visual,
+.storefront .product-studio__summary {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.storefront .product-studio__visual .product-shot,
+.storefront .product-studio__visual .product-shot > img {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+.storefront .product-studio__visual .product-shot > img {
+  mix-blend-mode: multiply !important;
+}
+.storefront .product-studio > .related-block .product-grid--related > .product-card,
+.storefront .product-studio > .related-block .product-grid--related .product-media,
+.storefront .product-studio > .related-block .product-grid--related .product-card__copy {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.storefront .product-studio > .related-block .product-grid--related .product-shot > img {
+  mix-blend-mode: multiply !important;
+}
