@@ -200,7 +200,7 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
       <aside className="checkout-summary" aria-label="Состав заказа">
         <details className="checkout-order-items" open>
           <summary>Состав заказа <span>· {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</span></summary>
-          <ul className="checkout-items-grid" role="list">
+          <ul className="checkout-items-list" role="list">
             {cart.map(({ product, quantity }) => <li className="checkout-item" key={product.id}>
               <span className="checkout-item__image"><ProductImage name={product.name} image={product.image} alt="" /></span>
               <strong className="checkout-item__name">{product.name}</strong>
