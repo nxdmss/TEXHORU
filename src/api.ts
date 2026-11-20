@@ -202,6 +202,19 @@ export type TrackedOrder = {
   items: Array<{ name: string; quantity: number; price: number }>
 }
 
+export type AdminOrder = Pick<TrackedOrder, 'number' | 'status' | 'paymentStatus' | 'deliveryMethod' | 'total' | 'createdAt' | 'reservationExpiresAt'> & {
+  id: string
+  customerName: string
+  customerPhone: string
+  customerEmail: string | null
+  deliveryAddress: string
+  comment: string | null
+  oneCSyncedAt: string | null
+  reservationReleasedAt: string | null
+  stockVerifiedAt: string | null
+  items: Array<TrackedOrder['items'][number] & { id: string; sku: string }>
+}
+
 export type BusinessReadiness = {
   launchMode: 'PRELAUNCH'
   payments: { enabled: boolean; mode: string }
@@ -320,7 +333,7 @@ export const api = {
   adminCategories() { return request<ApiCategory[]>('/admin/categories') },
   adminCreateCategory(input: { name: string; slug: string; sortOrder?: number }) { return request<ApiCategory>('/admin/categories', { method: 'POST', body: JSON.stringify(input) }) },
   adminUpdateCategory(id: string, input: Partial<Pick<ApiCategory, 'name' | 'slug' | 'sortOrder' | 'isActive'>>) { return request<ApiCategory>(`/admin/categories/${id}`, { method: 'PATCH', body: JSON.stringify(input) }) },
-  adminOrders() { return request<any[]>('/admin/orders') },
+  adminOrders() { return request<AdminOrder[]>('/admin/orders') },
   businessReadiness() { return request<BusinessReadiness>('/admin/business-readiness') },
   adminUpdateOrderStatus(id: string, status: string) { return request(`/admin/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }) },
   adminNotifications() { return request<any[]>('/admin/notifications') },

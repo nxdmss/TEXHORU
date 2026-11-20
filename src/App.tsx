@@ -17,7 +17,7 @@ import { flushSync } from 'react-dom'
 import { storefrontPath, featuredProducts, browseLabel } from './catalog-navigation'
 import { rankCatalogProducts } from './catalog-search'
 import { FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ApiCategory, type ApiProduct, type BusinessReadiness, type PromoBanner, type TrackedOrder } from './api'
+import { api, type AdminOrder, type ApiCategory, type ApiProduct, type BusinessReadiness, type PromoBanner, type TrackedOrder } from './api'
 import { defaultStorefrontLayout, normalizeStorefrontLayout, storefrontBlocksFor, type StorefrontBlock, type StorefrontDevice, type StorefrontLayout } from './page-layout'
 import { TexhoruBrand } from './TexhoruBrand'
 import { PROMO_STANDARDS } from './promo-presets'
@@ -531,6 +531,59 @@ function ProductEditor({
   </div>
 }
 
+const adminOrderDate = new Intl.DateTimeFormat('ru-RU', {
+  dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Moscow',
+})
+
+function AdminOrders({ orders, onStatusChange }: {
+  orders: AdminOrder[]
+  onStatusChange: (id: string, status: string) => Promise<void>
+}) {
+  if (!orders.length) return <p>Пока нет заказов.</p>
+
+  return <div className="admin-orders">
+    {orders.map(order => <details className="admin-order" key={order.id}>
+      <summary className="admin-order__summary">
+        <strong>Заказ №{order.number}</strong>
+        <span>{order.customerName}</span>
+        <strong>{money.format(order.total)} ₽</strong>
+        <span className="admin-order__status" data-status={order.status}>{statusLabels[order.status] ?? order.status}</span>
+        <Icon name="chevronDown" />
+      </summary>
+      <div className="admin-order__details">
+        <section className="admin-order__items">
+          <h2>Товары</h2>
+          {order.items.length ? <ul role="list">{order.items.map(item => <li key={item.id}>
+            <div><strong>{item.name}</strong><small>SKU {item.sku}</small></div>
+            <span>{item.quantity} × {money.format(item.price)} ₽</span>
+          </li>)}</ul> : <p>Состав заказа отсутствует.</p>}
+        </section>
+        <section className="admin-order__contacts">
+          <h2>Данные заказа</h2>
+          <dl>
+            <dt>Телефон</dt><dd><a href={'tel:' + order.customerPhone.replace(/[^\d+]/g, '')}>{order.customerPhone}</a></dd>
+            {order.customerEmail && <><dt>Email</dt><dd>{order.customerEmail}</dd></>}
+            <dt>Получение</dt><dd>{order.deliveryMethod === 'COURIER' ? 'Доставка' : 'Самовывоз'}</dd>
+            {order.deliveryAddress && <><dt>Адрес</dt><dd>{order.deliveryAddress}</dd></>}
+            {order.comment && <><dt>Комментарий</dt><dd>{order.comment}</dd></>}
+            <dt>Дата</dt><dd><time dateTime={order.createdAt}>{adminOrderDate.format(new Date(order.createdAt))}</time></dd>
+            {order.paymentStatus !== 'NOT_STARTED' && <><dt>Оплата</dt><dd>{paymentLabels[order.paymentStatus] ?? order.paymentStatus}</dd></>}
+            {order.reservationReleasedAt ? <><dt>Резерв</dt><dd>Снят</dd></>
+              : order.stockVerifiedAt ? <><dt>Наличие</dt><dd>Подтверждено</dd></>
+              : order.reservationExpiresAt && <><dt>Резерв до</dt><dd>{adminOrderDate.format(new Date(order.reservationExpiresAt))}</dd></>}
+            {order.oneCSyncedAt && <><dt>1С</dt><dd>Заказ передан</dd></>}
+          </dl>
+          <label className="admin-order__edit-status">Статус
+            <select className="admin-status-select" value={order.status} onChange={e => void onStatusChange(order.id, e.target.value)}>
+              {Object.entries(statusLabels).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
+            </select>
+          </label>
+        </section>
+      </div>
+    </details>)}
+  </div>
+}
+
 function AdminPage({ onBack }: { onBack: () => void }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [checkingSession, setCheckingSession] = useState(true)
@@ -542,7 +595,7 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [products, setProducts] = useState<AdminProduct[]>([])
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<AdminOrder[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [audit, setAudit] = useState<any[]>([])
   const [readiness, setReadiness] = useState<BusinessReadiness | null>(null)
@@ -990,7 +1043,10 @@ function AdminPage({ onBack }: { onBack: () => void }) {
       </div>}
     </div>}
     {tab === 'prices' && <PriceApprovalDashboard products={products} initialSetup={priceSetup} onInventoryRefresh={load} />}
-    {tab === 'orders' && <div className="admin-table"><div className="admin-row admin-row--orders admin-row--head"><span>№</span><span>Клиент</span><span>Сумма</span><span>Статус</span></div>{orders.map((item) => <div className="admin-row admin-row--orders" key={item.id}><span>#{item.number}<small>{item.oneCSyncedAt ? 'подтверждён 1С' : item.stockVerifiedAt ? 'наличие подтверждено' : 'временный резерв сайта'}</small></span><span><strong>{item.customerName}</strong><small>{item.customerPhone}</small></span><span>{money.format(item.total)} ₽<small>{paymentLabels[item.paymentStatus] ?? item.paymentStatus}</small></span><span><select className="admin-status-select" value={item.status} onChange={async (e) => { try { await api.adminUpdateOrderStatus(item.id, e.target.value); await load() } catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') } }}>{['NEW','AWAITING_PAYMENT','PAID','ASSEMBLING','READY','DELIVERING','COMPLETED','CANCELLED'].map((status) => <option key={status} value={status}>{statusLabels[status] ?? status}</option>)}</select></span></div>)}</div>}
+    {tab === 'orders' && <AdminOrders orders={orders} onStatusChange={async (id, status) => {
+      try { await api.adminUpdateOrderStatus(id, status); await load() }
+      catch (err) { setError(err instanceof Error ? err.message : 'Ошибка статуса') }
+    }} />}
     {tab === 'notifications' && <div className="admin-feed">{notifications.map((item) => <article key={item.id} className={item.isRead ? 'is-read' : ''}><span>{new Date(item.createdAt).toLocaleString('ru-RU')}</span><strong>{item.title}</strong><p>{item.body}</p>{!item.isRead && <button onClick={async () => { await api.adminMarkNotificationRead(item.id); await load() }}>Прочитано</button>}</article>)}</div>}
     {tab === 'sync' && <section className="admin-sync"><RemoteCatalogPanel /></section>}
     {tab === 'audit' && <div className="admin-feed">{audit.map((item) => <article key={item.id}><span>{new Date(item.createdAt).toLocaleString('ru-RU')} · {item.user?.email ?? 'system'}</span><strong>{item.action} · {item.entity}</strong><p>{item.entityId || '—'}</p></article>)}</div>}
