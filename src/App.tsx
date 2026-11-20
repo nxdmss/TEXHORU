@@ -181,21 +181,25 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
     <button className="back-link" onClick={onBack}><Icon name="back" /> Вернуться к покупкам</button>
     <div className="checkout-layout">
       <form className="checkout-form" onSubmit={submit}>
-        <h1>Ваш заказ</h1>
-        <div className="form-grid">
-          <label><span>Имя</span><input name="name" autoComplete="name" minLength={2} required value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Как к вам обращаться" /></label>
-          <label><span>Телефон</span><input type="tel" name="tel" autoComplete="tel" pattern="\+7[0-9]{10}" title="Введите 10 цифр после +7" required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: checkoutPhone(e.target.value) })} /></label>
-          <label className="form-grid__wide"><span>Email · необязательно</span><input name="email" autoComplete="email" type="email" value={form.customerEmail} onChange={(e) => setForm({ ...form, customerEmail: e.target.value })} placeholder="mail@example.com" /></label>
+        <div className="checkout-form-fields">
+          <h1>Ваш заказ</h1>
+          <div className="form-grid">
+            <label><span>Имя</span><input name="name" autoComplete="name" minLength={2} required value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Как к вам обращаться" /></label>
+            <label><span>Телефон</span><input type="tel" name="tel" autoComplete="tel" pattern="\+7[0-9]{10}" title="Введите 10 цифр после +7" required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: checkoutPhone(e.target.value) })} /></label>
+            <label className="form-grid__wide"><span>Email · необязательно</span><input name="email" autoComplete="email" type="email" value={form.customerEmail} onChange={(e) => setForm({ ...form, customerEmail: e.target.value })} placeholder="mail@example.com" /></label>
+          </div>
+          <div className="choice-block"><span className="choice-title">Получение</span><div className="choice-grid"><button type="button" aria-pressed={form.deliveryMethod === 'PICKUP'} className={form.deliveryMethod === 'PICKUP' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'PICKUP' })}><strong>Самовывоз</strong><span>Кизилюрт</span></button><button type="button" aria-pressed={form.deliveryMethod === 'COURIER'} className={form.deliveryMethod === 'COURIER' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'COURIER' })}><strong>Доставка</strong><span>Кизилюрт и Дагестан</span></button></div></div>
+          {form.deliveryMethod === 'COURIER' && <label className="checkout-single"><span>Адрес доставки</span><input required value={form.deliveryAddress} onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })} /></label>}
+          <div className="choice-block">
+            <span className="choice-title">Подтверждение заказа</span>
+            <p className="checkout-intro">Менеджер позвонит по указанному номеру, подтвердит наличие и согласует получение и оплату.</p>
+          </div>
+          <details className="checkout-comment"><summary>Добавить комментарий</summary><label className="checkout-single"><span>Комментарий к заказу</span><textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Пожелания к заказу" /></label></details>
+          {error && <div className="form-error" role="alert">{error}</div>}
         </div>
-        <div className="choice-block"><span className="choice-title">Получение</span><div className="choice-grid"><button type="button" aria-pressed={form.deliveryMethod === 'PICKUP'} className={form.deliveryMethod === 'PICKUP' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'PICKUP' })}><strong>Самовывоз</strong><span>Кизилюрт</span></button><button type="button" aria-pressed={form.deliveryMethod === 'COURIER'} className={form.deliveryMethod === 'COURIER' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'COURIER' })}><strong>Доставка</strong><span>Кизилюрт и Дагестан</span></button></div></div>
-        {form.deliveryMethod === 'COURIER' && <label className="checkout-single"><span>Адрес доставки</span><input required value={form.deliveryAddress} onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })} /></label>}
-        <div className="choice-block">
-          <span className="choice-title">Подтверждение заказа</span>
-          <p className="checkout-intro">Менеджер позвонит по указанному номеру, подтвердит наличие и согласует получение и оплату.</p>
+        <div className="checkout-footer">
+          <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Отправляем заказ…' : 'Отправить заказ'}</button>
         </div>
-        <details className="checkout-comment"><summary>Добавить комментарий</summary><label className="checkout-single"><span>Комментарий к заказу</span><textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Пожелания к заказу" /></label></details>
-        {error && <div className="form-error" role="alert">{error}</div>}
-        <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Отправляем заказ…' : 'Отправить заказ'}</button>
       </form>
       <aside className="checkout-summary" aria-label="Состав заказа">
         <details className="checkout-order-items" open>
@@ -208,8 +212,10 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
             </li>)}
           </ul>
         </details>
-        <div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div>
-        <small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small>
+        <div className="checkout-footer">
+          <div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div>
+          <small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small>
+        </div>
       </aside>
     </div>
   </section>
