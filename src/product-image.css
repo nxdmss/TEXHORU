@@ -23,4 +23,3 @@
 }
 .storefront .product-media { padding: 0 !important; }
 .cart-line__image, .checkout-item__image { position: relative; }
-.checkout-item__image { display: block; width: 55px; height: 65px; }

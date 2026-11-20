@@ -170,9 +170,33 @@
 .storefront .product-page__buy { border-radius: 4px; }
 .storefront .spec-list { padding-inline: 0; }
 .storefront .spec-list > div { border-color: var(--tx-line); }
-.storefront .checkout-form, .storefront .checkout-summary { border: 0; border-radius: 0; background: transparent; padding-inline: 0; }
+.storefront .checkout-page { background: transparent; }
+.storefront .checkout-form, .storefront .checkout-summary { border: 0; background: transparent; padding: 0; }
 .storefront .checkout-layout { gap: 50px; }
-.storefront .checkout-summary { padding-left: 30px; border-left: 1px solid var(--tx-line); }
+.checkout-order-items > summary { font-size: 16px; font-weight: 600; cursor: pointer; }
+.checkout-order-items > summary > span { color: var(--tx-muted); font-size: 13px; font-weight: 500; }
+.checkout-items-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 15px 0 0;
+  padding: 0;
+}
+.checkout-item {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--tx-line);
+  border-radius: 12px;
+  background: var(--tx-surface, #fff);
+}
+.checkout-item__image { display: block; height: clamp(78px, 9vw, 106px); }
+.checkout-item__name { font-size: 12px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.checkout-item__price { font-size: 15px; font-weight: 600; }
+.checkout-item__price > small { color: var(--tx-muted); font-size: 12px; font-weight: 500; }
 .cart-drawer .cart-line__image { background: transparent; border-radius: 0; }
 
 /* Compact footer on the same rail; no extra promotional rows. */
@@ -196,7 +220,7 @@
   .storefront .phone-portal__visual { min-height: 250px; }
   .storefront .phone-portal__visual img { height: 250px; }
   .storefront .product-page__summary { padding: 10px 0; }
-  .storefront .checkout-summary { padding-left: 0; border-left: 0; border-bottom: 1px solid var(--tx-line); padding-bottom: 24px; }
+  .storefront .checkout-layout { gap: 32px; }
 }
 @media (max-width: 800px) {
   .storefront .header.header--storefront { height: auto !important; min-height: 0; grid-template-columns: auto minmax(0, 1fr) !important; grid-template-rows: 44px 44px; gap: 10px 12px !important; padding: 12px 0 !important; }

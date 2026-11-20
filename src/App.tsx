@@ -197,7 +197,20 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
         {error && <div className="form-error" role="alert">{error}</div>}
         <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Отправляем заказ…' : 'Отправить заказ'}</button>
       </form>
-      <aside className="checkout-summary"><p className="eyebrow">Ваш выбор</p><details className="checkout-order-items" open><summary>Состав заказа · {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</summary>{cart.map((item) => <div className="checkout-item" key={item.product.id}><span className="checkout-item__image"><ProductImage name={item.product.name} image={item.product.image} alt="" /></span><div><strong>{item.product.name}</strong><span>{item.quantity} × {money.format(item.product.price)} ₽</span></div></div>)}</details><div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small></aside>
+      <aside className="checkout-summary" aria-label="Состав заказа">
+        <details className="checkout-order-items" open>
+          <summary>Состав заказа <span>· {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</span></summary>
+          <ul className="checkout-items-grid" role="list">
+            {cart.map(({ product, quantity }) => <li className="checkout-item" key={product.id}>
+              <span className="checkout-item__image"><ProductImage name={product.name} image={product.image} alt="" /></span>
+              <strong className="checkout-item__name">{product.name}</strong>
+              <span className="checkout-item__price">{quantity > 1 && <small>{quantity} × </small>}{money.format(product.price)} ₽</span>
+            </li>)}
+          </ul>
+        </details>
+        <div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div>
+        <small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small>
+      </aside>
     </div>
   </section>
 }
