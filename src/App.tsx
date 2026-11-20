@@ -145,16 +145,20 @@ function ProductCard({ product, onOpen, onAdd, cartQuantity, onCartOpen, favorit
   </article>
 }
 
+function checkoutPhone(value: string) {
+  const digits = value.replace(/\D/g, '')
+  const hasPrefix = /^\s*\+7/.test(value) || /^[78]\d{10}$/.test(digits)
+  return '+7' + (hasPrefix ? digits.slice(1) : digits)
+}
+
 function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: () => void; onCreated: (order: CreatedOrder) => void }) {
-  const [form, setForm] = useState({ customerName: '', customerPhone: '', customerEmail: '', deliveryMethod: 'PICKUP' as 'PICKUP' | 'COURIER', deliveryAddress: '', paymentMethod: 'ON_RECEIPT' as 'ONLINE' | 'ON_RECEIPT', comment: '' })
+  const [form, setForm] = useState({ customerName: '', customerPhone: '+7', customerEmail: '', deliveryMethod: 'PICKUP' as 'PICKUP' | 'COURIER', deliveryAddress: '', comment: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [onlinePayment, setOnlinePayment] = useState(false)
   const orderAttempt = useRef<{ signature: string; key: string } | null>(null)
   useEffect(() => {
     let active = true
-    void api.customerProfile().then(profile => { if (active) setForm(current => ({ ...current, customerName: current.customerName || profile.name, customerPhone: current.customerPhone || profile.phone || '', customerEmail: current.customerEmail || profile.email, deliveryAddress: current.deliveryAddress || profile.deliveryAddress })) }).catch(() => undefined)
-    void api.paymentStatus().then(status => { if (active) setOnlinePayment(status.configured) }).catch(() => undefined)
+    void api.customerProfile().then(profile => { if (active) setForm(current => ({ ...current, customerName: current.customerName || profile.name, customerPhone: current.customerPhone === '+7' && profile.phone ? checkoutPhone(profile.phone) : current.customerPhone, customerEmail: current.customerEmail || profile.email, deliveryAddress: current.deliveryAddress || profile.deliveryAddress })) }).catch(() => undefined)
     return () => { active = false }
   }, [])
   const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
@@ -163,7 +167,7 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
     event.preventDefault(); setLoading(true); setError('')
     try {
       const deliveryAddress = form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : form.deliveryAddress
-      const input = { ...form, deliveryAddress, customerEmail: form.customerEmail || undefined,
+      const input = { ...form, deliveryAddress, paymentMethod: 'ON_RECEIPT' as const, customerEmail: form.customerEmail || undefined,
         comment: form.comment || undefined, items: cart.map(item => ({ productId: item.product.id, quantity: item.quantity })) }
       const signature = JSON.stringify(input)
       if (orderAttempt.current?.signature !== signature) orderAttempt.current = { signature, key: crypto.randomUUID() }
@@ -177,19 +181,21 @@ function CheckoutPage({ cart, onBack, onCreated }: { cart: CartLine[]; onBack: (
     <button className="back-link" onClick={onBack}><Icon name="back" /> Вернуться к покупкам</button>
     <div className="checkout-layout">
       <form className="checkout-form" onSubmit={submit}>
-        <p className="eyebrow">TEXHORU / Оформление</p><h1>Ваш заказ</h1><p className="checkout-intro">Оставьте контакты. Товары будут временно зарезервированы, а менеджер подтвердит наличие.</p>
+        <h1>Ваш заказ</h1>
         <div className="form-grid">
           <label><span>Имя</span><input name="name" autoComplete="name" minLength={2} required value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} placeholder="Как к вам обращаться" /></label>
-          <label><span>Телефон</span><input type="tel" name="tel" autoComplete="tel" minLength={6} required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} placeholder="+7 999 000-00-00" /></label>
+          <label><span>Телефон</span><input type="tel" name="tel" autoComplete="tel" pattern="\+7[0-9]{10}" title="Введите 10 цифр после +7" required value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: checkoutPhone(e.target.value) })} /></label>
           <label className="form-grid__wide"><span>Email · необязательно</span><input name="email" autoComplete="email" type="email" value={form.customerEmail} onChange={(e) => setForm({ ...form, customerEmail: e.target.value })} placeholder="mail@example.com" /></label>
         </div>
         <div className="choice-block"><span className="choice-title">Получение</span><div className="choice-grid"><button type="button" aria-pressed={form.deliveryMethod === 'PICKUP'} className={form.deliveryMethod === 'PICKUP' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'PICKUP' })}><strong>Самовывоз</strong><span>Кизилюрт</span></button><button type="button" aria-pressed={form.deliveryMethod === 'COURIER'} className={form.deliveryMethod === 'COURIER' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, deliveryMethod: 'COURIER' })}><strong>Доставка</strong><span>Кизилюрт и Дагестан</span></button></div></div>
         {form.deliveryMethod === 'COURIER' && <label className="checkout-single"><span>Адрес доставки</span><input required value={form.deliveryAddress} onChange={(e) => setForm({ ...form, deliveryAddress: e.target.value })} /></label>}
-        <div className="choice-block"><span className="choice-title">Оплата</span><div className="choice-grid"><button type="button" aria-pressed={form.paymentMethod === 'ON_RECEIPT'} className={form.paymentMethod === 'ON_RECEIPT' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, paymentMethod: 'ON_RECEIPT' })}><strong>При получении</strong><span>Карта или наличные</span></button>{onlinePayment && <button type="button" aria-pressed={form.paymentMethod === 'ONLINE'} className={form.paymentMethod === 'ONLINE' ? 'choice-card active' : 'choice-card'} onClick={() => setForm({ ...form, paymentMethod: 'ONLINE' })}><strong>Онлайн</strong><span>Картой на сайте</span></button>}</div></div>
+        <div className="choice-block">
+          <span className="choice-title">Подтверждение заказа</span>
+          <p className="checkout-intro">Менеджер позвонит по указанному номеру, подтвердит наличие и согласует получение и оплату.</p>
+        </div>
         <details className="checkout-comment"><summary>Добавить комментарий</summary><label className="checkout-single"><span>Комментарий к заказу</span><textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} placeholder="Пожелания к заказу" /></label></details>
         {error && <div className="form-error" role="alert">{error}</div>}
-        <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Создаём заказ…' : `Оформить заказ · ${money.format(total)} ₽`}</button>
-        {form.paymentMethod === 'ONLINE' && <p className="checkout-note">Оплата откроется на защищённой странице. Данные карты не сохраняются в магазине.</p>}
+        <button className="checkout-submit" disabled={!cart.length || loading}>{loading ? 'Отправляем заказ…' : 'Отправить заказ'}</button>
       </form>
       <aside className="checkout-summary"><p className="eyebrow">Ваш выбор</p><details className="checkout-order-items" open><summary>Состав заказа · {cart.reduce((sum, item) => sum + item.quantity, 0)} шт.</summary>{cart.map((item) => <div className="checkout-item" key={item.product.id}><span className="checkout-item__image"><ProductImage name={item.product.name} image={item.product.image} alt="" /></span><div><strong>{item.product.name}</strong><span>{item.quantity} × {money.format(item.product.price)} ₽</span></div></div>)}</details><div className="checkout-total"><span>Итого</span><strong>{money.format(total)} ₽</strong></div><small className="checkout-summary-note">{form.deliveryMethod === 'PICKUP' ? 'Самовывоз · Кизилюрт' : 'Доставку согласуем при подтверждении'}</small></aside>
     </div>
@@ -217,7 +223,7 @@ function OrderStatusPage({ trackingToken, onHome }: { trackingToken: string; onH
     <button className="back-link" onClick={onHome}><Icon name="back" /> В магазин</button>
     {!order && !error && <div className="admin-loading">Загружаем заказ…</div>}
     {error && <div className="form-error">{error}</div>}
-    {order && <div className="order-track__layout"><div className="order-track__main"><p className="eyebrow">Заказ принят</p><h1>№ {order.number}</h1><div className="order-track__status"><span>Статус</span><strong>{statusLabels[order.status] ?? order.status}</strong></div>{order.stockVerification === 'AWAITING_MANAGER' && <div className="checkout-note">Товары временно зарезервированы. Менеджер проверяет фактическое наличие.</div>}<div className="order-track__items">{order.items.map((item) => <div key={`${item.name}-${item.quantity}`}><span>{item.name} × {item.quantity}</span><strong>{money.format(item.price * item.quantity)} ₽</strong></div>)}</div><div className="order-track__total"><span>Итого</span><strong>{money.format(order.total)} ₽</strong></div></div><aside className="order-track__side"><div><span>Оплата</span><strong>{paymentLabels[order.paymentStatus] ?? order.paymentStatus}</strong></div><div><span>Получение</span><strong>{order.deliveryMethod === 'PICKUP' ? 'Самовывоз' : 'Доставка'}</strong></div><div><span>Наличие</span><strong>{order.stockVerification === 'VERIFIED' ? 'Подтверждено' : order.stockVerification === 'RELEASED' ? 'Резерв снят' : 'Проверяется'}</strong></div>{order.paymentMethod === 'ONLINE' && order.paymentStatus !== 'PAID' && order.status !== 'CANCELLED' && <button className="checkout-submit" onClick={pay} disabled={paying}>{paying ? 'Открываем…' : 'Оплатить онлайн'}</button>}<small>Страница обновляет статус автоматически.</small></aside></div>}
+    {order && <div className="order-track__layout"><div className="order-track__main"><p className="eyebrow">Заказ принят</p><h1>№ {order.number}</h1><div className="order-track__status"><span>Статус</span><strong>{statusLabels[order.status] ?? order.status}</strong></div>{order.stockVerification === 'AWAITING_MANAGER' && <div className="checkout-note">Товары временно зарезервированы. {order.paymentMethod === 'ONLINE' ? 'Менеджер проверяет фактическое наличие.' : 'Менеджер свяжется с вами, чтобы подтвердить наличие и согласовать детали.'}</div>}<div className="order-track__items">{order.items.map((item) => <div key={`${item.name}-${item.quantity}`}><span>{item.name} × {item.quantity}</span><strong>{money.format(item.price * item.quantity)} ₽</strong></div>)}</div><div className="order-track__total"><span>Итого</span><strong>{money.format(order.total)} ₽</strong></div></div><aside className="order-track__side">{(order.paymentMethod === 'ONLINE' || order.paymentStatus !== 'NOT_STARTED') && <div><span>Оплата</span><strong>{paymentLabels[order.paymentStatus] ?? order.paymentStatus}</strong></div>}<div><span>Получение</span><strong>{order.deliveryMethod === 'PICKUP' ? 'Самовывоз' : 'Доставка'}</strong></div><div><span>Наличие</span><strong>{order.stockVerification === 'VERIFIED' ? 'Подтверждено' : order.stockVerification === 'RELEASED' ? 'Резерв снят' : 'Проверяется'}</strong></div>{order.paymentMethod === 'ONLINE' && order.paymentStatus !== 'PAID' && order.status !== 'CANCELLED' && <button className="checkout-submit" onClick={pay} disabled={paying}>{paying ? 'Открываем…' : 'Оплатить онлайн'}</button>}<small>Страница обновляет статус автоматически.</small></aside></div>}
   </section>
 }
 

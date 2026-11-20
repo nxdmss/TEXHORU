@@ -213,7 +213,13 @@ try {
   // Retry after a lost response: the real isolated API keeps one order and one reservation.
   await lastPage.goto(url + '/checkout')
   await lastPage.getByLabel('Имя', { exact: true }).fill('Тестовый покупатель')
-  await lastPage.getByLabel('Телефон', { exact: true }).fill('+79991234567')
+  const phone = lastPage.getByLabel('Телефон', { exact: true })
+  assert.equal(await phone.inputValue(), '+7')
+  assert.equal(await phone.evaluate(input => input.validity.valid), false)
+  await phone.fill('8 (999) 123-45-67')
+  assert.equal(await phone.inputValue(), '+79991234567')
+  assert.equal(await phone.evaluate(input => input.validity.valid), true)
+  await lastPage.getByText(/Менеджер позвонит по указанному номеру/).waitFor()
   const attempts = []
   await lastPage.route('**/api/orders', async route => {
     if (route.request().method() !== 'POST') return route.continue()
@@ -224,11 +230,16 @@ try {
     // Simulate a lost response after the server accepted the first order.
     await route.fulfill({ status: 503, json: { message: 'Попробуйте ещё раз' } })
   })
-  await lastPage.getByRole('button', { name: /Оформить заказ/ }).click()
+  await lastPage.getByRole('button', { name: 'Отправить заказ', exact: true }).click()
   await lastPage.getByRole('alert').getByText('Попробуйте ещё раз', { exact: true }).waitFor()
-  await lastPage.getByRole('button', { name: /Оформить заказ/ }).click()
+  await lastPage.getByRole('button', { name: 'Отправить заказ', exact: true }).click()
   await lastPage.waitForURL('**/order/**')
   const order = await prisma.order.findFirst({ include: { items: true } })
+  assert.equal(order.customerPhone, '+79991234567')
+  assert.equal(order.status, 'NEW')
+  assert.equal(order.paymentStatus, 'NOT_STARTED')
+  assert(await prisma.notification.findFirst({ where: { type: 'NEW_ORDER' } }))
+  await lastPage.getByText(/Менеджер свяжется с вами/).waitFor()
   assert.equal(order.total, 58900)
   assert.equal(order.items.length, 1)
   assert.equal(order.items[0].quantity, 1)

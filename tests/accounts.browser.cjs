@@ -156,7 +156,7 @@ async function main() {
   await page.getByRole('button', { name: 'Перейти к оформлению', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('input[name="name"]')?.value === 'Амина')
   assert.equal(await page.getByLabel('Телефон', { exact: true }).inputValue(), '+79991234567')
-  await page.getByRole('button', { name: /Оформить заказ/ }).click(); await page.waitForURL('**/order/**')
+  await page.getByRole('button', { name: 'Отправить заказ', exact: true }).click(); await page.waitForURL('**/order/**')
   await page.goto(url + '/account'); await page.getByRole('heading', { name: /^Текущие заказы/ }).waitFor()
   await page.locator('.customer-order').waitFor(); await screenshot('account-order-desktop')
   await page.setViewportSize({ width: 320, height: 844 }); await screenshot('account-order-mobile-320')
