@@ -128,10 +128,6 @@
 .customer-success { background: #f1f7f2; color: #2a643d; border: 1px solid #d6e5d8; }
 
 /* The signed-in cabinet fills the same rail, including the profile form. */
-.customer-dashboard-head { display: flex; justify-content: space-between; align-items: end; gap: 25px; margin: 40px 0 35px; }
-.customer-dashboard-head .customer-kicker { color: var(--tx-accent); }
-.customer-dashboard-head h1 { font-size: clamp(30px, 3.4vw, 48px); letter-spacing: -.045em; margin: 12px 0; line-height: 1.1; font-weight: 500; }
-.customer-dashboard-head p { color: var(--tx-muted); font-size: 13px; }
 .customer-dashboard { display: grid; width: 100%; grid-template-columns: 260px minmax(0, 1fr); gap: 30px; }
 .customer-sidebar { border: 0; border-radius: 0; background: transparent; align-self: start; }
 .customer-id { display: flex; flex-direction: column; gap: 8px; padding: 0 26px 26px 0; border: 0; overflow-wrap: anywhere; }
@@ -215,8 +211,6 @@
   .customer-form-wrap h2 { font-size: 29px; }
   .customer-form input,
   .customer-form textarea { font-size: 16px; }
-  .customer-dashboard-head { display: block; margin: 28px 0; }
-  .customer-dashboard-head h1 { font-size: 32px; }
   .customer-dashboard { grid-template-columns: minmax(0, 1fr); }
   .customer-sidebar .customer-id,
   .customer-sidebar > p { display: none; }

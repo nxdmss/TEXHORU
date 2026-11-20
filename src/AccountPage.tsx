@@ -127,7 +127,6 @@ export function AccountPage({ screen, onHome, onOrder, onNavigate }: {
         <button className="customer-text-button" onClick={onHome}>Продолжить покупки без входа <Icon name="arrow" /></button>
       </div>
     </div> : profile ? <>
-      <header className="customer-dashboard-head"><div><span className="customer-kicker">ВАШ ЛИЧНЫЙ TEXHORU</span><h1>Здравствуйте, {profile.name.split(' ')[0]}.</h1></div></header>
       <div className="customer-dashboard"><aside className="customer-sidebar"><div className="customer-id"><strong>{profile.name}</strong><span>{profile.email}</span></div><nav aria-label="Разделы кабинета">{(['orders', 'history', 'profile'] as const).map(value => <button key={value} aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); setNotice(''); setError('') }}>{value === 'orders' ? 'Текущие заказы' : value === 'history' ? 'История покупок' : 'Мои данные'}<Icon name={value === 'profile' ? 'user' : 'box'} /></button>)}</nav><button className="customer-logout" onClick={logout} disabled={busy}>Выйти из аккаунта <Icon name="arrow" /></button></aside>
       <div className="customer-dashboard-content">
         {error && <p className="customer-error" role="alert">{error}</p>}{notice && <p className="customer-success" role="status">{notice}</p>}
