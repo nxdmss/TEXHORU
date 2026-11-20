@@ -229,3 +229,52 @@
 @media(max-width:850px){.admin-launch-readiness__head{align-items:flex-start;flex-direction:column}.admin-launch-readiness__grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 
+
+.admin-workbench {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-workbench > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 16px;
+  text-align: left;
+  background: #fff;
+  color: var(--ac-ink);
+  border: 1px solid var(--ac-line);
+  border-radius: 12px;
+}
+
+.admin-workbench > button:hover { border-color: var(--ac-accent); }
+.admin-workbench > button:focus-visible { outline: 2px solid var(--ac-accent); outline-offset: 2px; }
+.admin-workbench > button > svg { width: 16px; height: 16px; color: var(--ac-muted); }
+.admin-workbench-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  color: var(--ac-accent);
+  background: var(--tx-accent-soft);
+}
+.admin-workbench-icon svg { width: 20px; height: 20px; }
+.admin-workbench-label { display: grid; gap: 4px; }
+.admin-workbench-label strong { font-size: 16px; line-height: 1.2; }
+.admin-workbench-label small { font-size: 12px; color: var(--ac-muted); }
+.admin-exchange-notice {
+  padding: 10px 14px;
+  margin: 0 0 14px;
+  border-radius: 8px;
+  color: #684400;
+  background: #fff4d8;
+}
+
+@media (max-width: 1050px) {
+  .admin-workbench { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .admin-workbench > button { min-height: 64px; padding: 12px; }
+}

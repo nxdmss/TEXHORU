@@ -153,9 +153,9 @@ try {
   if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH, fullPage: true })
   // Imported TEST products are eligible automatically; linking opens directly.
   assert.equal((await prisma.product.findUnique({ where: { id: unapproved.id } })).priceSyncEnabled, true)
-  await page.getByRole('button', { name: 'Разделы', exact: true }).click()
-  await page.getByRole('button', { name: 'Главная', exact: true }).click()
-  await page.locator('.admin-quest').nth(1).click()
+  await page.getByRole('navigation', { name: 'Быстрые разделы управления' }).getByRole('button', { name: 'Главная', exact: true }).click()
+  await page.getByRole('button', { name: 'Обновить цены', exact: true }).click()
+  await page.locator('.pu-advanced > summary').click()
   await page.locator('.mp-shell').waitFor()
   assert.equal(await page.getByText('Допуск к обмену', { exact: true }).count(), 0)
   assert.equal(await page.locator('.pa-scope').count(), 0)
@@ -193,9 +193,14 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 })
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 })
-    for (const name of ['Товары', 'Заказы', 'Сообщения', 'Оформление', 'Номенклатура 1С']) {
-      if (width === 390) await page.getByRole('button', { name: 'Разделы', exact: true }).click()
-      await page.locator('#admin-navigation').getByRole('button', { name: name === 'Сообщения' ? /^Сообщения/ : name, exact: name !== 'Сообщения' }).click()
+    const navigation = page.locator('#admin-navigation')
+    for (const name of ['Товары', 'Заказы', 'Сообщения', 'Оформление витрины', 'Номенклатура 1С']) {
+      if (width === 390) await page.getByRole('button', { name: 'Все разделы управления', exact: true }).click()
+      const more = navigation.locator('details')
+      if (['Товары', 'Сообщения'].includes(name) && await more.getAttribute('open') === null) {
+        await more.locator('summary').click()
+      }
+      await navigation.getByRole('button', { name: name === 'Сообщения' ? /^Сообщения/ : name, exact: name !== 'Сообщения' }).click()
       assert(await page.locator('.admin-control').evaluate(el => el.scrollWidth <= el.clientWidth + 1), name + ' overflows at ' + width)
       if (process.env.SCREENSHOT_PATH && name === 'Товары') {
         await page.evaluate(() => window.scrollTo(0, 0))

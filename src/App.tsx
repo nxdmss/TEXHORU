@@ -807,67 +807,55 @@ function AdminPage({ onBack }: { onBack: () => void }) {
   if (!authenticated) return <section className="admin-shell admin-login"><button className="back-link" onClick={onBack}><Icon name="back" /> В магазин</button><form onSubmit={login}><TexhoruBrand subtitle="Управление магазином" /><h1>Вход в управление</h1><label><span>Почта</span><input type="email" autoComplete="username" required placeholder="Почта сотрудника" value={email} onChange={(e) => setEmail(e.target.value)} /></label><label><span>Пароль</span><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>{error && <div className="form-error">{error}</div>}<button className="checkout-submit" disabled={loading}>{loading ? 'Проверяем…' : 'Войти'}</button><small>Доступ для сотрудников TEXHORU.</small></form></section>
 
   const unread = notifications.filter((item) => !item.isRead).length
-  const tabNames: Record<AdminTab, string> = { overview: 'Главная', products: 'Товары', content: 'Оформление', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Номенклатура 1С', audit: 'Журнал' }
-  const navigationGroups: Array<{ label: string; tabs: AdminTab[] }> = [
-    { label: 'Рабочий стол', tabs: ['overview', 'prices', 'sync'] },
-    { label: 'Магазин', tabs: ['products', 'orders', 'notifications', 'content'] },
-  ]
+  const tabNames: Record<AdminTab, string> = { overview: 'Рабочий стол', products: 'Товары', content: 'Оформление витрины', prices: 'Цены', orders: 'Заказы', notifications: 'Сообщения', sync: 'Номенклатура 1С', audit: 'Журнал действий' }
+  const primaryTabs: AdminTab[] = ['orders', 'sync', 'prices']
+  const mainNavigation: AdminTab[] = ['overview', ...primaryTabs, 'content']
+  const secondaryTabs: AdminTab[] = ['products', 'notifications', 'audit']
+  const newOrders = orders.filter(order => order.status === 'NEW').length
+  const openTab = (item: AdminTab) => {
+    setPriceSetup(false)
+    setTab(item)
+    setNavigationOpen(false)
+    if (window.innerWidth <= 780) window.scrollTo(0, 0)
+  }
+  const navigationButton = (item: AdminTab) => <button type="button" key={item}
+    aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'active' : ''}
+    onClick={() => openTab(item)}>
+    <AdminIcon name={item} /><span>{tabNames[item]}</span>
+    {item === 'notifications' && unread > 0 && <small>{unread}</small>}
+  </button>
   const connectProducts = () => { setPriceSetup(true); setTab('prices') }
   return <section className={`admin-shell admin-control${tab === 'content' ? ' admin-control--builder' : ''}`}>
     <aside className={'admin-sidebar' + (navigationOpen ? ' is-open' : '')}>
-    <button className="admin-brand" onClick={() => { setTab('overview'); setNavigationOpen(false); window.scrollTo(0,0) }} aria-label="TEXHORU — главная управления"><TexhoruBrand subtitle="Управление магазином" /></button>
+    <button className="admin-brand" onClick={() => openTab('overview')} aria-label="TEXHORU — главная управления"><TexhoruBrand /></button>
     <button type="button" className="admin-mobile-toggle" aria-expanded={navigationOpen} aria-controls="admin-navigation" onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'} />Разделы</button>
     <nav id="admin-navigation" className="admin-tabs" aria-label="Разделы управления магазином">
-      {navigationGroups.map(section => <div className="admin-tab-group" key={section.label}>
-        <span>{section.label}</span>
-        <div>{section.tabs.map(item => <button type="button" aria-current={tab === item ? 'page' : undefined}
-          className={tab === item ? 'active' : ''} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false); if (window.innerWidth <= 780) window.scrollTo(0,0) }} key={item}><AdminIcon name={item} /><span>{tabNames[item]}</span>{item === 'notifications' && unread > 0 && <small>{unread}</small>}</button>)}</div>
-      </div>)}
-      <details className="admin-tabs-extra" open={tab === 'audit'}>
+      <div className="admin-tab-group"><div>{mainNavigation.map(navigationButton)}</div></div>
+      <details className="admin-tabs-extra" open={secondaryTabs.includes(tab)}>
         <summary>Ещё</summary>
-        <button type="button" className={tab === 'audit' ? 'active' : ''} onClick={() => { setTab('audit'); setNavigationOpen(false) }}><AdminIcon name="audit" />Журнал действий</button>
+        {secondaryTabs.map(navigationButton)}
       </details>
     </nav>
     <div className="admin-sidebar-bottom"><button onClick={onBack}>Открыть магазин <AdminIcon name="arrow" /></button><button onClick={async () => { await api.logout().catch(() => undefined); setAuthenticated(false) }}>Выйти из аккаунта</button></div>
     </aside>
     <div className={`admin-workspace${tab === 'content' ? ' admin-workspace--builder' : ''}${tab === 'sync' ? ' admin-workspace--nomenclature' : ''}`}>
-    <div className="admin-top"><div><p className="eyebrow">Управление</p><h1>{tab === 'overview' ? 'Рабочий стол' : tabNames[tab]}</h1></div><div className="admin-top__actions"><span className={error ? 'api-state api-state--bad' : 'api-state'}>{error ? 'Ошибка связи' : loading ? 'Синхронизация…' : 'Сайт на связи'}</span><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
+    <div className="admin-top"><h1>{tabNames[tab]}</h1><div className="admin-top__actions"><button onClick={() => void load()} disabled={loading} aria-label="Обновить данные"><AdminIcon name="refresh" /><span>Обновить</span></button></div></div>
     {error && <div className="admin-error">{error}</div>}
     {priceSyncNotice && <div className="admin-loading" role="status">{priceSyncNotice}</div>}
     {loading && <div className="admin-loading">Загрузка…</div>}
     {tab === 'overview' && <>
-      {readiness && <section className="admin-launch-readiness" aria-label="Готовность магазина">
-        <div className="admin-launch-readiness__head"><div><span className={readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'is-warning' : 'is-safe'} /><p><strong>{readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'Проверьте исходящий обмен с 1С' : 'Безопасный предпродакшен'}</strong><small>{readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'Один из каналов записи включён' : 'Покупатели и заказы работают · оплата и запись в 1С выключены'}</small></p></div><b>{readiness.catalog.available} товаров доступно</b></div>
-        <div className="admin-launch-readiness__grid">
-          <article><span>1С</span><strong>{readiness.oneC.orderWritesEnabled || readiness.oneC.priceWritesEnabled ? 'Есть исходящий обмен' : 'Только чтение'}</strong><small>{readiness.oneC.mode}</small></article>
-          <article><span>Письма</span><strong>{readiness.orders.emailConfigured ? 'Подключены' : 'Нужен SMTP'}</strong><small>{readiness.orders.messages.PENDING || 0} ожидают отправки</small></article>
-          <article><span>Резервы</span><strong>{readiness.orders.pendingReservations}</strong><small>автоотмена через {Math.round(readiness.orders.reservationMinutes / 60)} ч.</small></article>
-          <article><span>Карточки</span><strong>{readiness.catalog.missingImage + readiness.catalog.missingDescription}</strong><small>нужно дополнить фото или текстом</small></article>
-        </div>
-      </section>}
-      <div className="admin-overview-heading">
-        <span className="admin-section-kicker">Быстрый старт</span><h2>Что делаем сегодня?</h2>
+      {(readiness?.oneC.orderWritesEnabled || readiness?.oneC.priceWritesEnabled) &&
+        <p className="admin-exchange-notice" role="status">Включена запись в 1С</p>}
+      <div className="admin-workbench">
+        {primaryTabs.map(item => <button key={item} type="button" onClick={() => openTab(item)}>
+          <span className="admin-workbench-icon"><AdminIcon name={item} /></span>
+          <span className="admin-workbench-label">
+            <strong>{item === 'prices' ? 'Обновить цены' : tabNames[item]}</strong>
+            {item === 'orders' && newOrders > 0 && <small>Новых: {newOrders}</small>}
+          </span>
+          <AdminIcon name="arrow" />
+        </button>)}
       </div>
-      <div className="admin-quests">
-        <button className="admin-quest admin-quest-primary" onClick={() => { setPriceSetup(false); setTab('prices') }}><span className="admin-quest-top"><AdminIcon name="prices" /><small>01 / Цены</small></span><strong>Обновить<br/>цены</strong><span className="admin-quest-footer">05.ru → 1С → сайт <AdminIcon name="arrow" /></span></button>
-        <button className="admin-quest" onClick={connectProducts}><span className="admin-quest-top"><AdminIcon name="plus" /><small>02 / Связи</small></span><strong>Связи<br/>с 05.ru</strong><span className="admin-quest-footer">Найти совпадения <AdminIcon name="arrow" /></span></button>
-        <button className="admin-quest" onClick={() => setTab('products')}><span className="admin-quest-top"><AdminIcon name="products" /><small>03 / Каталог</small></span><strong>Управлять<br/>товарами</strong><span className="admin-quest-footer">Разделы и карточки <AdminIcon name="arrow" /></span></button>
-      </div>
-      <div className="admin-metrics admin-metrics-main">
-        <article><span>На витрине</span><strong>{products.filter(p => p.status === 'ACTIVE' && !p.duplicateOf && (!p.oneCId || (p.price > 0 && p.stockQty > (p.reservedQty || 0)))).length}</strong><AdminIcon name="products" /></article>
-        <article><span>Из 1С</span><strong>{products.filter(p => p.oneCId).length}</strong><AdminIcon name="sync" /></article>
-        <article><span>Заказов</span><strong>{orders.length}</strong><AdminIcon name="orders" /></article>
-        <article><span>Новых сообщений</span><strong>{unread}</strong><AdminIcon name="notifications" /></article>
-      </div>
-      <details className="admin-overview-more">
-        <summary>Дополнительные сведения</summary>
-        <div className="admin-metrics">
-          <article><span>Товаров в наличии из 1С</span><strong>{products.filter(p => p.oneCId && p.status === 'ACTIVE' && p.stockQty > (p.reservedQty || 0)).length}</strong></article>
-          <article><span>Разделов товаров</span><strong>{apiCategories.length}</strong></article>
-          <article><span>Скрытых товаров</span><strong>{products.filter(p => p.status === 'ARCHIVED').length}</strong></article>
-          <article><span>Мало товара</span><strong>{products.filter(p => Math.max(0, p.stockQty - (p.reservedQty ?? 0)) <= 3).length}</strong></article>
-        </div>
-      </details>
     </>}
 
     {tab === 'products' && <div className="admin-products-v2">
@@ -984,8 +972,8 @@ function AdminPage({ onBack }: { onBack: () => void }) {
     {editorOpen && <ProductEditor value={productDraft} categories={apiCategories.filter((item) => item.isActive !== false)} editing={editingProductId !== null} saving={savingProduct} saveError={productEditorError} oneCProduct={products.find(item => item.id === editingProductId)} onChange={setProductDraft} onClose={() => setEditorOpen(false)} onSave={saveProduct} />}
     </div>
     <nav className="admin-phone-dock" aria-label="Быстрые разделы управления">
-      {(['overview','products','prices','sync'] as AdminTab[]).map(item => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => { setPriceSetup(false); setTab(item); setNavigationOpen(false); window.scrollTo(0,0) }}><AdminIcon name={item}/><span>{item === 'sync' ? '1С' : tabNames[item]}</span></button>)}
-      <button type="button" aria-expanded={navigationOpen} aria-controls="admin-navigation" aria-label="Все разделы управления" className={['orders','content','notifications','audit'].includes(tab) ? 'active' : ''} onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'}/><span>Ещё{unread > 0 && <i aria-label={unread + ' новых сообщений'} />}</span></button>
+      {(['overview', ...primaryTabs] as AdminTab[]).map(item => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => openTab(item)}><AdminIcon name={item}/><span>{item === 'sync' ? '1С' : item === 'overview' ? 'Главная' : tabNames[item]}</span></button>)}
+      <button type="button" aria-expanded={navigationOpen} aria-controls="admin-navigation" aria-label="Все разделы управления" className={(tab === 'content' || secondaryTabs.includes(tab)) ? 'active' : ''} onClick={() => setNavigationOpen(value => !value)}><Icon name={navigationOpen ? 'close' : 'menu'}/><span>Ещё{unread > 0 && <i aria-label={unread + ' новых сообщений'} />}</span></button>
     </nav>
   </section>
 }

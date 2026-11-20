@@ -41,7 +41,7 @@ try {
   const page = await context.newPage(), errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(url + '/admin')
-  await page.getByRole('button', { name: 'Номенклатура 1С', exact: true }).click()
+  await page.locator('#admin-navigation').getByRole('button', { name: 'Номенклатура 1С', exact: true }).click()
   assert.equal(await page.getByText('Выгрузка через прежнюю обработку 1С', { exact: true }).count(), 0)
   assert.equal(await page.getByRole('heading', { name: 'Обмен с 1С', exact: true }).count(), 0)
   assert.equal(await page.getByText('Агент ещё не подключался', { exact: true }).count(), 0)
@@ -92,7 +92,7 @@ try {
   await panel.getByText(/Обновление списка товаров: В очереди/).waitFor()
   await panel.getByRole('button', { name: 'Пауза', exact: true }).click()
   await panel.getByText(/Обновление списка товаров: На паузе/).waitFor()
-  await page.reload(); await page.getByRole('button', { name: 'Номенклатура 1С', exact: true }).click()
+  await page.reload(); await page.locator('#admin-navigation').getByRole('button', { name: 'Номенклатура 1С', exact: true }).click()
   await panel.getByText(/Обновление списка товаров: На паузе/).waitFor()
   mkdirSync(resolve('artifacts/remote-catalog'), { recursive: true })
   for (const width of [1440, 1024, 768, 390]) {
