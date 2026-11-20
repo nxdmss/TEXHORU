@@ -2,6 +2,7 @@
    last in the cascade so device-specific and legacy layouts cannot restore a
    grey image tile. */
 .storefront :is(
+  .catalog,
   .product-media,
   .product-page__visual,
   .product-studio__visual,
