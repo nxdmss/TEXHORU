@@ -35,3 +35,9 @@
   background-color: transparent !important;
   background-image: none !important;
 }
+
+/* White embedded in an opaque photo blends into the surface under the product. */
+.product-shot.product-shot > img,
+.storefront .phone-portal__visual > img {
+  mix-blend-mode: multiply;
+}

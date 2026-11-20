@@ -60,7 +60,7 @@ export function featuredProducts<T extends { id: number; name: string; category:
   return result
 }
 
-/** Locally hosted product images. Match model AND colour; preserve uploaded photos. */
+/** Prefer an uploaded photo, then an exact model and the closest available colour. */
 const iphonePhotoColors: Record<string, readonly string[]> = {
   '11': ['black'],
   '11-pro-max': ['graphite'],
@@ -85,33 +85,45 @@ const catalogLaptopPhotos: Array<[RegExp, string]> = [
   [/\bhuawei\s+matebook\s+d\s*16\b.*\b53014qkw\b/i, '/products/laptops/huawei-matebook-d16-53014qkw.png'],
   [/\binfinix\s+xbook\s+15\b.*\b71005000609\b/i, '/products/laptops/infinix-xbook-15-71005000609.png'],
 ]
-const catalogPhonePhotos: Array<[RegExp, string]> = [
-  [/\bhonor\s*x9d\b.*(?:бежев|beige)/i, '/products/honor/honor-x9d-beige.png'],
-  [/\bhonor\s*x9d\b.*(?:мятн|mint)/i, '/products/honor/honor-x9d-mint.webp'],
-  [/\bhonor\s*600\s*pro\b.*(?:золот|gold)/i, '/products/honor/honor-600-pro-gold.webp'],
-  [/\bhonor\s*x7e\b.*(?:голуб|blue)/i, '/products/honor/honor-x7e-blue.webp'],
-  [/\bhonor\s*x5es\b.*(?:ч[её]рн|black)/i, '/products/honor/honor-x5es-black.webp'],
-  [/\bhonor\s*600\b(?!\s*pro).*(?:оранж|orange)/i, '/products/honor/honor-600-orange.webp'],
-  [/\bhuawei\s*nova\s*15\s*max\b.*(?:розов|pink)/i, '/products/huawei/huawei-nova-15-max-pink.webp'],
-  [/\bsamsung\s*(?:galaxy\s*)?s25\s*ultra\b.*(?:titanium\s*black|ч[её]рн|black)/i, '/products/samsung/samsung-s25-ultra-titanium-black.webp'],
-  [/\bsamsung\s*(?:galaxy\s*)?s25\b(?!\s*ultra).*(?:т[её]мно-син|dark\s*blue|navy)/i, '/products/samsung/samsung-s25-dark-blue.webp'],
-  [/\bsamsung\s*(?:galaxy\s*)?s25\b(?!\s*ultra).*(?:сер|gray|grey|silver)/i, '/products/samsung/samsung-s25-gray.webp'],
-  [/\bsamsung\s*(?:galaxy\s*)?a17\b.*(?:ч[её]рн|black)/i, '/products/samsung/samsung-a17-black.webp'],
-  [/\bsamsung\s*(?:galaxy\s*)?s26\s*ultra\b.*(?:ч[её]рн|black)/i, '/products/samsung/samsung-s26-ultra-black.webp'],
-  [/\bsamsung\s*(?:galaxy\s*)?s26\b(?!\s*ultra).*(?:ч[её]рн|black)/i, '/products/samsung/samsung-s26-black.webp'],
-  [/\bpoco\s*f8\s*pro\b.*(?:ч[её]рн|black)/i, '/products/poco/poco-f8-pro-black.webp'],
-  [/\bpoco\s*m8\b.*(?:зел[её]н|green)/i, '/products/poco/poco-m8-5g-green.webp'],
-  [/\bpoco\s*x8\s*pro\s*max\b.*(?:ч[её]рн|black)/i, '/products/poco/poco-x8-pro-max-black.webp'],
-  [/\bxiaomi\s*15t\s*pro\b.*(?:ч[её]рн|black)/i, '/products/xiaomi/xiaomi-15t-pro-black.webp'],
-  [/\bxiaomi\s*17t\s*pro\b.*(?:ч[её]рн|black)/i, '/products/xiaomi/xiaomi-17t-pro-black.webp'],
-  [/\bxiaomi\s*17t\b(?!\s*pro).*(?:ч[её]рн|black)/i, '/products/xiaomi/xiaomi-17t-black.webp'],
-  [/\bpoco\s*x8\s*pro\b(?!\s*max).*(?:бел|white)/i, '/products/poco/poco-x8-pro-white.webp'],
-  [/\bpoco\s*f8\s*ultra\b.*(?:ч[её]рн|black)/i, '/products/poco/poco-f8-ultra-black.webp'],
-  [/\brealme\s*16\s*pro\b.*(?:графит|graphite)/i, '/products/realme/realme-16-pro-graphite.webp'],
-  [/\brealme\s*c100x\b.*(?:син|blue)/i, '/products/realme/realme-c100x-blue.webp'],
-  [/\brealme\s*c100x\b.*(?:бел|white)/i, '/products/realme/realme-c100x-white.webp'],
-  [/\btecno\s*camon\s*50\s*ultra\b.*(?:ч[её]рн|black)/i, '/products/tecno/tecno-camon-50-ultra-black.webp'],
-  [/\b(?:google\s*)?pixel\s*11\s*pro\b.*(?:obsidian|ч[её]рн|black)/i, '/products/google/google-pixel-11-pro-obsidian.webp'],
+type CatalogPhonePhotos = [model: RegExp, photos: ReadonlyArray<[colour: RegExp, path: string]>]
+
+const catalogPhonePhotos: CatalogPhonePhotos[] = [
+  [/\bhonor\s*x9d\b/i, [
+    [/ч[её]рн|black|графит|graphite/i, '/products/honor/honor-x9d-graphite.webp'],
+    [/бежев|beige/i, '/products/honor/honor-x9d-beige.png'],
+    [/мятн|mint/i, '/products/honor/honor-x9d-mint.webp'],
+  ]],
+  [/\bhonor\s*600\s*pro\b/i, [[/золот|gold/i, '/products/honor/honor-600-pro-gold.webp']]],
+  [/\bhonor\s*x7e\b/i, [[/голуб|blue/i, '/products/honor/honor-x7e-blue.webp']]],
+  [/\bhonor\s*x5es\b/i, [[/ч[её]рн|black/i, '/products/honor/honor-x5es-black.webp']]],
+  [/\bhonor\s*600\b(?!\s*(?:pro|lite)\b)/i, [
+    [/ч[её]рн|black|графит|graphite/i, '/products/honor/honor-600-black.webp'],
+    [/оранж|orange/i, '/products/honor/honor-600-orange.webp'],
+  ]],
+  [/\bhuawei\s*nova\s*15\s*max\b/i, [[/розов|pink/i, '/products/huawei/huawei-nova-15-max-pink.webp']]],
+  [/\bsamsung\s*(?:galaxy\s*)?s25\s*ultra\b/i, [[/titanium\s*black|ч[её]рн|black/i, '/products/samsung/samsung-s25-ultra-titanium-black.webp']]],
+  [/\bsamsung\s*(?:galaxy\s*)?s25\b(?!\s*(?:ultra|plus|fe|edge)\b|\s*\+)/i, [
+    [/т[её]мно-син|dark\s*blue|navy/i, '/products/samsung/samsung-s25-dark-blue.webp'],
+    [/сер|gray|grey|silver/i, '/products/samsung/samsung-s25-gray.webp'],
+  ]],
+  [/\bsamsung\s*(?:galaxy\s*)?a17\b(?!\s*5g\b)/i, [[/ч[её]рн|black/i, '/products/samsung/samsung-a17-black.webp']]],
+  [/\bsamsung\s*(?:galaxy\s*)?s26\s*ultra\b/i, [[/ч[её]рн|black/i, '/products/samsung/samsung-s26-ultra-black.webp']]],
+  [/\bsamsung\s*(?:galaxy\s*)?s26\b(?!\s*(?:ultra|plus|fe|edge)\b|\s*\+)/i, [[/ч[её]рн|black/i, '/products/samsung/samsung-s26-black.webp']]],
+  [/\bpoco\s*f8\s*pro\b/i, [[/ч[её]рн|black/i, '/products/poco/poco-f8-pro-black.webp']]],
+  [/\bpoco\s*m8\b(?!\s*pro\b)/i, [[/зел[её]н|green/i, '/products/poco/poco-m8-5g-green.webp']]],
+  [/\bpoco\s*x8\s*pro\s*max\b/i, [[/ч[её]рн|black/i, '/products/poco/poco-x8-pro-max-black.webp']]],
+  [/\bxiaomi\s*15t\s*pro\b/i, [[/ч[её]рн|black/i, '/products/xiaomi/xiaomi-15t-pro-black.webp']]],
+  [/\bxiaomi\s*17t\s*pro\b/i, [[/ч[её]рн|black/i, '/products/xiaomi/xiaomi-17t-pro-black.webp']]],
+  [/\bxiaomi\s*17t\b(?!\s*pro\b)/i, [[/ч[её]рн|black/i, '/products/xiaomi/xiaomi-17t-black.webp']]],
+  [/\bpoco\s*x8\s*pro\b(?!\s*max\b)/i, [[/бел|white/i, '/products/poco/poco-x8-pro-white.webp']]],
+  [/\bpoco\s*f8\s*ultra\b/i, [[/ч[её]рн|black/i, '/products/poco/poco-f8-ultra-black.webp']]],
+  [/\brealme\s*16\s*pro\b(?!\s*plus\b|\s*\+)/i, [[/графит|graphite/i, '/products/realme/realme-16-pro-graphite.webp']]],
+  [/\brealme\s*c100x\b/i, [
+    [/син|blue/i, '/products/realme/realme-c100x-blue.webp'],
+    [/бел|white/i, '/products/realme/realme-c100x-white.webp'],
+  ]],
+  [/\btecno\s*camon\s*50\s*ultra\b/i, [[/ч[её]рн|black/i, '/products/tecno/tecno-camon-50-ultra-black.webp']]],
+  [/\b(?:google\s*)?pixel\s*11\s*pro\b(?!\s*xl\b)/i, [[/obsidian|ч[её]рн|black/i, '/products/google/google-pixel-11-pro-obsidian.webp']]],
 ]
 export function featuredPhoneImage(name: string, image?: string) {
   if (image && !/\/products\/(?:phone(?:-alt)?|iphone-cut-[\w-]+)\.svg(?:[?#]|$)/.test(image)) return image
@@ -120,14 +132,8 @@ export function featuredPhoneImage(name: string, image?: string) {
   if (laptopPhoto) return laptopPhoto
   if (/чехол|накладк|стекл|кабел|пленк|плёнк|защитн|линз|\b(?:case|cover|glass|protector)\b/i.test(name)) return fallback
 
-  if (/\bhonor\s*600\b(?!\s*pro)/i.test(name) && /ч[её]рн|black|графит|graphite/i.test(name)) {
-    return '/products/honor/honor-600-black.webp'
-  }
-  if (/\bhonor\s*x9d\b/i.test(name) && /ч[её]рн|black|графит|graphite/i.test(name)) {
-    return '/products/honor/honor-x9d-graphite.webp'
-  }
-  const catalogPhoto = catalogPhonePhotos.find(([pattern]) => pattern.test(name))?.[1]
-  if (catalogPhoto) return catalogPhoto
+  const modelPhotos = catalogPhonePhotos.find(([pattern]) => pattern.test(name))?.[1]
+  if (modelPhotos) return (modelPhotos.find(([colour]) => colour.test(name)) ?? modelPhotos[0])[1]
 
   const match = name.match(/\biphone\s*(1[1-7])\s*(pro\s*max|pro|plus|mini|air|e)?\b/i)
   const variant = (match?.[2] || '').toLowerCase().replace(/\s+/g, '-')
@@ -141,7 +147,8 @@ export function featuredPhoneImage(name: string, image?: string) {
     : /зел[её]н|green|teal|sage/i.test(name) ? 'green'
     : /ультрамарин|ultramarine/i.test(name) ? 'ultramarine'
     : /син|голуб|blue/i.test(name) ? 'blue' : ''
-  if (!iphonePhotoColors[model]?.includes(colour)) return fallback
-  const key = `${model}-${colour}`
+  const colours = iphonePhotoColors[model]
+  if (!colours) return fallback
+  const key = `${model}-${colours.includes(colour) ? colour : colours[0]}`
   return `/products/apple/iphone-${key}.${pilotWebpPhotos.has(key) ? 'webp' : 'png'}`
 }

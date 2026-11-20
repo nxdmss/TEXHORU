@@ -23,8 +23,8 @@ import './desktop-polish.css'
 import './admin-desktop.css'
 import './site-finish.css'
 import './brand-navigation.css'
-import './transparent-products.css'
 import './design-system-v2.css'
+import './transparent-products.css'
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

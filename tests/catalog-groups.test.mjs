@@ -103,10 +103,14 @@ test('local iPhone photographs match model and colour and preserve uploaded phot
     assert(provenance.source.startsWith('https://store.storeimages.cdn-apple.com/'))
     assert.equal(createHash('sha256').update(bytes).digest('hex'), provenance.sha256)
   }
-  for (const name of ['Чехол iPhone 17 Pro Max белый', 'Стекло iPhone 16 черный', 'iPhone 16 оранжевый', 'iPhone 18 черный', 'iPhone 17 Pro фиолетовый']) {
-    assert.equal(featuredPhoneImage(name, ''), '/products/phone.svg', 'unknown models/colours and accessories never borrow another phone photo')
+  for (const name of ['Чехол iPhone 17 Pro Max белый', 'Стекло iPhone 16 черный', 'iPhone 18 черный', 'iPhone 16 Pro б/у', 'Samsung Galaxy S25 FE серый', 'POCO M8 Pro белый', 'Google Pixel 11 Pro XL черный']) {
+    assert.equal(featuredPhoneImage(name, ''), '/products/phone.svg', 'unknown models and accessories never borrow another phone photo')
   }
   assert.equal(featuredPhoneImage('Apple iPhone Air Space Black', ''), '/products/apple/iphone-air-black.png')
+  assert.equal(featuredPhoneImage('iPhone 16 оранжевый б/у', ''), '/products/apple/iphone-16-black.png')
+  assert.equal(featuredPhoneImage('iPhone 17 Pro фиолетовый', ''), '/products/apple/iphone-17-pro-white.png')
+  assert.equal(featuredPhoneImage('Samsung Galaxy S25 256 Гб б/у', ''), '/products/samsung/samsung-s25-dark-blue.webp')
+  assert.equal(featuredPhoneImage('POCO X8 Pro Max белый б/у', ''), '/products/poco/poco-x8-pro-max-black.webp')
 })
 
 test('pilot photos cover the first ten live storefront products with exact model and colour', () => {
