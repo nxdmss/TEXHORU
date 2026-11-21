@@ -257,7 +257,7 @@ try {
   await lastPage.getByRole('heading', { name: 'Рабочий стол', exact: true }).waitFor()
   await screenshot(lastPage, 'admin-brand-1440')
   await lastPage.getByRole('button', { name: 'Цены', exact: true }).click()
-  await lastPage.locator('.pu-heading').getByRole('heading', { name: 'Цены', exact: true }).waitFor()
+  await lastPage.locator('.pu-heading').getByRole('button', { name: 'Проверить цены', exact: true }).waitFor()
   await screenshot(lastPage, 'admin-prices-brand-1440')
   console.log('PASS: brand/model navigation, empty legacy catalog, desktop/mobile layout, transparent-margin normalization and physical iPhone scale, shared images and totals, basket persistence/removal, stock limits, honest payment options, empty checkout and real isolated order reservation.')
 } finally {

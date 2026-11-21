@@ -61,16 +61,7 @@
   .admin-control .admin-row--orders:not(.admin-row--head) > span { display:flex; flex-direction:column; min-width:0; overflow-wrap:anywhere; padding:0; white-space:normal; }
   .admin-control .admin-row--orders:not(.admin-row--head) > span:nth-child(4) { display:block; }
   .admin-control .admin-status-select { min-height:44px; width:100%; }
-  .admin-control .pu-heading { padding:14px; gap:10px; }
-  .admin-control .pu-heading h2 { font-size:23px; }
-  .admin-control .pu-main-action { width:100%; }
-  .admin-control .pu-primary { min-height:46px; width:100%; }
-  .admin-control .pu-groups { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
-  .admin-control .pu-groups button { min-height:82px; padding:9px 7px; }
-  .admin-control .pu-groups b { font-size:25px; }
-  .admin-control .pu-groups span { white-space:normal; font-size:10px; line-height:1.25; }
-  .admin-control .pu-check-action { display:flex; flex-wrap:wrap; }
-  .admin-control .pu-check-action button,.admin-control .pu-select-actions button { min-height:42px; }
+  .admin-control .pu-select-actions button { min-height:42px; }
   .admin-control .pu-selection-tools { display:grid; grid-template-columns:minmax(0,1fr); gap:7px; }
   .admin-control .pu-selection-tools > * { width:100%; min-height:44px; }
   .admin-control .pu-product-list label { display:grid; grid-template-columns:24px minmax(0,1fr); align-items:start; gap:6px 9px; }

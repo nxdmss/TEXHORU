@@ -75,27 +75,6 @@
 
 /* Price controls use the same visual vocabulary; no animation or canvas loop. */
 .admin-control .pu-root { --pu-border: var(--ac-line); --pu-muted: var(--ac-muted); padding-top: 0; gap: 18px; color: var(--ac-ink); }
-.admin-control .pu-heading { padding: 21px 24px; background: #171717; border-radius: 8px; color: #fff; }
-.admin-control .pu-heading .admin-section-kicker { color: #c4c4be; font-size: 10px; }
-.admin-control .pu-heading h2 { font-size: 27px; font-weight: 500; margin-top: 7px; }
-.admin-control .pu-heading p { color: #c4c4be; font-size: 12px; }
-.admin-control .pu-main-action > span { color: #c4c4be; font-size: 10px; }
-.admin-control .pu-primary { background: var(--tx-accent); border-color: var(--tx-accent); color: white; border-radius: 8px; font-weight: 600; }
-.admin-control .pu-primary:hover:not(:disabled) { background: var(--tx-accent-hover); }
-.admin-control .pu-connection { font-size: 11px; padding: 0 3px; }
-.admin-control .pu-groups { gap: 14px; }
-.admin-control .pu-groups button { position: relative; min-height: 119px; padding: 18px 21px; color: #50504b; border-radius: 8px; border-color: var(--ac-line); }
-.admin-control .pu-groups b { font-size: 33px; font-weight: 500; letter-spacing: -.04em; }
-.admin-control .pu-groups span { font-size: 12px; }
-.admin-control .pu-groups svg { position: absolute; right: 18px; top: 24px; color: #aaa9a1; }
-.admin-control .pu-groups button.is-current { border-color: #cf2435; background: var(--tx-accent-soft); color: var(--tx-accent); box-shadow: inset 0 0 0 1px #cf2435; }
-.admin-control .pu-groups button:nth-child(2).is-current { background: #eaf3fc; border-color: #83a8d0; color: #37678e; box-shadow: inset 0 0 0 1px #83a8d0; }
-.admin-control .pu-groups button:nth-child(3).is-current { background: #fff3e8; border-color: #d0a67d; color: #93643d; box-shadow: inset 0 0 0 1px #d0a67d; }
-.admin-control .pu-check-action { gap: 10px; }
-.admin-control .pu-check-action button { border-radius: 8px; font-size: 11px; color: #505264; padding: 10px 13px; }
-.admin-control .pu-check-action small { font-size: 10px; }
-.admin-control .pu-check-action .pu-connect-button { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--ac-accent); background: var(--tx-accent-soft); border-color: #f2cdd1; }
-.pu-connect-button svg { width: 15px; height: 15px; }
 .admin-control .pu-status, .admin-control .pu-selection, .admin-control .pu-advanced { border-radius: 8px; }
 .admin-control .pu-status-line strong { font-size: 13px; font-weight: 500; }
 .admin-control .pu-root summary { font-size: 12px; font-weight: 500; }
@@ -110,8 +89,7 @@
 .pu-price-check progress { width: 100%; height: 5px; accent-color: var(--tx-accent); margin-top: 14px; }
 .pu-check-counts { display: flex; gap: 8px 20px; flex-wrap: wrap; margin-top: 12px; font-size: 11px; color: var(--tx-muted); }
 .pu-check-counts b { color: var(--tx-ink); font-weight: 500; }
-.pu-check-error, .pu-check-hint { margin: 12px 0 0; font-size: 12px; line-height: 1.6; }
-.pu-check-error { color: #92552c; }.pu-check-hint { color: var(--tx-muted); }
+.pu-check-error { margin: 12px 0 0; color: #92552c; font-size: 12px; line-height: 1.6; }
 .pu-check-details { margin-top: 12px; }.pu-check-details > summary { color: var(--tx-muted); }
 .pu-check-details pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 11px/1.6 var(--font-mono); color: var(--tx-muted); }
 .admin-control .pu-rule { margin-top: -3px; }
@@ -164,7 +142,6 @@
   .admin-workspace { padding-left: 23px; padding-right: 23px; }
   .admin-quest { padding: 18px; min-height: 225px; }.admin-quests { gap: 10px; }
   .admin-quest-top small { font-size: 9px; }.admin-quest > strong { font-size: 25px; }
-  .pu-heading .pu-main-action { width: 100%; text-align: left; }.admin-control .pu-primary { min-width: 0; }
 }
 @media (max-width: 780px) {
   .admin-control { display: block; }
@@ -189,15 +166,10 @@
   .admin-control .admin-top { flex-direction: row; margin-bottom: 23px; gap: 8px; }.admin-control .admin-top h1 { font-size: 24px; }
   .admin-control .admin-top__actions { gap: 5px; }.admin-control .admin-top__actions button span { display: none; }.admin-control .admin-top__actions button { padding: 9px; }
   .admin-control .api-state { font-size: 10px; padding: 0 3px; }
-  .admin-control .pu-heading { padding: 20px; }.admin-control .pu-heading h2 { font-size: 25px; }
-  .admin-control .pu-main-action { width: 100%; text-align: center; }
   .admin-quests { grid-template-columns: 1fr 1fr; }.admin-quest-primary { grid-column: 1 / -1; min-height: 180px; }
   .admin-quest-primary > strong br { display: none; }.admin-quest { gap: 19px; min-height: 210px; }
   .admin-control .admin-metrics-main { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-top: 15px; }
   .admin-control .admin-metrics-main article { min-height: 105px; padding: 17px; }
-  .admin-control .pu-groups { gap: 7px; }.admin-control .pu-groups button { padding: 15px 11px; min-height: 110px; }
-  .admin-control .pu-groups span { font-size: 10px; }.admin-control .pu-groups b { font-size: 28px; }.admin-control .pu-groups svg { display: none; }
-  .admin-control .pu-check-action .pu-connect-button { margin-left: 0; }
   .pu-setup { padding: 0 13px 16px; }
   .admin-control .pu-product-list label > span { min-width: 0; }
   .admin-control .pu-product-list label > b { width: 100%; padding-left: 26px; font-size: 11px; }

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiProduct, type OneCPriceSyncStatus, type PriceReadiness, type PriceUpdateOperation } from './api'
-import { PriceMonitorPanel } from './PriceMonitorPanel'
-import { AdminIcon } from './AdminIcon'
 import './price-approval.css'
 
-const rub = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('ru-RU').format(value) + ' ₽'
+const PriceMonitorPanel = lazy(() => import('./PriceMonitorPanel').then(module => ({ default: module.PriceMonitorPanel })))
+const money = new Intl.NumberFormat('ru-RU')
+const rub = (value: number | null) => value === null ? '—' : money.format(value) + ' ₽'
+const groups = [['READY', 'Готовы'], ['PENDING', 'Ждут 1С'], ['BLOCKED', 'Нужна проверка']] as const
 const terminal = new Set(['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'])
 const itemLabels: Record<string, string> = {
   CHECKING: 'Проверяем', READY: 'Подготовлено', PENDING: 'Ожидает 1С',
@@ -47,7 +48,6 @@ function operationLabel(operation: PriceUpdateOperation) {
 export function PriceApprovalDashboard({ products, initialSetup = false, onInventoryRefresh }: {
   products: ApiProduct[]; initialSetup?: boolean; onInventoryRefresh: () => Promise<void>;
 }) {
-  const inventory = products
   const [readiness, setReadiness] = useState<PriceReadiness | null>(null)
   const [group, setGroup] = useState<'READY' | 'PENDING' | 'BLOCKED'>('READY')
   const [listOpen, setListOpen] = useState(false)
@@ -64,6 +64,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
   const [category, setCategory] = useState('')
   const [search, setSearch] = useState('')
   const [limit, setLimit] = useState(40)
+  const [resultsOpen, setResultsOpen] = useState(false)
   const [resultFilter, setResultFilter] = useState('ALL')
   const [toolsOpen, setToolsOpen] = useState(initialSetup)
   const toolsRef = useRef<HTMLDetailsElement>(null)
@@ -83,7 +84,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
   }, [])
   useEffect(() => {
     mounted.current = true
-    void load().catch(e => { if (mounted.current) { setError(e instanceof Error ? e.message : 'Не удалось загрузить цены'); setLoading(false) } })
+    void load().catch(() => { if (mounted.current) { setUnavailable(true); setLoading(false) } })
     return () => { mounted.current = false }
   }, [load])
   useEffect(() => {
@@ -95,31 +96,37 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
     return () => window.clearInterval(timer)
   }, [active, busy, load, readiness?.checking])
 
-  const items = readiness?.items || []
-  const eligible = items.filter(item => item.status === 'READY')
+  const items = readiness?.items
+  const itemsByStatus = useMemo(() => {
+    const grouped: Record<typeof group, PriceReadiness['items']> = { READY: [], PENDING: [], BLOCKED: [] }
+    for (const item of items || []) grouped[item.status].push(item)
+    return grouped
+  }, [items])
+  const eligible = itemsByStatus.READY
   const categories = useMemo(() => {
     const paths = new Set<string>()
-    for (const p of readiness?.items || []) {
+    for (const p of items || []) {
       const parts = p.categoryPath.split(' / ')
       parts.forEach((_, i) => paths.add(parts.slice(0, i + 1).join(' / ')))
     }
     return [...paths].sort((a, b) => a.localeCompare(b, 'ru'))
-  }, [readiness])
-  const visible = items.filter(p => p.status === group
-    && (!category || p.categoryPath === category || p.categoryPath.startsWith(category + ' / '))
-    && p.name.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')))
-  const chosen = mode === 'all' ? eligible : eligible.filter(p => selected.includes(p.productId))
-  const visibleResults = operation?.items.filter(item => resultFilter === 'ALL' || item.status === resultFilter) || []
+  }, [items])
+  const searchQuery = search.trim().toLocaleLowerCase('ru')
+  const visible = itemsByStatus[group].filter(p => (!category || p.categoryPath === category || p.categoryPath.startsWith(category + ' / '))
+    && (!searchQuery || p.name.toLocaleLowerCase('ru').includes(searchQuery)))
+  const selectedIds = useMemo(() => new Set(selected), [selected])
+  const chosen = mode === 'all' ? eligible : eligible.filter(p => selectedIds.has(p.productId))
+  const visibleResults = resultsOpen ? operation?.items.filter(item => resultFilter === 'ALL' || item.status === resultFilter) || [] : []
   const agent = sync?.agent
   const connection = unavailable ? 'Связь с сайтом прервана' : !agent || !agent.online
     ? 'Ожидаем связь с компьютером 1С' : agent.state === 'error'
     ? 'Агент на связи: есть ошибка' : 'Компьютер 1С на связи'
-  const locked = loading || busy || active || !!readiness?.checking
+  const locked = loading || unavailable || busy || active || !!readiness?.checking
   const priceCheck = readiness?.priceCheck
   const checkActive = !!priceCheck && ['QUEUED', 'RUNNING'].includes(priceCheck.status)
   const checkWarning = !!priceCheck && (['FAILED', 'CANCELLED'].includes(priceCheck.status)
     || priceCheck.errors > 0 || !!priceCheck.lastError)
-  const currentPrices = items.filter(p => p.authorized && p.reason === 'Предлагаемая цена уже совпадает с текущей ценой TEXHORU').length
+  const currentPrices = itemsByStatus.BLOCKED.filter(p => p.authorized && p.reason === 'Предлагаемая цена уже совпадает с текущей ценой TEXHORU').length
 
   function toggleProduct(id: number, checked: boolean) {
     const current = mode === 'all' ? eligible.map(p => p.productId) : selected
@@ -157,39 +164,24 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
 
   return <section className="pu-root">
     <header className="pu-heading">
-      <div><span className="admin-section-kicker">05.ru → 1С → сайт</span><h2>Цены</h2></div>
       <div className="pu-main-action">
-        <button type="button" className="pu-primary" onClick={() => void start()}
+        <button type="button" className="pu-primary" disabled={locked || !readiness?.authorized}
+          onClick={() => void checkPrices()}>{checkStarting || readiness?.checking ? 'Проверяем цены…' : 'Проверить цены'}</button>
+        <button type="button" className="pu-send" onClick={() => void start()}
           disabled={locked || !chosen.length || !sync?.testPriceSyncEnabled}>
-          {busy && !checkStarting ? 'Запускаем…' : active ? 'Обновление идёт…' : mode === 'all' ? `Обновить все (${chosen.length})` : `Обновить выбранные (${chosen.length})`}
+          {active ? 'Обновление идёт…' : `Отправить в 1С (${chosen.length})`}
         </button>
-        <span>После подтверждения 1С</span>
+      </div>
+      <div className="pu-connection" role="status">
+        <span className={agent?.online && !unavailable && agent.state !== 'error' ? 'pu-dot is-online' : 'pu-dot'} aria-hidden="true" />
+        {loading ? 'Загрузка…' : connection}
+        {unavailable && <button type="button" onClick={() => void load().catch(() => setUnavailable(true))}>Повторить</button>}
       </div>
     </header>
 
-    <div className="pu-connection" role="status">
-      <span className={agent?.online && !unavailable && agent.state !== 'error' ? 'pu-dot is-online' : 'pu-dot'} aria-hidden="true" />
-      <span>{connection}</span>
-      {agent && <time dateTime={agent.lastSeenAt}>{new Date(agent.lastSeenAt).toLocaleTimeString('ru-RU')}</time>}
-    </div>
-    {loading && <p className="pu-note">Загружаем сведения…</p>}
     {sync && !sync.testPriceSyncEnabled && <p className="pu-error" role="alert">Обновление цен в 1С выключено на сервере.</p>}
     {error && <p className="pu-error" role="alert">{error}</p>}
     {notice && <p className="pu-note" role="status">{notice}</p>}
-    <div className="pu-groups" aria-label="Группы товаров">
-      {([['READY', 'Готовы'], ['PENDING', 'Ждут 1С'], ['BLOCKED', 'Нужна проверка']] as const).map(([key, label]) =>
-        <button type="button" key={key} className={group === key ? 'is-current' : ''} aria-pressed={group === key}
-          onClick={() => { setGroup(key); setListOpen(true); setLimit(40) }}>
-          <b>{items.filter(item => item.status === key).length}</b><span>{label}</span><AdminIcon name={key === 'READY' ? 'prices' : key === 'PENDING' ? 'sync' : 'audit'} />
-        </button>)}
-    </div>
-    <div className="pu-check-action"><button type="button" disabled={locked || !readiness?.authorized}
-      onClick={() => void checkPrices()}>{checkStarting || readiness?.checking ? 'Проверяем цены…' : 'Проверить цены'}</button>
-      <small>Из 1С: {readiness?.authorized ?? 0}</small>
-      <button className="pu-connect-button" type="button" onClick={() => {
-        setToolsOpen(true)
-        toolsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }}><AdminIcon name="plus" />Связи с 05.ru</button></div>
 
     {priceCheck && <section className={'pu-price-check' + (checkWarning ? ' has-warning' : '')} aria-label="Результат проверки цен 05.ru">
       <div className="pu-status-line"><strong role="status">{priceCheck.status === 'QUEUED' ? 'Проверка цен в очереди'
@@ -202,15 +194,10 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       {checkActive && <progress aria-label="Проверка карточек 05.ru" max={Math.max(1, priceCheck.perPage)} value={priceCheck.processed} />}
       <div className="pu-check-counts"><span>Обработано: <b>{priceCheck.processed} из {priceCheck.perPage}</b></span>
         {priceCheck.errors > 0 && <span>Ошибок: <b>{priceCheck.errors}</b></span>}
-        {!checkActive && <><span>Готовы: <b>{eligible.length}</b></span>
-          {currentPrices > 0 && <span>Цена уже актуальна: <b>{currentPrices}</b></span>}</>}
+        {!checkActive && currentPrices > 0 && <span>Цена уже актуальна: <b>{currentPrices}</b></span>}
       </div>
       {priceCheck.lastError && <><p className="pu-check-error">{checkError(priceCheck.lastError)}</p>
         <details className="pu-check-details"><summary>Причина и подробности</summary><pre>{priceCheck.lastError}</pre></details></>}
-      {!checkActive && !checkWarning && <p className="pu-check-hint">{eligible.length ? 'Можно отправить готовые цены в 1С.'
-        : currentPrices > 0 ? 'Актуальные цены повторно отправлять не нужно. Остальные причины — в группе «Нужна проверка».'
-        : 'Готовых изменений нет. Открой «Нужна проверка», чтобы увидеть причины.'}</p>}
-      {unavailable && <p className="pu-check-error">Не удалось получить свежий результат. Проверяем связь с сайтом.</p>}
     </section>}
 
     {operation && <section className="pu-status" aria-label="Ход обновления">
@@ -224,31 +211,39 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
         {operation.skipped > 0 && <span><b>{operation.skipped}</b> без изменения</span>}
         {operation.failed > 0 && <span className="pu-attention"><b>{operation.failed}</b> с ошибкой</span>}
       </div>
-      <details className="pu-results">
+      {active && <div className="pu-stop"><button type="button" onClick={() => void stop()} disabled={busy}>Остановить подготовку</button>
+        <small>Уже переданные в 1С изменения сохраняются.</small></div>}
+      <details className="pu-results" open={resultsOpen} onToggle={e => setResultsOpen(e.currentTarget.open)}>
         <summary>Что обновилось <span>{operation.total}</span></summary>
-        {operation.error && <p className="pu-error">{operation.error}</p>}
-        <div className="pu-result-tools">
-          <select aria-label="Результаты обновления" value={resultFilter} onChange={e => setResultFilter(e.target.value)}>
-            <option value="ALL">Все</option><option value="APPLIED">Обновлены</option>
-            <option value="PENDING">Ожидают 1С</option><option value="SKIPPED">Без изменения</option>
-            <option value="FAILED">С ошибкой</option>
-          </select>
-          <button type="button" onClick={() => void load().catch(() => setUnavailable(true))}>Обновить сведения</button>
-        </div>
-        <div className="pu-result-list">{visibleResults.map(item => <article className="pu-result" key={item.productId}>
-          <div><strong>{item.name}</strong><small>{item.categoryPath}</small></div>
-          <span className={'pu-item-state pu-item-' + item.status.toLowerCase()}>{itemLabels[item.status] || item.status}</span>
-          <span className="pu-price">{item.newPrice !== null ? <>{rub(item.oldPrice)} <span aria-hidden="true">→</span> <b>{rub(item.newPrice)}</b></> : '—'}</span>
-          {item.reason && <details className="pu-item-reason"><summary>Подробности</summary><p>{item.reason}</p></details>}
-        </article>)}</div>
-        {!visibleResults.length && <p className="pu-note">В этой группе товаров нет.</p>}
-        {active && <div className="pu-stop"><button type="button" onClick={() => void stop()} disabled={busy}>Остановить подготовку</button>
-          <small>Уже переданные в 1С изменения сохраняются.</small></div>}
+        {resultsOpen && <>
+          {operation.error && <p className="pu-error">{operation.error}</p>}
+          <div className="pu-result-tools">
+            <select aria-label="Результаты обновления" value={resultFilter} onChange={e => setResultFilter(e.target.value)}>
+              <option value="ALL">Все</option><option value="APPLIED">Обновлены</option>
+              <option value="PENDING">Ожидают 1С</option><option value="SKIPPED">Без изменения</option>
+              <option value="FAILED">С ошибкой</option>
+            </select>
+            <button type="button" onClick={() => void load().catch(() => setUnavailable(true))}>Обновить сведения</button>
+          </div>
+          <div className="pu-result-list">{visibleResults.map(item => <article className="pu-result" key={item.productId}>
+            <div><strong>{item.name}</strong><small>{item.categoryPath}</small></div>
+            <span className={'pu-item-state pu-item-' + item.status.toLowerCase()}>{itemLabels[item.status] || item.status}</span>
+            <span className="pu-price">{item.newPrice !== null ? <>{rub(item.oldPrice)} <span aria-hidden="true">→</span> <b>{rub(item.newPrice)}</b></> : '—'}</span>
+            {item.reason && <details className="pu-item-reason"><summary>Подробности</summary><p>{item.reason}</p></details>}
+          </article>)}</div>
+          {!visibleResults.length && <p className="pu-note">В этой группе товаров нет.</p>}
+        </>}
       </details>
     </section>}
 
-    <details className="pu-selection" open={listOpen} onToggle={e => setListOpen(e.currentTarget.open)}>
-      <summary>{group === 'READY' ? 'Выбрать товары' : group === 'PENDING' ? 'Товары в очереди 1С' : 'Причины пропуска'} <span>{visible.length}</span></summary>
+    <div className="pu-groups" aria-label="Группы товаров">
+      {groups.map(([key, label]) =>
+        <button type="button" key={key} className={listOpen && group === key ? 'is-current' : ''} aria-pressed={listOpen && group === key}
+          onClick={() => { setListOpen(key !== group || !listOpen); setGroup(key); setLimit(40) }}>
+          <b>{itemsByStatus[key].length}</b><span>{label}</span>
+        </button>)}
+    </div>
+    {listOpen && <section className="pu-selection" aria-label={groups.find(([key]) => key === group)?.[1]}>
       <div className="pu-selection-tools">
         <select aria-label="Раздел товаров" value={category} onChange={e => { setCategory(e.target.value); setLimit(40) }}>
           <option value="">Все разделы</option>{categories.map(path => <option key={path} value={path}>{path}</option>)}
@@ -263,7 +258,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       </div>}
       <div className="pu-product-list">{visible.slice(0, limit).map(p => <label key={p.productId}>
         {group === 'READY' && <input type="checkbox" aria-label={'Обновить товар: ' + p.name}
-          checked={mode === 'all' || selected.includes(p.productId)} disabled={locked}
+          checked={mode === 'all' || selectedIds.has(p.productId)} disabled={locked}
           onChange={e => toggleProduct(p.productId, e.target.checked)} />}
         <span><strong>{p.name}</strong><small>{p.categoryPath}</small>
           {p.reason && <span className="pu-short-reason" title={p.reason}>{shortReason(p.reason)}</span>}</span>
@@ -271,14 +266,16 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       </label>)}</div>
       {!visible.length && <p className="pu-note">{group === 'READY' ? 'Готовых товаров нет. Проверь цены или открой причины.' : 'Товаров в этой группе нет.'}</p>}
       {visible.length > limit && <button type="button" className="pu-more" onClick={() => setLimit(value => value + 40)}>Показать ещё {Math.min(40, visible.length - limit)}</button>}
-    </details>
+    </section>}
 
     <details className="pu-advanced" ref={toolsRef} open={toolsOpen} onToggle={e => setToolsOpen(e.currentTarget.open)}>
       <summary>Связи с 05.ru</summary>
       {toolsOpen && <div className="pu-setup">
-        <PriceMonitorPanel products={inventory} initialPath={category} />
+        <Suspense fallback={<p className="pu-note" role="status">Загружаем связи…</p>}>
+          <PriceMonitorPanel products={products} initialPath={category} />
+        </Suspense>
         <details className="pu-import-help"><summary>Добавить товары из 1С</summary>
-          <p>Выгрузи нужную группу из подключённой базы 1С на этот сайт. Все товары подключатся автоматически.</p>
+          <p>Выгрузи группу из 1С, затем обнови список.</p>
           <div className="pu-import-address"><span>Адрес</span><code>{window.location.hostname}</code></div>
           <button type="button" disabled={loading || busy} onClick={async () => {
             setBusy(true); setError('')
