@@ -263,6 +263,31 @@ try {
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({ path: process.env.SCREENSHOT_PATH.replace('.png', '-check-result.png'), fullPage: true })
   }
+  const preparingProduct = await prisma.product.create({ data: {
+    name: 'Кабель для подготовки', brand: 'Hoco', sku: 'PREP', slug: 'prep', oneCId: randomUUID(),
+    categoryId: category.id, price: 990, stockQty: 0, priceSyncEnabled: false,
+  } })
+  await context.route('**/api/admin/integrations/1c/price-sync', route =>
+    route.fulfill({ json: { testPriceSyncEnabled: false, scope: [], changes: [] } }))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.reload()
+  await page.getByRole('button', { name: 'Цены', exact: true }).click()
+  await page.getByText(/Запись цен в 1С выключена/).waitFor()
+  assert(await page.getByRole('button', { name: /^Отправить в 1С/ }).isDisabled())
+  await page.locator('.pu-advanced > summary').click()
+  await page.getByLabel('Найти товар', { exact: true }).fill('Кабель для подготовки')
+  await page.getByRole('button', { name: 'Найти совпадения (1)', exact: true }).click()
+  await page.getByText('Поиск запущен: 1.', { exact: true }).waitFor()
+  assert.equal(matchBodies.at(-1).onlyAllowed, false)
+  assert.equal(matchBodies.at(-1).includeOutOfStock, true)
+  assert.deepEqual(matchBodies.at(-1).productIds, [preparingProduct.id])
+  await page.getByText('Автопроверка 05.ru · включена', { exact: true }).click()
+  await page.getByRole('button', { name: 'Выключить автопроверку', exact: true }).click()
+  await page.getByText('Автопроверка 05.ru · выключена', { exact: true }).waitFor()
+  assert.equal((await prisma.monitorSettings.findUniqueOrThrow({ where: { id: '05ru' } })).intervalMinutes, 0)
+  await page.getByRole('button', { name: 'Включить ежедневную автопроверку', exact: true }).click()
+  await page.getByText('Автопроверка 05.ru · включена', { exact: true }).waitFor()
+  assert.equal((await prisma.monitorSettings.findUniqueOrThrow({ where: { id: '05ru' } })).intervalMinutes, 1440)
   assert.deepEqual(errors, [])
   console.log('PASS: readiness groups, permitted-only updates, receipt-only success, automatic TEST eligibility and filtered matching, visible fast recheck failure/reload, progress, per-card errors and unchanged prices. Workflow and recheck transitions are mocked; persistence is tested in backend suite.')
 

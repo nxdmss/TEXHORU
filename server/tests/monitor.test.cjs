@@ -2877,6 +2877,37 @@ test('Matching can search only explicitly permitted products; full catalog remai
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: unapproved.id } })).priceSyncEnabled, false)
 })
 
+test('Preparation matches an imported item without stock or write permission and leaves retail prices untouched', async (t) => {
+  const previousProfile = process.env.ONE_C_BASE_KIND
+  delete process.env.ONE_C_BASE_KIND
+  t.after(() => {
+    if (previousProfile === undefined) delete process.env.ONE_C_BASE_KIND
+    else process.env.ONE_C_BASE_KIND = previousProfile
+  })
+  const seed = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Preparation ' + seed, slug: seed } })
+  const imported = await prisma.product.create({ data: {
+    ...product, oneCId: seed, slug: seed, sku: seed, categoryId: category.id,
+    price: 50000, stockQty: 0, priceSyncEnabled: false,
+  } })
+  const externalUrl = fixture.sourceUrl.replace('24007/', seed + '/')
+  const monitor = new PriceMonitorService(prisma, {
+    parse: async () => ({ ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: externalUrl }),
+  }, new MonitorExchangeService(prisma))
+  const job = await monitor.autoFindOneCSection({ categoryPath: category.name, onlyAllowed: false, includeOutOfStock: true })
+  assert.deepEqual(job.pendingUrls, ['product:' + imported.id])
+  await monitor.cancelJob(job.id)
+  const retry = await monitor.retryMatch(imported.id)
+  await monitor.cancelJob(retry.id)
+  const link = await monitor.check({ url: externalUrl, productId: imported.id })
+  const confirmed = await monitor.confirm(link.id, imported.id)
+  assert.equal(confirmed.matchStatus, 'CONFIRMED')
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: imported.id } }), 0)
+  const saved = await prisma.product.findUniqueOrThrow({ where: { id: imported.id } })
+  assert.equal(saved.price, 50000)
+  assert.equal(saved.priceSyncEnabled, false)
+})
+
 test('Negative matches are excluded from bulk and can be manually searched again', async () => {
   const id = randomUUID()
   const categoryPath = 'NO MATCH ' + id

@@ -70,7 +70,7 @@ function SourceEvidence({ item }: { item: PriceMonitorItem }) {
   </span>
 }
 
-export function PriceMonitorPanel({ products, initialPath }: { products: ApiProduct[]; initialPath?: string }) {
+export function PriceMonitorPanel({ products, initialPath, preparing }: { products: ApiProduct[]; initialPath?: string; preparing: boolean }) {
   const [stock, setStock] = useState<ApiProduct[]>(products)
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
@@ -143,9 +143,9 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
   const sourceName = '05.ru'
   const phones = useMemo(() => stock.filter(product =>
     Boolean(product.oneCId) && product.status === 'ACTIVE'
-    && product.priceSyncEnabled
-    && product.price > 0 && product.stockQty > (product.reservedQty || 0)
-  ), [stock])
+    && product.price > 0
+    && (preparing || (product.priceSyncEnabled && product.stockQty > (product.reservedQty || 0)))
+  ), [stock, preparing])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
   ), [phones, path])
@@ -210,9 +210,9 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     await run('match', async () => {
       const targets = searchTargets.slice(0, 5000)
       const number = targets.length
-      if (!number) throw new Error('Нет активных товаров из 1С с ценой и остатком.')
+      if (!number) throw new Error('Нет товаров для поиска совпадений.')
       const needsCatalogIndex = number > 40
-      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru', true, targets.map(p => p.id))
+      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru', !preparing, targets.map(p => p.id), preparing || undefined)
       setNotice('Поиск запущен: ' + job.queued + '.')
     })
   }
@@ -358,6 +358,9 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
     </article>
   }
 
+  const schedule = sources.find(source => source.key === sourceKey)?.settings
+  const scheduleEnabled = Boolean(schedule && schedule.intervalMinutes > 0)
+
   return <div className="mp-shell">
     <div className="mp-summary">
       <span><b>{confirmed}</b> связаны</span>
@@ -430,6 +433,17 @@ export function PriceMonitorPanel({ products, initialPath }: { products: ApiProd
       {!visiblePhones.length &&
         <p className="mp-empty">{phones.length ? 'По выбранным фильтрам товаров нет.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
     </section>
+
+    {schedule && <details className="mp-extra">
+      <summary>Автопроверка 05.ru · {scheduleEnabled ? 'включена' : 'выключена'}</summary>
+      <p>Автопроверка читает цены 05.ru по сохранённым ссылкам. Розничные цены она не меняет.</p>
+      <button type="button" disabled={Boolean(busy)} onClick={() => void run('schedule', async () => {
+        const settings = await api.monitorSaveSettings(sourceKey, schedule.catalogUrl, scheduleEnabled ? 0 : 1440)
+        setSources(current => current.map(source => source.key === sourceKey ? { ...source, settings } : source))
+      })}>
+        {scheduleEnabled ? 'Выключить автопроверку' : 'Включить ежедневную автопроверку'}
+      </button>
+    </details>}
 
     <details className="mp-extra">
       <summary>Проверить одну ссылку вручную</summary>

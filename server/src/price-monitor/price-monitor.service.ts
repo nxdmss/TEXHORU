@@ -11,6 +11,7 @@ import { canDeclareNoMatch, type SearchEvidence } from './match-outcome'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
+import { priceSyncEnabled } from '../integrations/test-catalog-policy'
 import { PriceUpdateWorkflow } from './price-update.workflow'
 import { curateProductSpecs, type SourcedSpec } from '../products/spec-templates'
 import { MediaService } from '../media/media.service'
@@ -343,10 +344,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('Сначала заверши текущую проверку')
     }
     const product = await this.prisma.product.findUnique({ where: { id: productId } })
-    if (!product || !product.oneCId || product.status !== ProductStatus.ACTIVE
-      || product.price <= 0 || product.stockQty <= product.reservedQty) {
-      throw new BadRequestException('Нужен активный товар 1С с положительной ценой и остатком')
+    if (!product || !product.oneCId || product.status !== ProductStatus.ACTIVE || product.price <= 0) {
+      throw new BadRequestException('Нужен активный товар 1С с положительной ценой')
     }
+    if (priceSyncEnabled() && product.stockQty <= product.reservedQty) throw new BadRequestException('Нет свободного остатка товара')
     const linked = await this.prisma.competitorProduct.findFirst({
       where: { productId, source: { key: '05ru' }, matchStatus: 'CONFIRMED' },
       select: { id: true },
@@ -1269,7 +1270,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         ...(dto.productIds ? { id: { in: dto.productIds } } : {}) },
       include: { category: true }, orderBy: [{ id: 'asc' }],
     })
-    const scoped = imported.filter(p => p.stockQty > p.reservedQty
+    const includeOutOfStock = dto.includeOutOfStock && !dto.onlyAllowed && !dto.onlyInStockSmartphones && !priceSyncEnabled()
+    const scoped = imported.filter(p => (includeOutOfStock || p.stockQty > p.reservedQty)
       && (!path || p.category.name === path || p.category.name.startsWith(path + ' / '))
       && (!dto.onlyInStockSmartphones || /(?:смартфон|smartphone)/i.test(p.category.name)))
     if (!scoped.length) return { sourceKey, eligible: 0, queued: 0, job: null, hasSmartphones: false }

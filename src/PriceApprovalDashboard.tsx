@@ -103,6 +103,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
     return grouped
   }, [items])
   const eligible = itemsByStatus.READY
+  const preparing = sync?.testPriceSyncEnabled === false
   const categories = useMemo(() => {
     const paths = new Set<string>()
     for (const p of items || []) {
@@ -179,7 +180,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       </div>
     </header>
 
-    {sync && !sync.testPriceSyncEnabled && <p className="pu-error" role="alert">Обновление цен в 1С выключено на сервере.</p>}
+    {preparing && <p className="pu-note">Запись цен в 1С выключена. Совпадения можно настроить в «Связях с 05.ru».</p>}
     {error && <p className="pu-error" role="alert">{error}</p>}
     {notice && <p className="pu-note" role="status">{notice}</p>}
 
@@ -272,7 +273,7 @@ export function PriceApprovalDashboard({ products, initialSetup = false, onInven
       <summary>Связи с 05.ru</summary>
       {toolsOpen && <div className="pu-setup">
         <Suspense fallback={<p className="pu-note" role="status">Загружаем связи…</p>}>
-          <PriceMonitorPanel products={products} initialPath={category} />
+          <PriceMonitorPanel products={products} initialPath={category} preparing={preparing} />
         </Suspense>
         <details className="pu-import-help"><summary>Добавить товары из 1С</summary>
           <p>Выгрузи группу из 1С, затем обнови список.</p>
