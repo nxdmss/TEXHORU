@@ -126,6 +126,10 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
   private readonly matchingInFlight = new Map<string, Promise<FiveRuResult>>()
 
   private rememberMatchingCard(result: FiveRuResult) {
+    // Keep trying the supplemental specifications on later queries if the
+    // first iPhone read could not verify both SIM counts.
+    if (/\biphone\b/i.test(result.name)
+      && (result.attributes.physicalSimCount === undefined || result.attributes.esimCount === undefined)) return
     const url = fiveRuUrl(result.url, 'product')
     this.matchingCards.delete(url)
     if (this.matchingCards.size >= 600) this.matchingCards.delete(this.matchingCards.keys().next().value!)
@@ -133,13 +137,17 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
   }
 
   async parseForMatching(raw: string): Promise<FiveRuResult> {
+    return this.readMatchingCard(raw, url => this.parse(url))
+  }
+
+  private async readMatchingCard(raw: string, read: (url: string) => Promise<FiveRuResult>): Promise<FiveRuResult> {
     const url = fiveRuUrl(raw, 'product')
     const cached = this.matchingCards.get(url)
     if (cached && cached.expires > Date.now()) return cached.result
     if (cached) this.matchingCards.delete(url)
     const pending = this.matchingInFlight.get(url)
     if (pending) return pending
-    const reading = this.parse(url).then(result => {
+    const reading = read(url).then(result => {
       this.rememberMatchingCard(result)
       return result
     }).finally(() => { this.matchingInFlight.delete(url) })
@@ -449,7 +457,7 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
                 throw new Error('05.ru перенаправил поиск на другую страницу: ' + current.pathname)
               }
               if (pageNo === 1) landed = current
-              await searchPage.locator('a[href*="/p/"]').first()
+              await searchPage.locator('a[href*="/p/"], main :text-is("Ничего не найдено"), main :text-is("Товары не найдены")').first()
                 .waitFor({ state: 'attached', timeout: pageNo === 1 ? 12_000 : 5_000 }).catch(() => undefined)
               const rawLinks = await searchPage.locator('a[href*="/p/"]').evaluateAll(nodes =>
                 nodes.map(node => ({
@@ -547,28 +555,30 @@ export class FiveRuParser implements StorefrontAdapter, OnModuleDestroy {
           }
           const slots: Array<FiveRuResult | undefined> = new Array(urls.length)
           let index = 0
-          // At most 3 product pages in flight: prevents serial 05.ru latency
-          // without generating an unbounded burst of requests.
+          let accessDenied = false
           const collect = async () => {
-            while (index < urls.length) {
+            while (!accessDenied && index < urls.length) {
               const slot = index++
               const url = urls[slot]
               try {
-                const page = await this.open(context, url)
-                try {
-                  slots[slot] = extractFiveRu(await this.withPhoneCharacteristics(page, url), url)
-                  this.rememberMatchingCard(slots[slot]!)
-                  if (trace) trace.cardsParsed++
-                } finally { await page.close() }
+                slots[slot] = await this.readMatchingCard(url, async cardUrl => {
+                  const page = await this.open(context, cardUrl)
+                  try { return extractFiveRu(await this.withPhoneCharacteristics(page, cardUrl), cardUrl) }
+                  finally { await page.close() }
+                })
+                trace.cardsParsed++
               } catch (error) {
                 const msg = error instanceof Error ? error.message : String(error)
                 if (trace && trace.rejectedCards.length < 5) trace.rejectedCards.push(url + ': ' + msg.slice(0, 180))
-                if (/HTTP (403|429)|проверку доступа/i.test(msg)) throw error
+                if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(msg)) {
+                  accessDenied = true
+                  throw error
+                }
                 // Report unusable pages instead of pretending the catalog had no match.
               }
             }
           }
-          const workers = await Promise.allSettled(Array.from({ length: Math.min(2, urls.length) }, () => collect()))
+          const workers = await Promise.allSettled(Array.from({ length: Math.min(3, urls.length) }, () => collect()))
           const failed = workers.find(worker => worker.status === 'rejected')
           if (failed?.status === 'rejected') throw failed.reason
           const results = slots.filter((result): result is FiveRuResult => Boolean(result))

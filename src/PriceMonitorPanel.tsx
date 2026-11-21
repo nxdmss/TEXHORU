@@ -200,6 +200,7 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     && ['INDEX_05RU_SMARTPHONES', 'INDEX_05RU'].includes(job.kind))
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]
   const active = jobs.find(j => j.status === 'RUNNING')
+    ?? oldestQueued('RECHECK')
     ?? queuedIndex
     ?? oldestQueued('MATCH_1C')
     ?? oldestQueued()
@@ -217,8 +218,7 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
       const targets = searchTargets.slice(0, 5000)
       const number = targets.length
       if (!number) throw new Error('Нет товаров для поиска совпадений.')
-      const needsCatalogIndex = number > 40
-      const job = await api.monitorAutoFindOneC(displayPath, number, needsCatalogIndex, false, true, '05ru', !preparing, targets.map(p => p.id), preparing || undefined)
+      const job = await api.monitorAutoFindOneC(displayPath, number, false, false, true, '05ru', !preparing, targets.map(p => p.id), preparing || undefined)
       setNotice('Поиск запущен: ' + job.queued + '.')
     })
   }

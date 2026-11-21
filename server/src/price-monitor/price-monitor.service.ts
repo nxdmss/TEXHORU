@@ -18,6 +18,9 @@ import { MediaService } from '../media/media.service'
 
 // Small 1C batches should not read 50 catalog pages before matching.
 const FAST_MATCH_MAX_ITEMS = 40
+const FAST_MATCH_QUERIES = 2
+const MIN_STAGED_MATCH_ITEMS = 4
+const DISCOVERY_JOB_KINDS = ['MATCH_1C', 'INDEX_05RU_SMARTPHONES', 'INDEX_05RU']
 const CATALOG_ENRICHMENT_REVISION = 'CATALOG_MEDIA_ENRICHMENT_V2_EXACT_ONLY'
 
 // Temporary demo policy: TEST prices can change by any percentage.
@@ -187,7 +190,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout
   private followUpTimer?: NodeJS.Timeout
   private stopped = false
-  private indexedCatalogStatus?: { expires: number; ready: boolean }
   private working = false
   private parsing = false
   private readonly matching = new MatchingEngine()
@@ -861,20 +863,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
    * Only verified product-page observations are saved as competitor prices.
    * The indexed title is a navigation hint, never a verified price.
    */
-  private async hasCompletedSmartphoneIndex(): Promise<boolean> {
-    const now = Date.now()
-    if (this.indexedCatalogStatus && this.indexedCatalogStatus.expires > now) return this.indexedCatalogStatus.ready
-    const index = await this.prisma.monitorJob.findFirst({
-      where: { kind: 'INDEX_05RU_SMARTPHONES', status: 'COMPLETED' },
-      orderBy: { finishedAt: 'desc' },
-      select: { processed: true, finishedAt: true, lastError: true },
-    })
-    const ready = Boolean(index && index.processed > 0 && !index.lastError && index.finishedAt
-      && now - index.finishedAt.getTime() < 7 * 86400_000)
-    this.indexedCatalogStatus = { expires: now + 60_000, ready }
-    return ready
-  }
-
   private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }, repairConflictingLinks: string[] = [], rejectedUrls = new Set<string>()): Promise<boolean> {
     const requested = identity(product)
     if (!requested.model && !requested.productCode && !requested.mpn) return false
@@ -906,6 +894,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           && canonicalModel(option.check.theirs.model) === canonicalModel(requested.model))
           || Boolean(requested.productCode && option.check.theirs.productCode === requested.productCode)))
       .sort((a, b) => b.check.score - a.check.score).slice(0, 24)
+    if (!ranked.length) return false
     // One DB query for all candidate ownership checks, instead of up to eight.
     const knownLinks = await this.prisma.competitorProduct.findMany({
       where: { externalUrl: { in: ranked.map(row => row.link.externalUrl) } },
@@ -913,19 +902,21 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
     const owners = new Map(knownLinks.map(row => [row.externalUrl, row.productId]))
     const verified: Array<{ result: FiveRuResult; check: ReturnType<typeof compareItems> }> = []
-    for (const { link } of ranked) {
-      const owner = owners.get(link.externalUrl)
-      if (owner && owner !== product.id) continue
-      try {
-        // Initial matching can reuse a recently verified card across colours/
-        // capacities. Scheduled price monitoring ALWAYS calls fresh parse().
-        const result = typeof this.fiveRu.parseForMatching === 'function'
-          ? await this.fiveRu.parseForMatching(link.externalUrl)
-          : await this.fiveRu.parse(link.externalUrl)
+    const available = ranked.filter(({ link }) => !owners.get(link.externalUrl) || owners.get(link.externalUrl) === product.id)
+    for (let start = 0; start < available.length; start += 3) {
+      const results = await Promise.allSettled(available.slice(start, start + 3).map(({ link }) =>
+        typeof this.fiveRu.parseForMatching === 'function'
+          ? this.fiveRu.parseForMatching(link.externalUrl)
+          : this.fiveRu.parse(link.externalUrl)))
+      for (const card of results) {
+        if (card.status === 'rejected') {
+          const message = card.reason instanceof Error ? card.reason.message : String(card.reason)
+          if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(message)) throw card.reason
+          continue
+        }
+        const result = card.value
         const check = compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes })
         if (this.matching.strongVariant(check)) verified.push({ result, check })
-      } catch (error) {
-        if (/HTTP\s+(?:401|403|429)\b|проверку доступа/i.test(error instanceof Error ? error.message : String(error))) throw error
       }
     }
     if (!verified.length) return false
@@ -1408,7 +1399,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
   }
 
   async checkAll(dto?: CheckAllDto) {
-    if (await this.prisma.monitorJob.count({ where: { status: { in: ['QUEUED', 'RUNNING'] } } })) {
+    if (await this.prisma.monitorJob.count({ where: {
+      status: { in: ['QUEUED', 'RUNNING'] }, kind: { notIn: DISCOVERY_JOB_KINDS },
+    } })) {
       throw new ConflictException('Мониторинг уже запущен. Дождись завершения или останови текущую задачу.')
     }
     const requestedSource = (dto?.sourceKey || '05ru') as StoreKey | 'all'
@@ -1423,7 +1416,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           source: { key: sourceKey }, matchStatus: 'CONFIRMED',
           product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE, ...(dto?.authorizedOnly ? { priceSyncEnabled: true } : {}) } },
         },
-        select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
+        select: { externalUrl: true }, orderBy: [{ lastSuccessAt: { sort: 'asc', nulls: 'first' } }, { externalUrl: 'asc' }],
       })
       if (links.length && sourceKey !== '05ru') {
         const settings = await this.settings(sourceKey)
@@ -1564,7 +1557,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         if (!STORE_DEFINITIONS.some(item => item.key === setting.id)) continue
         const sourceKey = setting.id as StoreKey
         const activeForSource = await this.prisma.monitorJob.count({
-          where: { sourceKey, status: { in: ['QUEUED', 'RUNNING'] } },
+          where: { sourceKey, status: { in: ['QUEUED', 'RUNNING'] }, kind: { notIn: DISCOVERY_JOB_KINDS } },
         })
         if (!activeForSource) {
           const source = await this.source(sourceKey)
@@ -1574,7 +1567,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               product: { is: { oneCId: { not: null }, status: ProductStatus.ACTIVE,
                 ...(process.env.MONITOR_SCHEDULE_AUTHORIZED_ONLY === 'true' ? { priceSyncEnabled: true } : {}) } },
             },
-            select: { externalUrl: true }, orderBy: { externalUrl: 'asc' },
+            select: { externalUrl: true }, orderBy: [{ lastSuccessAt: { sort: 'asc', nulls: 'first' } }, { externalUrl: 'asc' }],
           })
           if (links.length) await this.prisma.monitorJob.create({
             data: { kind: 'RECHECK', sourceKey, perPage: links.length, pendingUrls: links.map(link => link.externalUrl) },
@@ -1608,7 +1601,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const matchJob = await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED', kind: 'MATCH_1C', OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'asc' },
       })
-      const job = indexJob ?? matchJob ?? await this.prisma.monitorJob.findFirst({
+      const priceJob = await this.prisma.monitorJob.findFirst({
+        where: { kind: 'RECHECK', status: 'QUEUED', OR: [{ sourceKey: '05ru' }, { sourceKey: null }] },
+        orderBy: { createdAt: 'asc' },
+      })
+      const job = priceJob ?? indexJob ?? matchJob ?? await this.prisma.monitorJob.findFirst({
         where: { status: 'QUEUED', OR: [{ sourceKey: '05ru' }, { sourceKey: null }] }, orderBy: { createdAt: 'asc' },
       })
       if (!job) return
@@ -1679,7 +1676,6 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               : 'Достигнут защитный лимит страниц; полный индекс 05.ru не подтверждён.')
           }
           const finished = !links.length
-          if (finished) this.indexedCatalogStatus = undefined
           await this.prisma.monitorJob.update({
             where: { id: job.id }, data: {
               page: pageNumber, processed: { increment: links.length },
@@ -1701,7 +1697,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         } else if (pending.length) {
           try {
             if (job.kind === 'MATCH_1C') {
-              const foundId = /^product:(\d+)$/.exec(pending[0])
+              const foundId = /^(?:deep-)?product:(\d+)$/.exec(pending[0])
               const product = foundId
                 ? await this.prisma.product.findUnique({ where: { id: Number(foundId[1]) }, include: { category: true } })
                 : null
@@ -1762,21 +1758,21 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
               const traces: FiveRuSearchTrace[] = []
               const rejected: string[] = []
               const requestedKind = identity(product).kind
-              // A small batch must not trigger a hidden 50-page crawl within
-              // EACH query. Use saved index hints and direct search immediately.
-              const indexedCatalogReady = requestedKind === 'smartphone'
-                && sourceKey === '05ru'
-                && ((job.perPage || 0) <= FAST_MATCH_MAX_ITEMS
-                  || await this.hasCompletedSmartphoneIndex())
+              // Reuse persisted catalog hints, then search the public storefront.
+              // A matching job never starts a hidden full catalog crawl.
+              const queries = oneCSearchQueries(product)
+              const quickPass = !workflow && !pending[0].startsWith('deep-')
+                && (job.perPage || 0) >= MIN_STAGED_MATCH_ITEMS && queries.length > FAST_MATCH_QUERIES
               let cleanSearches = 0
+              let finishedEarly = false
               const exactSeenAcrossQueries = new Map<string, number>()
-              for (const query of oneCSearchQueries(product)) {
+              for (const query of quickPass ? queries.slice(0, FAST_MATCH_QUERIES) : queries) {
                 const trace: FiveRuSearchTrace = { query, linksFound: 0, rankedLinks: 0, cardsParsed: 0, rejectedCards: [] }
                 traces.push(trace)
                 let results: FiveRuResult[]
                 try {
                   results = sourceKey === '05ru'
-                    ? await this.fiveRu.searchProducts(query, 18, trace, settings.region, indexedCatalogReady)
+                    ? await this.fiveRu.searchProducts(query, 18, trace, settings.region, true)
                     : await parser.searchProducts(query, 18, trace, settings.region)
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error)
@@ -1820,10 +1816,13 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   // Two different successful queries returning the SAME complete
                   // exact URL without a competing candidate are enough to stop.
                   // A missing/ambiguous/partial match still exhausts fallbacks.
-                  if (requestedKind === 'smartphone' && cleanSearches >= 2
+                  const repeatedPhone = requestedKind === 'smartphone' && cleanSearches >= 2
                     && exact.length === 1
-                    && (exactSeenAcrossQueries.get(exact[0].result.url) || 0) >= 2) break
-                  if (requestedKind !== 'smartphone' && exact.length === 1) break
+                    && (exactSeenAcrossQueries.get(exact[0].result.url) || 0) >= 2
+                  if (repeatedPhone || (requestedKind !== 'smartphone' && exact.length === 1)) {
+                    finishedEarly = true
+                    break
+                  }
                 }
                 for (const row of checked.slice(0, 3)) {
                   const reason = row.check.conflicts.length ? row.check.conflicts.join(', ')
@@ -1834,6 +1833,14 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                     : 'недостаточная уверенность (' + row.check.score + ')'
                   if (rejected.length < 5) rejected.push(row.result.name + ': ' + reason)
                 }
+              }
+              if (quickPass && !finishedEarly) {
+                // Persist the second pass before releasing the lease, so a
+                // restart or a cancellation keeps the remaining search work.
+                await this.prisma.monitorJob.updateMany({ where: { id: job.id, status: 'RUNNING' }, data: {
+                  pendingUrls: [...pending.slice(1), 'deep-product:' + product.id], status: 'QUEUED', leaseUntil: null,
+                } })
+                return
               }
               const ranked = rankVerifiedMatches([...rankedByUrl.values()])
               const review = [...reviewByUrl.values()]

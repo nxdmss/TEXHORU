@@ -1338,9 +1338,11 @@ test('Initial matching caches one verified 05.ru card per URL but price monitori
   const parser = new FiveRuParser()
   let pageReads = 0
   const url = fixture.sourceUrl
+  const observation = extractFiveRu(fixture.snapshot, url)
   parser.parse = async target => {
     pageReads++
-    return { ...extractFiveRu(fixture.snapshot, url), url: target, price: 90000 + pageReads }
+    return { ...observation, url: target, price: 90000 + pageReads,
+      attributes: { ...observation.attributes, physicalSimCount: '0', esimCount: '2' } }
   }
   const [first, second] = await Promise.all([parser.parseForMatching(url), parser.parseForMatching(url)])
   assert.equal(pageReads, 1)
@@ -1350,6 +1352,9 @@ test('Initial matching caches one verified 05.ru card per URL but price monitori
   const monitored = await parser.parse(url)
   assert.equal(monitored.price, first.price + 1)
   assert.equal(pageReads, 2)
+  const incompleteUrl = url.replace('24007/', '24008/')
+  parser.parse = async target => ({ ...observation, url: target, price: 90000 + ++pageReads })
+  assert.notEqual((await parser.parseForMatching(incompleteUrl)).price, (await parser.parseForMatching(incompleteUrl)).price)
 })
 
 test('Smartphone discovery stops after two clean searches returning the same unique exact URL', async () => {
@@ -1667,10 +1672,10 @@ test('Daily price refresh queues only confirmed links and never discovers produc
     'https://05.ru/cat/a/p/test-linked-a-101/',
     'https://05.ru/cat/a/p/test-linked-b-102/',
   ]
-  let observedQuery, savedJob
+  let observedQuery, blockerQuery, savedJob
   const prismaStub = {
     monitorJob: {
-      count: async () => 0,
+      count: async input => { blockerQuery = input.where; return 0 },
       create: async input => { savedJob = input.data; return { id: 'job-recheck', ...input.data } },
     },
     competitorProduct: {
@@ -1685,6 +1690,7 @@ test('Daily price refresh queues only confirmed links and never discovers produc
   assert.deepEqual(savedJob.pendingUrls, sourceUrls)
   assert.equal(observedQuery.matchStatus, 'CONFIRMED')
   assert.equal(observedQuery.product.is.oneCId.not, null)
+  assert(blockerQuery.kind.notIn.includes('MATCH_1C'), 'discovery can stay queued while saved links are checked')
 })
 
 test('Four direct price reads run concurrently; SQLite snapshots are saved serially', async () => {
@@ -1931,7 +1937,9 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     active++; maxActive = Math.max(maxActive, active)
     await new Promise(resolve => setTimeout(resolve, 10))
     active--
-    return fixture.snapshot
+    return { ...fixture.snapshot, specs: [...fixture.snapshot.specs,
+      { label: 'Количество физических SIM-карт', value: '0' }, { label: 'Количество eSIM', value: '2' },
+    ] }
   }
   try {
     parser.smartphoneCatalogLinks = async () => []
@@ -1945,7 +1953,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(trace.searchPages, 1) // The mocked second page repeats page one and is ignored.
     assert.equal(opened[0], orange256) // not the first 1TB card in the feed
     assert.equal(cardOpens, 3)
-    assert.equal(maxActive, 2)
+    assert.equal(maxActive, 3)
     assert.equal(launches, 1)
     assert.equal(pageCloses, 1)
     assert.equal(new URL(navigations[0]).searchParams.get('q'), 'iPhone 17 Pro 256')
@@ -1956,6 +1964,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     assert.equal(contexts, 1)
 
     const originalOpen = parser.open
+    parser.matchingCards.delete(orange256)
     parser.open = async (context, url) => {
       if (url === orange256) throw new Error('Timeout 20000ms exceeded')
       return originalOpen(context, url)
@@ -1967,6 +1976,7 @@ test('Direct 05.ru search URL returns unique ranked product links, checks live c
     parser.open = originalOpen
     const recovered = await parser.searchProducts('iPhone 17 Pro 256 GB', 3, {})
     assert.equal(recovered.length, 3) // Partial results must not poison the query cache.
+    assert.equal(cardOpens, 4) // Overlapping queries reuse the other two cards.
     links = []
     const emptyTrace = {}
     await assert.rejects(() => parser.searchProducts('Nonexistent model', 3, emptyTrace), /Поиск 05.ru.*строгий и расширенный подбор/)
@@ -2977,6 +2987,45 @@ test('Manual 05.ru exclusion survives searches and restores without starting a j
   await monitor.cancelJob(eligible.id)
   assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: imported.id } })).price, 50000)
   assert.equal(await prisma.oneCPriceChange.count({ where: { productId: imported.id } }), 0)
+})
+
+test('Bulk match defers difficult items and resumes all fallback queries after a worker restart', async () => {
+  const seed = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Staged matches ' + seed, slug: seed } })
+  const phoneName = 'Смартфон Samsung Galaxy A17 4G 8/256 ГБ чёрный'
+  const products = []
+  for (const name of [phoneName, 'Кабель Hoco X91 белый', 'Кабель Hoco X92 белый', 'Кабель Hoco X93 белый']) {
+    products.push(await prisma.product.create({ data: {
+      name, brand: name.includes('Samsung') ? 'Samsung' : 'Hoco', oneCId: randomUUID(), slug: randomUUID(), sku: randomUUID(),
+      categoryId: category.id, price: 50000, stockQty: 1,
+    } }))
+  }
+  const queries = oneCSearchQueries(products[0])
+  assert(queries.length > 2)
+  const externalUrl = `https://05.ru/cat/396f7486/p/samsung-galaxy-a17-${seed}/`
+  const result = { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl),
+    name: phoneName, url: externalUrl, brand: 'Samsung', specs: [], attributes: identity({ name: phoneName }) }
+  const calls = []
+  const parser = { searchProducts: async (query, _limit, trace, _region, directOnly) => {
+    assert.equal(directOnly, true)
+    calls.push(query)
+    Object.assign(trace, { linksFound: 8, searchPages: 1, rankedLinks: 1, cardsParsed: 1 })
+    return query === queries[2] ? [result] : []
+  } }
+  const makeWorker = () => new PriceMonitorService(prisma, parser, new MonitorExchangeService(prisma))
+  const monitor = makeWorker()
+  const job = await monitor.autoFindOneCSection({ productIds: products.map(item => item.id) })
+  await monitor.tick()
+  assert.deepEqual(calls, queries.slice(0, 2))
+  const queued = await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })
+  assert.equal(queued.processed, 0)
+  assert.deepEqual(queued.pendingUrls, [...products.slice(1).map(item => 'product:' + item.id), 'deep-product:' + products[0].id])
+  const restarted = makeWorker()
+  for (let step = 0; step < products.length * 2 - 1; step++) await restarted.tick()
+  assert.equal((await prisma.monitorJob.findUniqueOrThrow({ where: { id: job.id } })).status, 'COMPLETED')
+  assert(calls.includes(queries[2]))
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { externalUrl } })).productId, products[0].id)
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: { in: products.map(item => item.id) } } }), 0)
 })
 
 test('A rejected 05.ru suggestion stays detached when the same URL reappears in search', async () => {
