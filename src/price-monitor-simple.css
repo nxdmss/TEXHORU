@@ -383,6 +383,17 @@
 }
 .mp-group-totals > span { display: inline-flex; align-items: center; gap: 5px; }
 .mp-group-totals > span:first-child { color: #222; }
+.mp-group-totals .mp-group-action {
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid #e2e2e0;
+  border-radius: 7px;
+  background: #fff;
+  color: #333;
+  font-size: 12px;
+  font-weight: 650;
+}
+.mp-group-action:hover:not(:disabled) { border-color: #999; }
 .mp-browser .mp-folder-grid { margin-bottom: 14px; }
 .mp-browser .mp-folder { gap: 9px; min-height: 78px; min-width: 0; border-radius: 9px; background: #fafaf9; }
 .mp-browser .mp-folder b { overflow-wrap: anywhere; }

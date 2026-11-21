@@ -3028,6 +3028,43 @@ test('Bulk match defers difficult items and resumes all fallback queries after a
   assert.equal(await prisma.oneCPriceChange.count({ where: { productId: { in: products.map(item => item.id) } } }), 0)
 })
 
+test('Group exclusion handles 300 imported items and restoration preserves earlier exclusions and confirmed links', async () => {
+  const seed = randomUUID()
+  const path = 'Б У %_' + seed
+  const [category, nested, outside] = await Promise.all([path, path + ' / Смартфоны', path + ' отдельно'].map((name, index) =>
+    prisma.category.create({ data: { name, slug: `${seed}-${index}` } })))
+  const make = (categoryId, index) => ({ ...product, categoryId, oneCId: `${seed}-${index}`, sku: `${seed}-${index}`,
+    slug: `${seed}-${index}`, price: 50000, stockQty: index % 2 })
+  await prisma.product.createMany({ data: Array.from({ length: 300 }, (_, index) => make(index % 2 ? nested.id : category.id, index)) })
+  const sample = await prisma.product.findUniqueOrThrow({ where: { oneCId: `${seed}-0` } })
+  const confirmed = await prisma.product.create({ data: make(nested.id, 300) })
+  const manual = await prisma.product.create({ data: make(nested.id, 301) })
+  const automatic = await prisma.product.create({ data: make(category.id, 302) })
+  const unrelated = await prisma.product.create({ data: make(outside.id, 303) })
+  const source = await prisma.competitorSource.findUniqueOrThrow({ where: { key: '05ru' } })
+  const confirmedLink = await prisma.competitorProduct.create({ data: { sourceId: source.id, productId: confirmed.id,
+    externalUrl: `https://05.ru/cat/test/p/${seed}/`, matchStatus: 'CONFIRMED' } })
+  const link = await prisma.competitorProduct.create({ data: { sourceId: source.id, productId: sample.id,
+    externalUrl: `https://05.ru/cat/test/p/${seed}-suggested/`, matchStatus: 'SUGGESTED' } })
+  const monitor = new PriceMonitorService(prisma, {}, new MonitorExchangeService(prisma))
+  await monitor.setMatchExcluded(manual.id, true)
+  await prisma.productMatchOutcome.create({ data: { productId: automatic.id, sourceKey: '05ru', status: 'NO_MATCH' } })
+  await assert.rejects(() => monitor.setMatchGroupExcluded(' ', true), /Выбери группу/)
+  assert.deepEqual(await monitor.setMatchGroupExcluded(path, true), { changed: 300, skippedConfirmed: 1 })
+  assert.deepEqual(await monitor.setMatchGroupExcluded(path, true), { changed: 0, skippedConfirmed: 1 })
+  const readOutcome = productId => prisma.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId, sourceKey: '05ru' } } })
+  assert.equal((await readOutcome(sample.id)).status, 'EXCLUDED')
+  assert.equal(await readOutcome(unrelated.id), null)
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: link.id } })).productId, null)
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: confirmedLink.id } })).matchStatus, 'CONFIRMED')
+  await assert.rejects(() => monitor.autoFindOneCSection({ productIds: [sample.id] }), /Нет непривязанных товаров/)
+  assert.deepEqual(await monitor.setMatchGroupExcluded(path, false), { changed: 300, skippedConfirmed: 0 })
+  assert.equal(await readOutcome(sample.id), null)
+  assert.equal((await readOutcome(manual.id)).status, 'EXCLUDED')
+  assert.equal((await readOutcome(automatic.id)).status, 'NO_MATCH')
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: sample.id } })).price, 50000)
+})
+
 test('A rejected 05.ru suggestion stays detached when the same URL reappears in search', async () => {
   const seed = randomUUID()
   const category = await prisma.category.create({ data: { name: 'Rejected ' + seed, slug: seed } })

@@ -358,6 +358,11 @@ export const api = {
   monitorSetMatchExcluded(productId: number, excluded: boolean) {
     return request<{ ok: true }>(`/admin/price-monitor/match/${productId}/${excluded ? 'exclude' : 'restore'}`, { method: 'POST' })
   },
+  monitorSetMatchGroupExcluded(categoryPath: string, excluded: boolean) {
+    return request<{ changed: number; skippedConfirmed: number }>('/admin/price-monitor/match-group', {
+      method: 'POST', body: JSON.stringify({ categoryPath, excluded }),
+    })
+  },
   monitorRetryMatch(productId: number) {
     return request<MonitorJob>('/admin/price-monitor/match/' + productId + '/retry', { method: 'POST' })
   },

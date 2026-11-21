@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, Res, UseGuards } from '@nestjs/common'
 import { AdminGuard } from '../common/admin.guard'
 import { AuthGuard } from '../common/auth.guard'
-import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto, PriceUpdateDto } from './price-monitor.dto'
+import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFindOneCSectionDto, CheckCompetitorPriceDto, ImportFiveRuCatalogDto, MatchProductDto, MonitorSettingsDto, MonitorReceiptsDto, ImportManualCompetitorPricesDto, ScanFiveRuDto, CheckAllDto, PriceUpdateDto, SetMatchGroupExcludedDto } from './price-monitor.dto'
 import { PriceMonitorService } from './price-monitor.service'
 import { MonitorExchangeService } from './monitor-exchange.service'
 import type { StoreKey } from './storefront-adapter'
@@ -16,6 +16,9 @@ export class PriceMonitorController {
 
   @Get('sources') sources() { return this.monitor.sources() }
   @Get('match-outcomes') matchOutcomes() { return this.monitor.matchOutcomes('05ru') }
+  @Post('match-group') setMatchGroupExcluded(@Body() dto: SetMatchGroupExcludedDto) {
+    return this.monitor.setMatchGroupExcluded(dto.categoryPath, dto.excluded)
+  }
   @Post('match/:productId/exclude') excludeMatch(@Param('productId', ParseIntPipe) productId: number) {
     return this.monitor.setMatchExcluded(productId, true)
   }

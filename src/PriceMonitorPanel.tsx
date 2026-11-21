@@ -227,6 +227,18 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
   // Searching filters tiles only; never widen a price-changing scope silently.
   const displayPath = path
 
+  async function changeGroupExclusion(exclude: boolean) {
+    await run('exclude-group', async () => {
+      const { changed, skippedConfirmed } = await api.monitorSetMatchGroupExcluded(path, exclude)
+      if (!exclude) {
+        setNotice(changed ? `Возвращено товаров: ${changed}.` : 'В группе нет товаров, исключённых вместе с группой.')
+        return
+      }
+      const moved = `Перенесено в «Нет в 05.ru»: ${changed}.`
+      setNotice(skippedConfirmed ? `${moved} Подтверждённые связи сохранены: ${skippedConfirmed}.` : moved)
+    })
+  }
+
   async function searchMatches() {
     if (active) { setError('Дождись завершения предыдущей проверки'); return }
     await run('match', async () => {
@@ -431,6 +443,11 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
         {statusLegend.map(({ keys, tone, label }) => <span key={tone}>
           <b className={'mp-group-count ' + tone}>{keys.reduce((sum, key) => sum + totals[key], 0)}</b> {label}
         </span>)}
+        {path && <button type="button" className="mp-group-action"
+          disabled={Boolean(busy) || (!showExcluded && jobs.some(job => job.kind === 'MATCH_1C' && ['RUNNING', 'QUEUED'].includes(job.status)))}
+          onClick={() => void changeGroupExclusion(!showExcluded)}>
+          {busy === 'exclude-group' ? 'Сохраняем…' : showExcluded ? 'Вернуть группу' : 'Исключить группу'}
+        </button>}
       </div>
       {!search && folders.length > 0 && <div className="mp-folder-grid">
         {folders.map(([name, counts]) => {

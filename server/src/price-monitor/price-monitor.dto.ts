@@ -50,6 +50,10 @@ export class ApplyRecommendedPriceDto {
 export class MatchProductDto {
   @Type(() => Number) @IsInt() @Min(1) productId!: number
 }
+export class SetMatchGroupExcludedDto {
+  @IsString() @MaxLength(600) categoryPath!: string
+  @IsBoolean() excluded!: boolean
+}
 export class MonitorSettingsDto {
   @IsOptional() @IsIn(['05ru']) sourceKey?: string
   @IsOptional() @IsUrl({ protocols: ['https'], require_protocol: true }) catalogUrl?: string

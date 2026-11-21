@@ -21,6 +21,7 @@ const FAST_MATCH_MAX_ITEMS = 40
 const FAST_MATCH_QUERIES = 2
 const MIN_STAGED_MATCH_ITEMS = 4
 const DISCOVERY_JOB_KINDS = ['MATCH_1C', 'INDEX_05RU_SMARTPHONES', 'INDEX_05RU']
+const GROUP_EXCLUSION_REASON = 'Исключён вместе с группой'
 const CATALOG_ENRICHMENT_REVISION = 'CATALOG_MEDIA_ENRICHMENT_V2_EXACT_ONLY'
 
 // Temporary demo policy: TEST prices can change by any percentage.
@@ -332,6 +333,12 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
+  private async ensureNoActiveMatchSearch(tx: Prisma.TransactionClient, sourceKey: StoreKey) {
+    if (await tx.monitorJob.count({ where: { kind: 'MATCH_1C', status: { in: ['QUEUED', 'RUNNING'] }, OR: [{ sourceKey }, { sourceKey: null }] } })) {
+      throw new ConflictException('Сначала заверши текущий поиск совпадений')
+    }
+  }
+
   async setMatchExcluded(productId: number, excluded: boolean) {
     const sourceKey = '05ru'
     const key = { productId, sourceKey }
@@ -342,9 +349,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }
       const product = await tx.product.findUnique({ where: { id: productId }, select: { oneCId: true } })
       if (!product?.oneCId) throw new NotFoundException('Товар 1С не найден')
-      if (await tx.monitorJob.count({ where: { kind: 'MATCH_1C', status: { in: ['QUEUED', 'RUNNING'] }, OR: [{ sourceKey }, { sourceKey: null }] } })) {
-        throw new ConflictException('Сначала заверши текущий поиск совпадений')
-      }
+      await this.ensureNoActiveMatchSearch(tx, sourceKey)
       if (await tx.competitorProduct.count({ where: { productId, source: { key: sourceKey }, matchStatus: 'CONFIRMED' } })) {
         throw new ConflictException('Сначала сними подтверждённую связь с 05.ru')
       }
@@ -356,6 +361,47 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       await tx.productMatchOutcome.upsert({ where: { productId_sourceKey: key }, create: { ...key, ...values }, update: values })
       return { ok: true }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  }
+
+  async setMatchGroupExcluded(categoryPath: string, excluded: boolean) {
+    const path = categoryPath.trim()
+    if (!path) throw new BadRequestException('Выбери группу товаров')
+    const sourceKey = '05ru'
+    return this.prisma.$transaction(async tx => {
+      // Match the exact 1C path and its descendants, including virtual parent groups.
+      const categories = await tx.category.findMany({ select: { id: true, name: true } })
+      const categoryIds = categories.filter(category => category.name === path || category.name.startsWith(path + ' / '))
+        .map(category => category.id)
+      if (!categoryIds.length) throw new NotFoundException('Группа 1С не найдена')
+      const productScope = { oneCId: { not: null }, categoryId: { in: categoryIds } }
+      if (!excluded) {
+        const restored = await tx.productMatchOutcome.deleteMany({ where: {
+          sourceKey, status: 'EXCLUDED', reason: GROUP_EXCLUSION_REASON, product: productScope,
+        } })
+        return { changed: restored.count, skippedConfirmed: 0 }
+      }
+
+      await this.ensureNoActiveMatchSearch(tx, sourceKey)
+      const source = { key: sourceKey }
+      const products = await tx.product.findMany({ where: {
+        ...productScope, status: ProductStatus.ACTIVE,
+        matchOutcomes: { none: { sourceKey, status: { in: hiddenMatchStatuses } } },
+      }, select: {
+        id: true, competitorLinks: { where: { source, matchStatus: 'CONFIRMED' }, select: { id: true }, take: 1 },
+      } })
+      const ids = products.filter(product => product.competitorLinks.length === 0).map(product => product.id)
+      const values = { sourceKey, status: 'EXCLUDED', reason: GROUP_EXCLUSION_REASON, checkedAt: new Date() }
+      for (let offset = 0; offset < ids.length; offset += 200) {
+        const batch = ids.slice(offset, offset + 200)
+        const productId = { in: batch }
+        await tx.competitorProduct.updateMany({ where: { productId, source, matchStatus: { not: 'CONFIRMED' } }, data: {
+          productId: null, matchStatus: 'UNMATCHED', confirmedAt: null, confirmedFingerprint: null, confirmedProductFingerprint: null,
+        } })
+        await tx.productMatchOutcome.deleteMany({ where: { productId, sourceKey } })
+        await tx.productMatchOutcome.createMany({ data: batch.map(id => ({ productId: id, ...values })) })
+      }
+      return { changed: ids.length, skippedConfirmed: products.length - ids.length }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 })
   }
 
   private async recordMatchOutcome(productId: number, sourceKey: StoreKey,
