@@ -12,7 +12,7 @@ export class MatchingEngine {
     const laptop = check.ours.kind === 'laptop' || check.theirs.kind === 'laptop'
     if (laptop && (!check.ours.storage || !check.theirs.storage
       || check.ours.storage !== check.theirs.storage)) return false
-    if (check.exactId && !check.conflicts.length) return true
+    if (check.exactId && check.canAutoConfirm) return true
     const accessories = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable']
     const accessory = accessories.includes(check.ours.kind || '')
     const base = check.score >= 40 && !check.conflicts.length

@@ -7,7 +7,7 @@ import { ApplyRecommendedPriceDto, BulkApplyPricesDto, BulkPriceScopeDto, AutoFi
 import { FiveRuParser, fiveRuUrl, type FiveRuResult, type FiveRuSearchTrace } from './five-ru.parser'
 import { DnsParser, MvideoParser, STORE_DEFINITIONS, storeKeyFromUrl, type StoreKey, type StorefrontAdapter, type StoreProductResult } from './storefront-adapter'
 import { canonicalModel, compareItems, fingerprint, identity, manualConfirmationBlockers, recommendation, reviewCandidate } from './product-matching'
-import { canDeclareNoMatch, type SearchEvidence } from './match-outcome'
+import { canDeclareNoMatch, hiddenMatchStatuses, type SearchEvidence } from './match-outcome'
 import { jsonValue, MonitorExchangeService } from './monitor-exchange.service'
 import { MatchingEngine } from './matching-engine'
 import { OneCPriceSyncService } from '../integrations/price-sync.service'
@@ -34,7 +34,7 @@ function requireEnabledStore(key: StoreKey) {
 // Storefront search often fails on 1C-only labels such as "(EAC)" and the
 // 1C memory format "12/512". Start with model + capacity, then the model alone.
 // Strict variant comparison controls automatic selection; uncertain variants are kept for manual review.
-export function oneCSearchQueries(product: { name: string; brand?: string | null; category?: string | { name?: string } | null }) {
+export function oneCSearchQueries(product: Parameters<typeof identity>[0]) {
   const parsed = identity(product)
   // Remove internal 1C annotations, but preserve the product family.
   const cleanName = product.name.replace(/\s*\(EAC\)/gi, '').replace(/\s+/g, ' ').trim()
@@ -119,6 +119,8 @@ export function oneCSearchQueries(product: { name: string; brand?: string | null
     ? [parsed.brand, compactModelWithoutBrand, parsed.storage, searchColor[parsed.color]].filter(Boolean).join(' ')
     : undefined
   return [...new Set([
+    parsed.mpn, parsed.gtin?.replace(/^0+(?=\d{8,}$)/, ''),
+    parsed.network && [model, parsed.network, parsed.storage, parsed.color && searchColor[parsed.color]].filter(Boolean).join(' '),
     bySim, byColor, compactByColor, alternateLavender,
     model + (parsed.storage ? ' ' + parsed.storage : ''),
     compactModel + (parsed.storage ? ' ' + parsed.storage : ''),
@@ -328,13 +330,39 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
+  async setMatchExcluded(productId: number, excluded: boolean) {
+    const sourceKey = '05ru'
+    const key = { productId, sourceKey }
+    return this.prisma.$transaction(async tx => {
+      if (!excluded) {
+        await tx.productMatchOutcome.deleteMany({ where: { ...key, status: { in: hiddenMatchStatuses } } })
+        return { ok: true }
+      }
+      const product = await tx.product.findUnique({ where: { id: productId }, select: { oneCId: true } })
+      if (!product?.oneCId) throw new NotFoundException('Товар 1С не найден')
+      if (await tx.monitorJob.count({ where: { kind: 'MATCH_1C', status: { in: ['QUEUED', 'RUNNING'] }, OR: [{ sourceKey }, { sourceKey: null }] } })) {
+        throw new ConflictException('Сначала заверши текущий поиск совпадений')
+      }
+      if (await tx.competitorProduct.count({ where: { productId, source: { key: sourceKey }, matchStatus: 'CONFIRMED' } })) {
+        throw new ConflictException('Сначала сними подтверждённую связь с 05.ru')
+      }
+      await tx.competitorProduct.updateMany({
+        where: { productId, source: { key: sourceKey } },
+        data: { productId: null, matchStatus: 'UNMATCHED', confirmedAt: null, confirmedFingerprint: null, confirmedProductFingerprint: null },
+      })
+      const values = { status: 'EXCLUDED', reason: 'Отмечен вручную', checkedAt: new Date() }
+      await tx.productMatchOutcome.upsert({ where: { productId_sourceKey: key }, create: { ...key, ...values }, update: values })
+      return { ok: true }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  }
+
   private async recordMatchOutcome(productId: number, sourceKey: StoreKey,
     status: 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'RETRYABLE', reason: string | null = null) {
-    const checkedAt = new Date()
-    return this.prisma.productMatchOutcome.upsert({
-      where: { productId_sourceKey: { productId, sourceKey } },
-      create: { productId, sourceKey, status, reason: reason?.slice(0, 900) || null, checkedAt },
-      update: { status, reason: reason?.slice(0, 900) || null, checkedAt },
+    const key = { productId, sourceKey }
+    const values = { status, reason: reason?.slice(0, 900) || null, checkedAt: new Date() }
+    await this.prisma.$transaction(async tx => {
+      await tx.productMatchOutcome.upsert({ where: { productId_sourceKey: key }, create: { ...key, ...values }, update: {} })
+      await tx.productMatchOutcome.updateMany({ where: { ...key, status: { not: 'EXCLUDED' } }, data: values })
     })
   }
 
@@ -354,6 +382,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
     if (linked) throw new BadRequestException('Товар уже привязан. Используй обновление цены по ссылке')
     return this.prisma.$transaction(async tx => {
+      const outcome = await tx.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId, sourceKey: '05ru' } } })
+      if (outcome?.status === 'EXCLUDED') throw new BadRequestException('Сначала верни товар из «Нет в 05.ru»')
       const job = await tx.monitorJob.create({
         data: { kind: 'MATCH_1C', sourceKey: '05ru', perPage: 1, maxPages: 1,
           pendingUrls: ['product:' + productId] },
@@ -364,7 +394,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         update: { status: 'PENDING', reason: null, checkedAt: new Date() },
       })
       return job
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
   }
 
   async list() {
@@ -372,9 +402,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return rows.map(row => this.decorated(row))
   }
   async candidates(id: string) {
-    const link = await this.prisma.competitorProduct.findUnique({ where: { id } })
+    const link = await this.prisma.competitorProduct.findUnique({ where: { id }, include: { source: true } })
     if (!link) throw new NotFoundException('Карточка не найдена')
-    const products = await this.prisma.product.findMany({ where: { status: 'ACTIVE' } })
+    const products = await this.prisma.product.findMany({ where: {
+      status: 'ACTIVE', matchOutcomes: { none: { sourceKey: link.source.key, status: { in: hiddenMatchStatuses } } },
+    } })
     const theirs = { name: link.externalName || '', attributes: link.attributes }
     return products.map(product => {
       const check = compareItems(product, theirs)
@@ -394,6 +426,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       const link = await tx.competitorProduct.findUnique({ where: { id }, include: { source: true } })
       const product = await tx.product.findUnique({ where: { id: productId } })
       if (!link || !product || product.status !== 'ACTIVE') throw new NotFoundException('Карточка или активный товар не найдены')
+      const outcome = await tx.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId, sourceKey: link.source.key } } })
+      if (outcome?.status === 'EXCLUDED') throw new BadRequestException('Сначала верни товар из «Нет в 05.ru»')
       if (!link.externalName || !link.lastSuccessAt || link.lastError || link.latestPrice == null) {
         throw new BadRequestException('Сначала успешно проверь карточку и получи цену')
       }
@@ -433,21 +467,23 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       }, include: { product: true, source: true } })
       await tx.auditLog.create({ data: { action: 'CONFIRM_PRICE_MATCH', entity: 'CompetitorProduct', entityId: id, details: { productId, missing: check.missing, manuallyOverriddenConflicts: check.conflicts } } })
       return row
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     await this.recordMatchOutcome(productId, updated.source.key as StoreKey, 'CONFIRMED')
     return this.decorated(updated)
   }
   async unmatch(id: string) {
-    const removed = await this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async tx => {
+      const link = await tx.competitorProduct.findUniqueOrThrow({ where: { id }, include: { source: true } })
+      if (link.productId && ['SUGGESTED', 'REVIEW_REQUIRED'].includes(link.matchStatus)) {
+        await tx.auditLog.create({ data: { action: 'REJECT_MONITOR_MATCH', entity: 'Product',
+          entityId: String(link.productId), details: { externalUrl: link.externalUrl } } })
+      }
+      if (link.productId) await tx.productMatchOutcome.deleteMany({
+        where: { productId: link.productId, sourceKey: link.source.key, status: { notIn: hiddenMatchStatuses } },
+      })
       await tx.monitorDelivery.updateMany({ where: { linkId: id, status: 'PENDING' }, data: { status: 'CANCELLED', lastError: 'Связь снята пользователем' } })
       return tx.competitorProduct.update({ where: { id }, data: { productId: null, matchStatus: 'UNMATCHED', confirmedAt: null, confirmedFingerprint: null, confirmedProductFingerprint: null }, include: { source: true } })
     })
-    if (removed.productId) {
-      await this.prisma.productMatchOutcome.deleteMany({
-        where: { productId: removed.productId, sourceKey: removed.source.key },
-      })
-    }
-    return removed
   }
   async history(id: string) { return this.prisma.competitorPriceHistory.findMany({ where: { competitorProductId: id }, orderBy: { checkedAt: 'desc' }, take: 100 }) }
 
@@ -462,6 +498,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       if (claimed?.productId && claimed.productId !== dto.productId) {
         throw new ConflictException('Эта карточка уже связана с другим товаром. Сначала сними прежнюю привязку.')
       }
+      const outcome = await this.prisma.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId: dto.productId, sourceKey } } })
+      if (outcome?.status === 'EXCLUDED') throw new BadRequestException('Сначала верни товар из «Нет в 05.ru»')
       const source = await this.source(sourceKey)
       const other = await this.prisma.competitorProduct.findFirst({
         where: { sourceId: source.id, productId: dto.productId, matchStatus: 'CONFIRMED', externalUrl: { not: url } },
@@ -484,7 +522,11 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     } finally { this.parsing = false }
   }
   private async save(result: FiveRuResult, sourceId: string, suggestedProductId?: number, forceReview = false, autoConfirmExact = false, repairConflictingLinks: string[] = []) {
+    const sourceKey = storeKeyFromUrl(result.url)
     const saved = await this.prisma.$transaction(async tx => {
+      if (suggestedProductId && await tx.productMatchOutcome.findFirst({
+        where: { productId: suggestedProductId, sourceKey, status: 'EXCLUDED' },
+      })) throw new ConflictException('Сначала верни товар из «Нет в 05.ru»')
       const existing = await tx.competitorProduct.findUnique({ where: { externalUrl: result.url }, include: { product: true } })
       let productId = existing?.productId || suggestedProductId || null
       let matchStatus = existing?.matchStatus || 'UNMATCHED'
@@ -560,7 +602,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           // explicitly supplied by the current one-product discovery job.
           matchStatus = 'UNMATCHED'
         } else {
-          const products = await tx.product.findMany({ where: { status: 'ACTIVE' } })
+          const products = await tx.product.findMany({ where: {
+            status: 'ACTIVE', matchOutcomes: { none: { sourceKey, status: { in: hiddenMatchStatuses } } },
+          } })
           const candidates = products.map(product => ({ product, check: compareItems(product, theirs) }))
             .filter(c => c.check.score >= 20 && !c.check.conflicts.length)
             .sort((a,b) => b.check.score - a.check.score)
@@ -580,7 +624,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
       })).filter(item => item.label && item.value).slice(0, 80)
       const storedAttributes = { ...result.attributes, _sourceSpecs: sourceSpecs }
       if (matchStatus === 'CONFIRMED' && productId && sourceSpecs.length) {
-        const enriched = await this.applySourcedSpecs(tx, productId, storeKeyFromUrl(result.url), result.url, sourceSpecs)
+        const enriched = await this.applySourcedSpecs(tx, productId, sourceKey, result.url, sourceSpecs)
         if (enriched) confirmedProductFingerprint = fingerprint(enriched)
       }
       const now = new Date()
@@ -617,7 +661,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
         } })
       }
       return this.decorated(row)
-    })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     if (saved.matchStatus === 'CONFIRMED' && saved.product && result.imageUrl && this.media) {
       try {
         const product = await this.prisma.product.findUnique({ where: { id: saved.product.id } })
@@ -745,6 +789,9 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
           throw new BadRequestException('Строка ' + entry.line + ': карточка уже связана с другим товаром 1С.')
         }
         if (product) {
+          if (await tx.productMatchOutcome.findFirst({
+            where: { productId: product.id, sourceKey: '05ru', status: { in: hiddenMatchStatuses } },
+          })) throw new BadRequestException('Строка ' + entry.line + ': сначала верни товар из «Нет в 05.ru».')
           const match = compareItems(product, { name: entry.name })
           // The file can contain an incorrect URL paired with a copied 1C name.
           // Compare model/storage encoded in the 05.ru slug too, when parseable.
@@ -828,7 +875,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     return ready
   }
 
-  private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }, repairConflictingLinks: string[] = []): Promise<boolean> {
+  private async refreshIndexedMatch(product: { id: number; name: string; brand?: string | null; attributes?: unknown }, repairConflictingLinks: string[] = [], rejectedUrls = new Set<string>()): Promise<boolean> {
     const requested = identity(product)
     if (!requested.model && !requested.productCode && !requested.mpn) return false
     const catalogFilters: Prisma.CompetitorCatalogEntryWhereInput[] = []
@@ -852,7 +899,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     })
     // Catalog titles are hints. Missing colour/SIM on a tile must not reject
     // a real product before reading its specifications.
-    const ranked = options.map(link => ({ link, check: compareItems(product, { name: link.title }) }))
+    const ranked = options.filter(link => !rejectedUrls.has(link.externalUrl))
+      .map(link => ({ link, check: compareItems(product, { name: link.title }) }))
       .filter(option => !option.check.conflicts.length
         && (!requested.model || (option.check.theirs.model
           && canonicalModel(option.check.theirs.model) === canonicalModel(requested.model))
@@ -1135,7 +1183,10 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     // Database-only classification. Opening this screen never starts a parser.
     const [snapshot, products, pending, activeCheck, lastCheck] = await Promise.all([
       this.bulkPriceSnapshot(this.prisma, '', true),
-      this.prisma.product.findMany({ where: { oneCId: { not: null }, status: 'ACTIVE' }, include: { category: true }, orderBy: { id: 'asc' } }),
+      this.prisma.product.findMany({
+        where: { oneCId: { not: null }, status: 'ACTIVE', matchOutcomes: { none: { sourceKey: '05ru', status: { in: hiddenMatchStatuses } } } },
+        include: { category: true }, orderBy: { id: 'asc' },
+      }),
       this.prisma.oneCPriceChange.findMany({ where: { status: 'PENDING' } }),
       this.prisma.monitorJob.findFirst({
         where: { kind: 'RECHECK', status: { in: ['QUEUED', 'RUNNING'] }, OR: [{ sourceKey: '05ru' }, { sourceKey: null }] },
@@ -1284,7 +1335,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
     const linkedIds = new Set(confirmed.map(link => link.productId))
     // Avoid repeating confirmed negatives on every automatic bulk launch.
     const outcomes = await this.prisma.productMatchOutcome?.findMany?.({
-      where: { sourceKey, status: 'NO_MATCH' }, select: { productId: true },
+      where: { sourceKey, status: { in: hiddenMatchStatuses } }, select: { productId: true },
     }) ?? []
     const excludedIds = new Set(outcomes.map(row => row.productId))
     const eligible = scoped.filter(product => !excludedIds.has(product.id)
@@ -1661,6 +1712,8 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 throw new Error('Товар исключён из выбранного раздела или больше не продаётся')
               }
               const sourceKey = (job.sourceKey || '05ru') as StoreKey
+              const outcome = await this.prisma.productMatchOutcome.findUnique({ where: { productId_sourceKey: { productId: product.id, sourceKey } } })
+              if (outcome?.status === 'EXCLUDED') throw new Error('нет подтверждённого совпадения: товар отмечен вручную как отсутствующий')
               const parser = this.parserFor(sourceKey)
               const source = await this.source(sourceKey)
               const settings = await this.settings(sourceKey)
@@ -1686,7 +1739,15 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                 } })
               }
               if (!knownRefreshed) {
-              if (sourceKey === '05ru' && await this.refreshIndexedMatch(product, repairLinks)) {
+              const rejectedMatches = await this.prisma.auditLog.findMany({
+                where: { action: 'REJECT_MONITOR_MATCH', entity: 'Product', entityId: String(product.id) },
+                select: { details: true }, orderBy: { createdAt: 'desc' }, take: 100,
+              })
+              const rejectedUrls = new Set(rejectedMatches.flatMap(row => {
+                const url = (row.details as { externalUrl?: unknown } | null)?.externalUrl
+                return typeof url === 'string' ? [url] : []
+              }))
+              if (sourceKey === '05ru' && await this.refreshIndexedMatch(product, repairLinks, rejectedUrls)) {
                 // Indexed candidates are always re-opened for an actual price check.
                 const indexedLink = await this.prisma.competitorProduct.findFirst({
                   where: { productId: product.id, source: { key: sourceKey },
@@ -1723,7 +1784,7 @@ export class PriceMonitorService implements OnModuleInit, OnModuleDestroy {
                   trace.rejectedCards.push(message)
                   continue
                 }
-                const checked = results.map(result => ({
+                const checked = results.filter(result => !rejectedUrls.has(result.url)).map(result => ({
                   result, check: compareItems(product, { name: result.name, brand: result.brand, attributes: result.attributes, category: result.categoryName }),
                 }))
                 // Count an URL once per independently completed query. Two clean

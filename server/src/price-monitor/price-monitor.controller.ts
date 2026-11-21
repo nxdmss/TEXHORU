@@ -16,6 +16,12 @@ export class PriceMonitorController {
 
   @Get('sources') sources() { return this.monitor.sources() }
   @Get('match-outcomes') matchOutcomes() { return this.monitor.matchOutcomes('05ru') }
+  @Post('match/:productId/exclude') excludeMatch(@Param('productId', ParseIntPipe) productId: number) {
+    return this.monitor.setMatchExcluded(productId, true)
+  }
+  @Post('match/:productId/restore') restoreMatch(@Param('productId', ParseIntPipe) productId: number) {
+    return this.monitor.setMatchExcluded(productId, false)
+  }
   @Post('match/:productId/retry') retryMatch(@Param('productId', ParseIntPipe) productId: number) {
     return this.monitor.retryMatch(productId)
   }

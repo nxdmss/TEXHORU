@@ -2855,6 +2855,25 @@ test('No-match classification requires completed, error-free discovery', () => {
   assert.equal(canDeclareNoMatch([{ ...complete, rejectedCards: ['HTTP 429'] }]), false)
 })
 
+test('Smartphone variants use 4G/5G, manufacturer codes and combined memory specs', () => {
+  const lte = { name: 'Смартфон Samsung Galaxy A17 4G 8/256 ГБ чёрный' }
+  const fiveG = { name: 'Смартфон Samsung Galaxy A17 8/256 ГБ чёрный SM-A176B' }
+  assert.equal(identity(fiveG).network, '5g')
+  assert(compareItems(lte, fiveG).conflicts.includes('версия 4G/5G'))
+  assert(manualConfirmationBlockers(lte, fiveG).includes('версия 4G/5G'))
+  assert.equal(compareItems(fiveG, { name: fiveG.name + ' 4G' }).canAutoConfirm, false)
+  assert.equal(identity({ name: 'SM-A175F' }).network, '4g')
+  const missing = compareItems(lte, { name: 'Смартфон Samsung Galaxy A17 8/256 ГБ чёрный' })
+  assert(missing.missing.includes('версия 4G/5G'))
+  assert.equal(missing.canAutoConfirm, false)
+  const fromSpecs = identity({ name: 'Смартфон Xiaomi 15T', specs: [{ label: 'Память', value: '12/512 ГБ' }] })
+  assert.equal(fromSpecs.ram, '12')
+  assert.equal(fromSpecs.storage, '512')
+  assert.equal(canonicalModel('Redmi Note 14 Pro 4G'), canonicalModel('Redmi Note 14 Pro 5G'))
+  assert.notEqual(identity({ name: 'Смартфон POCO F8 Pro Max' }).model, identity({ name: 'Смартфон POCO F8 Pro' }).model)
+  assert.equal(oneCSearchQueries({ ...lte, mpn: 'SM-A175F' })[0], 'sm a175f')
+})
+
 test('Matching can search only explicitly permitted products; full catalog remains an explicit choice', async () => {
   const seed = randomUUID()
   const category = await prisma.category.create({ data: { name: 'Allowed matching ' + seed, slug: seed } })
@@ -2935,6 +2954,54 @@ test('Negative matches are excluded from bulk and can be manually searched again
   assert.deepEqual(retried.pendingUrls, ['product:' + product.id])
   assert.equal((await prisma.productMatchOutcome.findUniqueOrThrow({ where: key })).status, 'PENDING')
   await monitor.cancelJob(retried.id)
+})
+
+test('Manual 05.ru exclusion survives searches and restores without starting a job or changing prices', async () => {
+  const seed = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Excluded ' + seed, slug: seed } })
+  const imported = await prisma.product.create({ data: {
+    ...product, oneCId: seed, slug: seed, sku: seed, categoryId: category.id, price: 50000, stockQty: 1,
+  } })
+  const monitor = new PriceMonitorService(prisma, {}, new MonitorExchangeService(prisma))
+  const where = { productId_sourceKey: { productId: imported.id, sourceKey: '05ru' } }
+  await monitor.setMatchExcluded(imported.id, true)
+  assert.equal((await prisma.productMatchOutcome.findUniqueOrThrow({ where })).status, 'EXCLUDED')
+  await assert.rejects(() => monitor.retryMatch(imported.id), /Сначала верни товар/)
+  await assert.rejects(() => monitor.autoFindOneCSection({ productIds: [imported.id] }), /Нет непривязанных товаров/)
+  const before = await prisma.monitorJob.count()
+  await monitor.setMatchExcluded(imported.id, false)
+  assert.equal(await prisma.monitorJob.count(), before)
+  assert.equal(await prisma.productMatchOutcome.findUnique({ where }), null)
+  const eligible = await monitor.autoFindOneCSection({ productIds: [imported.id] })
+  assert.deepEqual(eligible.pendingUrls, ['product:' + imported.id])
+  await monitor.cancelJob(eligible.id)
+  assert.equal((await prisma.product.findUniqueOrThrow({ where: { id: imported.id } })).price, 50000)
+  assert.equal(await prisma.oneCPriceChange.count({ where: { productId: imported.id } }), 0)
+})
+
+test('A rejected 05.ru suggestion stays detached when the same URL reappears in search', async () => {
+  const seed = randomUUID()
+  const category = await prisma.category.create({ data: { name: 'Rejected ' + seed, slug: seed } })
+  const imported = await prisma.product.create({ data: {
+    ...product, oneCId: seed, slug: seed, sku: seed, categoryId: category.id, price: 50000, stockQty: 1,
+  } })
+  const source = await prisma.competitorSource.findUniqueOrThrow({ where: { key: '05ru' } })
+  const externalUrl = fixture.sourceUrl.replace('24007/', seed + '/')
+  const result = { ...extractFiveRu(fixture.snapshot, fixture.sourceUrl), url: externalUrl }
+  const suggestion = await prisma.competitorProduct.create({ data: {
+    sourceId: source.id, productId: imported.id, matchStatus: 'SUGGESTED', externalUrl, externalName: result.name,
+  } })
+  let searched = false
+  const monitor = new PriceMonitorService(prisma, { searchProducts: async (_query, _limit, trace) => {
+    searched = true
+    Object.assign(trace, { linksFound: 8, searchPages: 1, rankedLinks: 1, cardsParsed: 1 })
+    return [result]
+  } }, new MonitorExchangeService(prisma))
+  await monitor.unmatch(suggestion.id)
+  await monitor.autoFindOneCSection({ productIds: [imported.id] })
+  await monitor.tick()
+  assert.equal(searched, true)
+  assert.equal((await prisma.competitorProduct.findUniqueOrThrow({ where: { id: suggestion.id } })).productId, null)
 })
 
 test('Site admin edits queue an exact 1C retail price change and protect against stale 1C catalog', async () => {

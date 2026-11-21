@@ -394,3 +394,20 @@
   .mp-result-filter { justify-content: stretch; }
   .mp-result-filter label, .mp-result-filter select { width: 100%; }
 }
+.mp-match-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.mp-match-tabs button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--tx-line, #e3e3e7);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tx-ink, #151518);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mp-match-tabs button[aria-pressed="true"] {
+  border-color: var(--tx-accent, #c90023);
+  background: var(--tx-accent-soft, #fff0f3);
+  color: var(--tx-accent, #c90023);
+}
+.mp-match-tabs button span { margin-left: 4px; font-variant-numeric: tabular-nums; }

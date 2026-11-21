@@ -75,7 +75,8 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
   const [items, setItems] = useState<PriceMonitorItem[]>([])
   const [jobs, setJobs] = useState<MonitorJob[]>([])
   const [outcomes, setOutcomes] = useState<MatchOutcome[]>([])
-  const [group, setGroup] = useState<'ALL' | 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'PENDING'>('ALL')
+  const [group, setGroup] = useState<'ALL' | 'CONFIRMED' | 'REVIEW' | 'PENDING'>('ALL')
+  const [showExcluded, setShowExcluded] = useState(false)
   const [sources, setSources] = useState<MonitorSource[]>([])
   const sourceKey = '05ru' as const
   const [path, setPath] = useState(initialPath || '')
@@ -106,7 +107,7 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     })
     return () => { mounted = false }
   }, [])
-  useEffect(() => { setVisibleLimit(80) }, [path, search, group])
+  useEffect(() => { setVisibleLimit(80) }, [path, search, group, showExcluded])
   const refresh = useCallback(async (includeProducts = false) => {
     const [list, tasks, decisions, inventory] = await Promise.all([
       api.adminPriceMonitor(), api.monitorJobs(), api.monitorMatchOutcomes(),
@@ -141,22 +142,29 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
   }
 
   const sourceName = '05.ru'
+  const byOutcome = useMemo(() => new Map(outcomes.map(row => [row.productId, row] as const)), [outcomes])
+  const excluded = useMemo(() => stock.filter(product => {
+    const status = byOutcome.get(product.id)?.status
+    return status === 'NO_MATCH' || status === 'EXCLUDED'
+  }), [stock, byOutcome])
+  const excludedIds = useMemo(() => new Set(excluded.map(product => product.id)), [excluded])
   const phones = useMemo(() => stock.filter(product =>
-    Boolean(product.oneCId) && product.status === 'ACTIVE'
+    Boolean(product.oneCId) && product.status === 'ACTIVE' && !excludedIds.has(product.id)
     && product.price > 0
     && (preparing || (product.priceSyncEnabled && product.stockQty > (product.reservedQty || 0)))
-  ), [stock, preparing])
+  ), [stock, preparing, excludedIds])
   const scopedPhones = useMemo(() => phones.filter(product =>
     inPath(product.category?.name || '', path)
   ), [phones, path])
-  const folders = useMemo(() => childrenAt(phones, path), [phones, path])
+  const listedProducts = showExcluded ? excluded : phones
+  const folders = useMemo(() => childrenAt(listedProducts, path), [listedProducts, path])
   const searchablePhones = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ru')
-    return phones.filter(product => (
+    return listedProducts.filter(product => (
       q ? inPath(product.category?.name || '', path) && (product.name + ' ' + product.sku + ' ' + product.category?.name).toLocaleLowerCase('ru').includes(q)
         : inPath(product.category?.name || '', path)
     )).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-  }, [phones, path, search])
+  }, [listedProducts, path, search])
   const byProduct = useMemo(() => {
     const grouped = new Map<number, PriceMonitorItem[]>()
     for (const item of items) {
@@ -173,18 +181,16 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     })
     return grouped
   }, [items, sourceKey])
-  const byOutcome = useMemo(() => new Map(outcomes.map(row => [row.productId, row] as const)), [outcomes])
   const matchGroup = (productId: number) => {
     const links = byProduct.get(productId) || []
     if (links.some(item => item.matchStatus === 'CONFIRMED')) return 'CONFIRMED' as const
     if (links.some(item => ['SUGGESTED', 'REVIEW_REQUIRED'].includes(item.matchStatus))) return 'REVIEW' as const
-    return byOutcome.get(productId)?.status === 'NO_MATCH' ? 'NO_MATCH' as const : 'PENDING' as const
+    return 'PENDING' as const
   }
-  const visiblePhones = searchablePhones.filter(product => group === 'ALL' || matchGroup(product.id) === group)
-  const searchTargets = visiblePhones.filter(p => !(byProduct.get(p.id)?.length) && byOutcome.get(p.id)?.status !== 'NO_MATCH')
+  const visiblePhones = searchablePhones.filter(product => showExcluded || group === 'ALL' || matchGroup(product.id) === group)
+  const searchTargets = showExcluded ? [] : visiblePhones.filter(p => !byProduct.get(p.id)?.length)
   const confirmed = scopedPhones.filter(p => matchGroup(p.id) === 'CONFIRMED').length
   const needsReview = scopedPhones.filter(p => matchGroup(p.id) === 'REVIEW').length
-  const noMatches = scopedPhones.filter(p => matchGroup(p.id) === 'NO_MATCH').length
   const unlinkedInScope = scopedPhones.filter(p => matchGroup(p.id) === 'PENDING').length
   // Mirror worker priority and FIFO order across per-store jobs.
   const oldestQueued = (kind?: string) => jobs
@@ -261,7 +267,6 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
   }
 
   function itemStatus(item?: PriceMonitorItem, outcome?: MatchOutcome) {
-    if (!item && outcome?.status === 'NO_MATCH') return { label: 'Нет совпадений', className: 'missing' }
     if (!item && outcome?.status === 'RETRYABLE') return { label: 'Ошибка поиска', className: 'pending' }
     if (!item) return { label: 'Не проверен', className: 'missing' }
     if (item.matchStatus === 'CONFIRMED' && isFresh(item)) return { label: 'Совпало', className: 'ready' }
@@ -271,6 +276,14 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
   }
 
   function renderPhone(p: ApiProduct) {
+    if (showExcluded) return <article className="mp-tile" key={p.id}>
+      <strong className="mp-product-name">{p.name}</strong>
+      <small>{byOutcome.get(p.id)?.status === 'EXCLUDED' ? 'Отмечен вручную' : 'Подходящая карточка не найдена'}</small>
+      <button type="button" className="mp-tile-button" disabled={Boolean(busy)}
+        onClick={() => void run('restore', () => api.monitorSetMatchExcluded(p.id, false), 'Товар возвращён в общий список.')}>
+        Вернуть в список
+      </button>
+    </article>
     const linked = byProduct.get(p.id)?.[0]
     const outcome = byOutcome.get(p.id)
     const state = itemStatus(linked, outcome)
@@ -292,15 +305,14 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
         ? <button className="mp-tile-button" disabled={Boolean(busy)} onClick={() => void expand(linked)}>
             {opened === linked.id ? 'Скрыть детали' : linked.matchStatus === 'CONFIRMED' ? 'Детали' : 'Проверить'}
           </button>
-        : <span className="mp-no-match">{outcome?.status === 'NO_MATCH'
-          ? 'Совпадений нет'
-          : outcome?.status === 'RETRYABLE'
-            ? 'Нужен повтор поиска'
-            : 'Нет связи с ' + sourceName}</span>}
-      {!linked && outcome?.status === 'NO_MATCH' && <button
-        className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
-        onClick={() => void retryOneProduct(p.id)}>Повторить</button>}
+        : <span className="mp-no-match">{outcome?.status === 'RETRYABLE' ? 'Нужен повтор поиска' : 'Нет связи с ' + sourceName}</span>}
+      {!linked && outcome?.status === 'RETRYABLE' && <button type="button" className="mp-tile-button"
+        disabled={Boolean(busy) || Boolean(active)} onClick={() => void retryOneProduct(p.id)}>Повторить поиск</button>}
       {linked?.matchStatus !== 'CONFIRMED' && <>
+        <button type="button" className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
+          onClick={() => void run('exclude', () => api.monitorSetMatchExcluded(p.id, true), 'Товар перенесён в «Нет в 05.ru».')}>
+          Нет в 05.ru
+        </button>
         <button className="mp-tile-button" disabled={Boolean(busy) || Boolean(active)}
           onClick={() => { setLinkingProduct(linkingProduct === p.id ? null : p.id); setLinkUrl('') }}>
           {linkingProduct === p.id ? 'Отменить' : 'Указать ссылку'}
@@ -362,15 +374,19 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
   const scheduleEnabled = Boolean(schedule && schedule.intervalMinutes > 0)
 
   return <div className="mp-shell">
-    <div className="mp-summary">
+    <nav className="mp-match-tabs" aria-label="Списки совпадений">
+      <button type="button" aria-pressed={!showExcluded} onClick={() => setShowExcluded(false)}>Совпадения</button>
+      <button type="button" aria-pressed={showExcluded} onClick={() => setShowExcluded(true)}>Нет в 05.ru <span>{excluded.length}</span></button>
+    </nav>
+    {!showExcluded && <div className="mp-summary">
       <span><b>{confirmed}</b> связаны</span>
       <span><b>{needsReview}</b> требуют проверки</span>
-      <span><b>{noMatches + unlinkedInScope}</b> без связи</span>
-    </div>
+      <span><b>{unlinkedInScope}</b> без связи</span>
+    </div>}
 
     <div className="mp-toolbar">
-      <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !searchTargets.length}
-        onClick={() => void searchMatches()}>{busy === 'match' ? 'Ищем…' : `Найти совпадения (${searchTargets.length})`}</button>
+      {!showExcluded && <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !searchTargets.length}
+        onClick={() => void searchMatches()}>{busy === 'match' ? 'Ищем…' : `Найти совпадения (${searchTargets.length})`}</button>}
       <input aria-label="Найти товар" placeholder="Найти товар…" value={search} onChange={e => setSearch(e.target.value)}/>
     </div>
     {active && <div className="mp-progress" role="status">
@@ -390,18 +406,17 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     {notice && <p className="price-monitor__notice" role="status">{notice}</p>}
 
     <section className="mp-browser">
-      <div className="mp-result-filter">
+      {!showExcluded && <div className="mp-result-filter">
         <label>Показать товары
           <select aria-label="Статус привязки товара" value={group}
             onChange={e => setGroup(e.target.value as typeof group)}>
             <option value="ALL">Все ({scopedPhones.length})</option>
             <option value="CONFIRMED">Связаны ({confirmed})</option>
             <option value="REVIEW">Нужна проверка ({needsReview})</option>
-            <option value="NO_MATCH">Нет совпадения ({noMatches})</option>
             <option value="PENDING">Не проверены ({unlinkedInScope})</option>
           </select>
         </label>
-      </div>
+      </div>}
       <details className="mp-category-filter">
         <summary>{path ? 'Раздел: ' + path.split(' / ').at(-1) : 'Отобрать по разделу товаров'}</summary>
       <nav className="mp-breadcrumbs" aria-label="Категории 1С">
@@ -431,7 +446,7 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
           onClick={() => setVisibleLimit(n => n + 80)}>Показать ещё 80 из {visiblePhones.length}</button>}
       </>}
       {!visiblePhones.length &&
-        <p className="mp-empty">{phones.length ? 'По выбранным фильтрам товаров нет.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
+        <p className="mp-empty">{showExcluded && !excluded.length ? 'В этом списке пока нет товаров.' : listedProducts.length ? 'По выбранным фильтрам товаров нет.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
     </section>
 
     {schedule && <details className="mp-extra">

@@ -86,7 +86,7 @@ export type PriceMonitorItem = {
 export type MatchOutcome = {
   productId: number
   sourceKey: string
-  status: 'PENDING' | 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'RETRYABLE'
+  status: 'PENDING' | 'CONFIRMED' | 'REVIEW' | 'NO_MATCH' | 'EXCLUDED' | 'RETRYABLE'
   reason?: string | null
   checkedAt: string
 }
@@ -355,6 +355,9 @@ export const api = {
   monitorHistory(id: string) { return request<Array<{ id: string; price: number; inStock: boolean | null; checkedAt: string }>>(`/admin/price-monitor/${id}/history`) },
   monitorJobs() { return request<MonitorJob[]>('/admin/price-monitor/jobs') },
   monitorMatchOutcomes() { return request<MatchOutcome[]>('/admin/price-monitor/match-outcomes') },
+  monitorSetMatchExcluded(productId: number, excluded: boolean) {
+    return request<{ ok: true }>(`/admin/price-monitor/match/${productId}/${excluded ? 'exclude' : 'restore'}`, { method: 'POST' })
+  },
   monitorRetryMatch(productId: number) {
     return request<MonitorJob>('/admin/price-monitor/match/' + productId + '/retry', { method: 'POST' })
   },

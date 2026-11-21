@@ -1,4 +1,6 @@
 /** A negative search is a workload decision, not proof of permanent absence. */
+export const hiddenMatchStatuses = ['NO_MATCH', 'EXCLUDED']
+
 export type SearchEvidence = {
   linksFound: number
   searchPages?: number

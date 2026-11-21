@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 export type Identity = {
   brand?: string; compatibleBrand?: string; model?: string; productCode?: string
   storage?: string; ram?: string; color?: string; sim?: string
+  network?: '4g' | '5g'; networkConflict?: boolean
   physicalSimCount?: string; esimCount?: string
   cpu?: string; gpu?: string; screenSize?: string; wattage?: string
   gtin?: string; mpn?: string; condition?: string; kind?: string
@@ -160,11 +161,13 @@ export function identity(item: Item): Identity {
   const specs = Array.isArray(item.specs) ? item.specs as Array<{ label: string; value: string }> : []
   const spec = (pattern: RegExp) => specs.find(s => pattern.test(s.label.trim()))?.value
   const brandText = normalize(attrs.brand || item.brand || '')
-  const kind = attrs.kind || productKind(item)
+  const kind = attrs.kind || productKind(item) || (/\bsm[-\s]?a(?:15|16|17)[56][a-z0-9]*\b/i.test(rawName) ? 'smartphone' : undefined)
   const units = (value: string) => canonicalStorageCapacity(value)
-  const memoryPair = specs.find(item => /память.*(?:озу|пзу)|(?:озу.*пзу)|ram.*rom|оперативн.*встроенн/i.test(item.label))
+  const memoryPair = specs.find(item => /память.*(?:озу|пзу)|(?:озу.*пзу)|ram.*rom|оперативн.*встроенн/i.test(item.label)
+    || (kind === 'smartphone' && /^память$/i.test(item.label.trim()) && /\d\s*[/+]\s*\d/.test(item.value)))
   const pairText = memoryPair?.value || ''
-  const pairValues = [...pairText.matchAll(CAPACITY_RE)].map(m => m[0])
+  const compactPair = kind === 'smartphone' ? pairText.match(/^\s*(\d+)\s*[/+]\s*(\d+(?:[.,]\d+)?\s*(?:[gt]b|[гт]б)?)/iu) : null
+  const pairValues = compactPair ? compactPair.slice(1) : [...pairText.matchAll(CAPACITY_RE)].map(m => m[0])
   if (!pairValues.length) pairValues.push(...(pairText.match(/\d+(?:[.,]\d+)?/g) || []))
   const storageSpec = attrs.storage || spec(/встроенн|объем накоп|storage|пзу|rom|ssd|hdd|nvme|диск/i)
   const storageFromSpec = storageSpec ? units(storageSpec) : undefined
@@ -202,7 +205,7 @@ export function identity(item: Item): Identity {
     : kind === 'laptop'
       ? capacities.find(n => Number(n) <= 64 && n !== diskStorage) || compactRam || slashRam
     : capacities.length > 1 ? capacities[0] : compactRam || slashRam
-  const partNumberSource = [rawName, attrs.productCode, item.mpn,
+  const partNumberSource = [rawName, attrs.productCode, item.mpn, attrs.mpn,
     spec(/part number|p\/n|код производителя|артикул производителя|модель производителя/i)]
     .filter(Boolean).join(' ')
   const partNumber = kind === 'laptop'
@@ -213,6 +216,17 @@ export function identity(item: Item): Identity {
     : undefined
   const genericCode = text.match(/\b[a-z]{1,5}\d{2,5}[a-z]?\b/)?.[0]
   const safeGenericCode = genericCode && !/^(?:n\d{4}|i[3579]\d{4,5}[a-z]{0,2})$/i.test(genericCode) ? genericCode : undefined
+  const samsungCode = kind === 'smartphone' ? partNumberSource.match(/\bsm[-\s]?(a(?:15|16|17)[56])[a-z0-9]*\b/i)?.[1]?.toLowerCase() : undefined
+  const networkFrom = (value: string) => /\b5\s*g\b|\bnr\b/i.test(value) ? '5g' : /\b4\s*g\b|\blte\b/i.test(value) ? '4g' : undefined
+  const networkSpec = spec(/^(?:сеть|сети|тип сети|поколение связи|стандарты? (?:мобильной )?связи|network|cellular)$/i)
+  const supports5G = spec(/^поддержка\s*5\s*g$|^5\s*g$/i)?.trim()
+  const declaredNetwork = networkFrom(attrs.network || networkSpec || '')
+    || (/^(да|yes)$/i.test(supports5G || '') ? '5g' : undefined)
+  const codeNetwork = samsungCode ? samsungCode.endsWith('6') ? '5g' : '4g' : undefined
+  const titleNetwork = networkFrom(rawName)
+  const network = kind === 'smartphone' ? declaredNetwork || codeNetwork || titleNetwork : undefined
+  const networkConflict = kind === 'smartphone' && (attrs.networkConflict
+    || new Set([declaredNetwork, codeNetwork, titleNetwork].filter(Boolean)).size > 1)
   const model = attrs.model || laptopFamily || text.match(/\biphone\s*\d{1,2}(?:\s*(?:pro max|pro|plus|mini|air|e))?\b/)?.[0]
     // Apple markets the 2025 model as "iPhone Air" (no generation number).
     // 1C often calls the same handset "iPhone 17 Air".
@@ -222,7 +236,8 @@ export function identity(item: Item): Identity {
     // as model-less and can be incorrectly considered interchangeable.
     || text.match(/\bxiaomi\s+\d{1,2}t?(?:\s+(?:pro(?:\s+max)?|ultra|lite|plus))?\b/)?.[0]
     || text.match(/\bredmi\s+(?:note\s+)?\d{1,2}[a-z]?(?:\s+(?:pro(?:\s+plus)?|plus|5g|4g))?\b/)?.[0]
-    || text.match(/\bpoco\s+[a-z]\d{1,2}(?:\s+(?:pro|ultra|plus))?\b/)?.[0]
+    || text.match(/\bpoco\s+[a-z]\d{1,2}(?:\s+(?:pro(?:\s+max)?|ultra|plus))?\b/)?.[0]
+    || samsungCode?.slice(0, 3)
     // Smartwatch families and vendor model codes (e.g. XPAW002, C60).
     || text.match(/\bactive\s+2r\b/)?.[0]
     || text.match(/\b(?:watch|часы)\s+[a-z]?\d{1,3}[a-z]?(?:\s+(?:active|pro|max|ultra|classic|plus|lite|fe|se))?\b/)?.[0]
@@ -276,7 +291,7 @@ export function identity(item: Item): Identity {
   const knownBrand = ['apple', 'samsung', 'xiaomi', 'honor', 'huawei', 'oneplus', 'google', 'realme', 'poco', 'tecno', 'infinix', 'nothing', 'mibro', 'amazfit', 'garmin', 'fitbit', 'oppo', 'vivo', 'motorola', 'nokia', 'itel', 'blackview', 'doogee', 'cubot', 'haylou', 'zeblaze', 'cmf', 'acer', 'asus', 'lenovo', 'msi', 'dell', 'hp'].find(b => text.split(' ').includes(b))
   const accessory = ['case', 'screen-protector', 'watch-strap', 'charger', 'cable'].includes(kind || '')
   const accessoryMaker = accessory && /\bgreen lion\b/.test(text) ? 'green lion' : undefined
-  const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : /galaxy/.test(text) ? 'samsung' : knownBrand
+  const inferredBrand = accessory ? accessoryMaker : /iphone/.test(text) ? 'apple' : samsungCode || /galaxy/.test(text) ? 'samsung' : knownBrand
   const usableBrand = brandText && !['без бренда', 'другие', 'other'].includes(brandText)
   const brand = accessoryMaker || (usableBrand ? canonicalBrand(brandText) : inferredBrand ? canonicalBrand(inferredBrand) : undefined)
   const normalizedBrand = usableBrand ? canonicalBrand(brandText) : undefined
@@ -308,10 +323,12 @@ export function identity(item: Item): Identity {
       : attrs.condition ? normalize(String(attrs.condition)) : undefined
   const gtinRaw = item.gtin || attrs.gtin || spec(/ean|gtin|штрихкод/i)
   const gtin = gtinRaw ? validGtin(gtinRaw) : undefined
-  const mpn = item.mpn || attrs.mpn || spec(/заводск.*артикул|mpn/i)
+  const mpn = item.mpn || attrs.mpn || spec(/заводск.*артикул|артикул производителя|manufacturer part number|^mpn$/i)
   return {
     brand, compatibleBrand, model: model ? normalize(model) : undefined,
     productCode: partNumber, storage, ram, color, sim,
+    ...(network ? { network } : {}),
+    ...(networkConflict ? { networkConflict: true } : {}),
     ...(physicalSimCount !== undefined ? { physicalSimCount } : {}),
     ...(esimCount !== undefined ? { esimCount } : {}),
     cpu, gpu, screenSize, wattage,
@@ -334,12 +351,15 @@ export function fingerprint(item: Item) {
   // Keep existing confirmation fingerprints stable; compatibleBrand is an
   // additional matching signal, not a change to the stored product identity.
   delete parsed.compatibleBrand
+  delete parsed.network // Existing links are checked for network conflicts when read.
+  delete parsed.networkConflict
   return createHash('sha256').update(JSON.stringify([normalize(item.name), parsed])).digest('hex')
 }
 
 export function canonicalModel(value?: string) {
   if (!value) return undefined
   const normalized = normalize(value).replace(/^galaxy\s+/, '')
+    .replace(/^(redmi\s+.+)\s+[45]g$/, '$1')
   // This alias is deliberately narrow: do not collapse future numbered Air
   // models, regular iPhone 17, or iPhone Pro into the 2025 iPhone Air.
   if (normalized === 'iphone 17 air') return 'iphone air'
@@ -353,13 +373,14 @@ export function compareItems(ours: Item, theirs: Item) {
   const reasons: string[] = [], conflicts: string[] = [], missing: string[] = []
   const labels: Record<string, string> = {
     brand: 'бренд', compatibleBrand: 'совместимость', model: 'модель', productCode: 'код производителя',
-    storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM',
+    storage: 'память', ram: 'ОЗУ', color: 'цвет', sim: 'SIM', network: 'версия 4G/5G',
     physicalSimCount: 'число физических SIM-карт', esimCount: 'число eSIM',
     cpu: 'процессор', gpu: 'видеокарта', screenSize: 'диагональ', wattage: 'мощность',
     gtin: 'штрихкод', mpn: 'MPN', condition: 'состояние', kind: 'тип товара',
   }
   const nameA = identity({ name: ours.name }), nameB = identity({ name: theirs.name })
-  for (const key of ['model', 'storage', 'color', 'sim'] as Array<keyof Identity>) {
+  if (a.networkConflict || b.networkConflict) conflicts.push('версия 4G/5G: название, характеристики или код противоречат друг другу')
+  for (const key of ['model', 'storage', 'color', 'sim'] as const) {
     const differs = (left?: string, right?: string) => key === 'model'
       ? canonicalModel(left) !== canonicalModel(right)
       : left !== right
@@ -396,6 +417,7 @@ export function compareItems(ours: Item, theirs: Item) {
     || (a.productCode && a.productCode === b.productCode))
   const phone = a.kind === 'smartphone'
   const laptop = a.kind === 'laptop' || b.kind === 'laptop'
+  if (phone && a.network && !b.network) missing.push(labels.network)
   for (const key of (phone ? ['model', 'storage', 'color', 'sim']
     : laptop ? ['model', 'productCode', 'cpu', 'gpu', 'ram', 'storage', 'screenSize']
     : ['model']) as Array<keyof Identity>) {
@@ -430,7 +452,8 @@ export function compareItems(ours: Item, theirs: Item) {
     score, reasons, conflicts, missing, exactId,
     // Even an identical GTIN/part-number cannot override different (or
     // unknown) laptop SSD capacities. Confirmed links drive price decisions.
-    canAutoConfirm: Boolean(!conflicts.length && (!laptop || (a.storage && b.storage && a.storage === b.storage))
+    canAutoConfirm: Boolean(!conflicts.length && (!phone || !a.network || a.network === b.network)
+      && (!laptop || (a.storage && b.storage && a.storage === b.storage))
       && (exactId || phoneVariantComplete || laptopVariantComplete)),
     ours: a, theirs: b,
   }
@@ -463,6 +486,8 @@ export function manualConfirmationBlockers(ours: Item, theirs: Item): string[] {
   if (kind === 'smartphone' && a.sim && b.sim && a.sim !== b.sim) {
     blockers.add('SIM: конфигурация отличается')
   }
+  if (kind === 'smartphone' && (a.networkConflict || b.networkConflict
+    || a.network && b.network && a.network !== b.network)) blockers.add('версия 4G/5G')
   if (kind === 'smartphone' && a.physicalSimCount && b.physicalSimCount
     && a.physicalSimCount !== b.physicalSimCount) {
     blockers.add('количество физических SIM-карт отличается')
@@ -537,7 +562,7 @@ export function reviewCandidate(ours: Item, theirs: Item): { score: number; reas
   const reasons: string[] = []
   const fields: Array<[keyof Identity, string]> = [
     ['productCode', 'код производителя'], ['storage', 'память'], ['ram', 'ОЗУ'],
-    ['color', 'цвет'], ['sim', 'SIM'], ['cpu', 'процессор'], ['gpu', 'видеокарта'],
+    ['color', 'цвет'], ['sim', 'SIM'], ['network', 'версия 4G/5G'], ['cpu', 'процессор'], ['gpu', 'видеокарта'],
     ['screenSize', 'диагональ'], ['wattage', 'мощность'], ['gtin', 'GTIN'], ['mpn', 'MPN'],
   ]
   for (const [key, label] of fields) {
