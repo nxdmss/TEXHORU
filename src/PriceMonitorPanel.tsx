@@ -8,17 +8,34 @@ const prettyDate = (s?: string | null) => s ? new Date(s).toLocaleString('ru-RU'
 const pathSegments = (value: string) => value.split(' / ').map(s => s.trim()).filter(Boolean)
 const inPath = (category: string, path: string) => !path || category === path || category.startsWith(path + ' / ')
 
-function childrenAt(products: ApiProduct[], path: string) {
-  const folders = new Map<string, number>()
+type MatchGroup = 'CONFIRMED' | 'REVIEW' | 'PENDING' | 'MISSING'
+type GroupCounts = Record<MatchGroup, number> & { total: number }
+const emptyCounts = (): GroupCounts => ({ CONFIRMED: 0, REVIEW: 0, PENDING: 0, MISSING: 0, total: 0 })
+const statusCounts = [
+  { keys: ['CONFIRMED'], tone: 'confirmed', label: 'Связаны' },
+  { keys: ['REVIEW', 'PENDING'], tone: 'review', label: 'Нужно проверить' },
+  { keys: ['MISSING'], tone: 'missing', label: 'Нет совпадения' },
+] as const
+
+function groupCountsAt(products: ApiProduct[], path: string, classify: (id: number) => MatchGroup) {
+  const totals = emptyCounts()
+  const folders = new Map<string, GroupCounts>()
   for (const product of products) {
     const category = product.category?.name || ''
-    if (!inPath(category, path) || category === path) continue
+    if (!inPath(category, path)) continue
+    const status = classify(product.id)
+    totals[status]++
+    totals.total++
+    if (category === path) continue
     const rest = path ? category.slice(path.length + 3) : category
     const next = rest.split(' / ')[0]
     if (!next) continue
-    folders.set(next, (folders.get(next) || 0) + 1)
+    const counts = folders.get(next) || emptyCounts()
+    counts[status]++
+    counts.total++
+    folders.set(next, counts)
   }
-  return [...folders].sort((a, b) => a[0].localeCompare(b[0], 'ru'))
+  return { totals, folders: [...folders].sort((a, b) => a[0].localeCompare(b[0], 'ru')) }
 }
 
 const MONITOR_CATALOG_URL = 'https://05.ru/cat/c/02e38f8a/telefony_i_gadzety/'
@@ -153,11 +170,7 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     && product.price > 0
     && (preparing || (product.priceSyncEnabled && product.stockQty > (product.reservedQty || 0)))
   ), [stock, preparing, excludedIds])
-  const scopedPhones = useMemo(() => phones.filter(product =>
-    inPath(product.category?.name || '', path)
-  ), [phones, path])
   const listedProducts = showExcluded ? excluded : phones
-  const folders = useMemo(() => childrenAt(listedProducts, path), [listedProducts, path])
   const searchablePhones = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ru')
     return listedProducts.filter(product => (
@@ -181,17 +194,19 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     })
     return grouped
   }, [items, sourceKey])
-  const matchGroup = (productId: number) => {
+  const matchGroup = useCallback((productId: number): MatchGroup => {
+    if (excludedIds.has(productId)) return 'MISSING'
     const links = byProduct.get(productId) || []
-    if (links.some(item => item.matchStatus === 'CONFIRMED')) return 'CONFIRMED' as const
-    if (links.some(item => ['SUGGESTED', 'REVIEW_REQUIRED'].includes(item.matchStatus))) return 'REVIEW' as const
-    return 'PENDING' as const
-  }
+    if (links.some(item => item.matchStatus === 'CONFIRMED')) return 'CONFIRMED'
+    if (links.some(item => ['SUGGESTED', 'REVIEW_REQUIRED'].includes(item.matchStatus))) return 'REVIEW'
+    return 'PENDING'
+  }, [byProduct, excludedIds])
+  const { totals, folders } = useMemo(() =>
+    groupCountsAt(showExcluded ? excluded : [...phones, ...excluded], path, matchGroup),
+  [showExcluded, phones, excluded, path, matchGroup])
+  const statusLegend = showExcluded ? statusCounts.slice(2) : statusCounts
   const visiblePhones = searchablePhones.filter(product => showExcluded || group === 'ALL' || matchGroup(product.id) === group)
   const searchTargets = showExcluded ? [] : visiblePhones.filter(p => !byProduct.get(p.id)?.length)
-  const confirmed = scopedPhones.filter(p => matchGroup(p.id) === 'CONFIRMED').length
-  const needsReview = scopedPhones.filter(p => matchGroup(p.id) === 'REVIEW').length
-  const unlinkedInScope = scopedPhones.filter(p => matchGroup(p.id) === 'PENDING').length
   // Mirror worker priority and FIFO order across per-store jobs.
   const oldestQueued = (kind?: string) => jobs
     .filter(job => job.status === 'QUEUED' && (!kind || job.kind === kind))
@@ -378,12 +393,6 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
       <button type="button" aria-pressed={!showExcluded} onClick={() => setShowExcluded(false)}>Совпадения</button>
       <button type="button" aria-pressed={showExcluded} onClick={() => setShowExcluded(true)}>Нет в 05.ru <span>{excluded.length}</span></button>
     </nav>
-    {!showExcluded && <div className="mp-summary">
-      <span><b>{confirmed}</b> связаны</span>
-      <span><b>{needsReview}</b> требуют проверки</span>
-      <span><b>{unlinkedInScope}</b> без связи</span>
-    </div>}
-
     <div className="mp-toolbar">
       {!showExcluded && <button className="mp-primary" disabled={Boolean(busy) || Boolean(active) || !searchTargets.length}
         onClick={() => void searchMatches()}>{busy === 'match' ? 'Ищем…' : `Найти совпадения (${searchTargets.length})`}</button>}
@@ -406,39 +415,52 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
     {notice && <p className="price-monitor__notice" role="status">{notice}</p>}
 
     <section className="mp-browser">
-      {!showExcluded && <div className="mp-result-filter">
-        <label>Показать товары
-          <select aria-label="Статус привязки товара" value={group}
-            onChange={e => setGroup(e.target.value as typeof group)}>
-            <option value="ALL">Все ({scopedPhones.length})</option>
-            <option value="CONFIRMED">Связаны ({confirmed})</option>
-            <option value="REVIEW">Нужна проверка ({needsReview})</option>
-            <option value="PENDING">Не проверены ({unlinkedInScope})</option>
-          </select>
-        </label>
-      </div>}
-      <details className="mp-category-filter">
-        <summary>{path ? 'Раздел: ' + path.split(' / ').at(-1) : 'Отобрать по разделу товаров'}</summary>
       <nav className="mp-breadcrumbs" aria-label="Категории 1С">
-        <button onClick={() => { setPath(''); setSearch(''); setOpened(null) }}>Все товары</button>
+        <button type="button" aria-current={!path ? 'location' : undefined}
+          onClick={() => { setPath(''); setSearch(''); setOpened(null) }}>Все группы</button>
         {level.map((segment, index) =>
           <span key={level.slice(0, index + 1).join('/')}>
             <span aria-hidden="true">/</span>
-            <button onClick={() => { setPath(level.slice(0, index + 1).join(' / ')); setSearch(''); setOpened(null) }}>{segment}</button>
+            <button type="button" aria-current={index === level.length - 1 ? 'location' : undefined}
+              onClick={() => { setPath(level.slice(0, index + 1).join(' / ')); setSearch(''); setOpened(null) }}>{segment}</button>
           </span>
         )}
       </nav>
+      <div className="mp-group-totals" role="group" aria-label="Статусы товаров в разделе">
+        <span>Всего <b>{totals.total}</b></span>
+        {statusLegend.map(({ keys, tone, label }) => <span key={tone}>
+          <b className={'mp-group-count ' + tone}>{keys.reduce((sum, key) => sum + totals[key], 0)}</b> {label}
+        </span>)}
+      </div>
       {!search && folders.length > 0 && <div className="mp-folder-grid">
-        {folders.map(([name, count]) => {
+        {folders.map(([name, counts]) => {
           const child = path ? path + ' / ' + name : name
-          return <button className="mp-folder" key={child} onClick={() => { setPath(child); setOpened(null) }}>
+          return <button type="button" className="mp-folder" key={child} onClick={() => { setPath(child); setOpened(null) }}>
             <b>{name}</b>
-            <small>{count} товаров</small>
+            <span className="mp-folder-stats">
+              {statusLegend.map(({ keys, tone, label }) => {
+                const value = keys.reduce((sum, key) => sum + counts[key], 0)
+                return <span className={'mp-group-count ' + tone} key={tone} title={label}>
+                  <span className="mp-count-label">{label} </span>{value}
+                </span>
+              })}
+              <span className="mp-folder-total">Всего {counts.total}</span>
+            </span>
             <span className="mp-folder-arrow" aria-hidden="true"><Icon name="chevronRight" /></span>
           </button>
         })}
       </div>}
-      </details>
+      {!showExcluded && <div className="mp-result-filter">
+        <label>Показать товары
+          <select aria-label="Статус привязки товара" value={group}
+            onChange={e => setGroup(e.target.value as typeof group)}>
+            <option value="ALL">Все ({totals.total - totals.MISSING})</option>
+            <option value="CONFIRMED">Связаны ({totals.CONFIRMED})</option>
+            <option value="REVIEW">Нужна проверка ({totals.REVIEW})</option>
+            <option value="PENDING">Не проверены ({totals.PENDING})</option>
+          </select>
+        </label>
+      </div>}
       {visiblePhones.length > 0 && <>
         <div className="mp-group-title"><h3>Товары</h3><span>{visiblePhones.length}</span></div>
         <div className="mp-card-grid">{visiblePhones.slice(0, visibleLimit).map(renderPhone)}</div>
@@ -446,7 +468,8 @@ export function PriceMonitorPanel({ products, initialPath, preparing }: { produc
           onClick={() => setVisibleLimit(n => n + 80)}>Показать ещё 80 из {visiblePhones.length}</button>}
       </>}
       {!visiblePhones.length &&
-        <p className="mp-empty">{showExcluded && !excluded.length ? 'В этом списке пока нет товаров.' : listedProducts.length ? 'По выбранным фильтрам товаров нет.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
+        <p className="mp-empty">{showExcluded && !excluded.length ? 'В этом списке пока нет товаров.' : !showExcluded && totals.MISSING === totals.total && totals.total > 0
+          ? 'Товары этого раздела во вкладке «Нет в 05.ru».' : listedProducts.length ? 'По выбранным фильтрам товаров нет.' : 'Ожидаем товары из 1С. Они появятся здесь после следующего обмена.'}</p>}
     </section>
 
     {schedule && <details className="mp-extra">

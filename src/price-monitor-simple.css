@@ -370,16 +370,39 @@
   padding: 0 12px;
   font-size: 12px;
 }
-.mp-category-filter {
-  margin-bottom: 10px;
-  padding: 10px 13px;
-  background: #fafafa;
-  border: 1px solid #e6e6e4;
-  border-radius: 9px;
+.mp-browser .mp-breadcrumbs { margin-bottom: 8px; }
+.mp-breadcrumbs [aria-current="location"] { color: #161616; font-weight: 750; }
+.mp-group-totals {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+  color: #555;
+  font-size: 12px;
 }
-.mp-category-filter > summary { font-size: 12px; font-weight: 700; cursor: pointer; }
-.mp-category-filter .mp-breadcrumbs { margin: 12px 0; }
-.mp-category-filter .mp-folder-grid { padding-bottom: 5px; }
+.mp-group-totals > span { display: inline-flex; align-items: center; gap: 5px; }
+.mp-group-totals > span:first-child { color: #222; }
+.mp-browser .mp-folder-grid { margin-bottom: 14px; }
+.mp-browser .mp-folder { gap: 9px; min-height: 78px; min-width: 0; border-radius: 9px; background: #fafaf9; }
+.mp-browser .mp-folder b { overflow-wrap: anywhere; }
+.mp-browser .mp-folder-arrow { top: 11px; }
+.mp-folder-stats { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.mp-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 27px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font: 700 12px/1.2 "IBM Plex Sans", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.mp-group-count.confirmed { background: #e3f2e9; color: #17633c; }
+.mp-group-count.review { background: #fff0c9; color: #754900; }
+.mp-group-count.missing { background: #fbe6e8; color: #9b2433; }
+.mp-folder-total { margin-left: auto; color: #515151; font-size: 11px; white-space: nowrap; }
+.mp-count-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .pa-specialist .mp-card-grid { gap: 10px; }
 .pa-specialist .mp-tile { border-radius: 10px; padding: 15px; box-shadow: none; gap: 10px; }
 .pa-specialist .mp-tile:hover { transform: none; box-shadow: none; border-color: #c4c4c1; }
